@@ -60,7 +60,7 @@ const wchar_t* GameMsgToString(short type) {
 		case MSG_SELECT_POSITION:	return L"MSG_SELECT_POSITION";
 		case MSG_SELECT_COUNTER:	return L"MSG_SELECT_COUNTER";
 		case MSG_HINT:	return L"MSG_HINT";
-		case HINT_EVENT:	return L"HINT_EVENT";
+		/*case HINT_EVENT:	return L"HINT_EVENT";
 		case HINT_MESSAGE:	return L"HINT_MESSAGE";
 		case HINT_SELECTMSG:	return L"HINT_SELECTMSG";
 		case HINT_OPSELECTED:	return L"HINT_OPSELECTED";
@@ -70,7 +70,7 @@ const wchar_t* GameMsgToString(short type) {
 		case HINT_CODE:	return L"HINT_CODE";
 		case HINT_NUMBER:	return L"HINT_NUMBER";
 		case HINT_CARD:	return L"HINT_CARD";
-		case HINT_ZONE:	return L"HINT_ZONE";
+		case HINT_ZONE:	return L"HINT_ZONE";*/
 		case MSG_WIN:	return L"MSG_WIN";
 		case MSG_WAITING:	return L"MSG_WAITING";
 		case MSG_START:	return L"MSG_START";
@@ -78,19 +78,6 @@ const wchar_t* GameMsgToString(short type) {
 		case MSG_UPDATE_CARD:	return L"MSG_UPDATE_CARD";
 		case MSG_SELECT_BATTLECMD:	return L"MSG_SELECT_BATTLECMD";
 		case MSG_SELECT_IDLECMD:	return L"MSG_SELECT_IDLECMD";
-		case MSG_SELECT_EFFECTYN:	return L"MSG_SELECT_EFFECTYN";
-		case MSG_SELECT_YESNO:	return L"MSG_SELECT_YESNO";
-		case MSG_SELECT_OPTION:	return L"MSG_SELECT_OPTION";
-		case MSG_SELECT_CARD:	return L"MSG_SELECT_CARD";
-		case MSG_SELECT_UNSELECT_CARD:	return L"MSG_SELECT_UNSELECT_CARD";
-		case MSG_SELECT_CHAIN:	return L"MSG_SELECT_CHAIN";
-		case MSG_SELECT_PLACE:	return L"MSG_SELECT_PLACE";
-		case MSG_SELECT_DISFIELD:	return L"MSG_SELECT_DISFIELD";
-		case MSG_SELECT_POSITION:	return L"MSG_SELECT_POSITION";
-		case MSG_SELECT_TRIBUTE:	return L"MSG_SELECT_TRIBUTE";
-		case MSG_SELECT_COUNTER:	return L"MSG_SELECT_COUNTER";
-		case MSG_SELECT_SUM:	return L"MSG_SELECT_SUM";
-		case MSG_SORT_CARD:	return L"MSG_SORT_CARD";
 		case MSG_CONFIRM_DECKTOP:	return L"MSG_CONFIRM_DECKTOP";
 		case MSG_CONFIRM_EXTRATOP:	return L"MSG_CONFIRM_EXTRATOP";
 		case MSG_CONFIRM_CARDS:	return L"MSG_CONFIRM_CARDS";
@@ -104,12 +91,12 @@ const wchar_t* GameMsgToString(short type) {
 		case MSG_SHUFFLE_SET_CARD:	return L"MSG_SHUFFLE_SET_CARD";
 		case MSG_NEW_TURN:	return L"MSG_NEW_TURN";
 		case MSG_NEW_PHASE:	return L"MSG_NEW_PHASE";
-		case PHASE_DRAW:	return L"PHASE_DRAW";
+		/*case PHASE_DRAW:	return L"PHASE_DRAW";
 		case PHASE_STANDBY:	return L"PHASE_STANDBY";
 		case PHASE_MAIN1:	return L"PHASE_MAIN1";
 		case PHASE_BATTLE_START:	return L"PHASE_BATTLE_START";
 		case PHASE_MAIN2:	return L"PHASE_MAIN2";
-		case PHASE_END:	return L"PHASE_END";
+		case PHASE_END:	return L"PHASE_END";*/
 		case MSG_MOVE:	return L"MSG_MOVE";
 		case MSG_POS_CHANGE:	return L"MSG_POS_CHANGE";
 		case MSG_SET:	return L"MSG_SET";
@@ -152,10 +139,6 @@ const wchar_t* GameMsgToString(short type) {
 		case MSG_TOSS_DICE:	return L"MSG_TOSS_DICE";
 		case MSG_ROCK_PAPER_SCISSORS:	return L"MSG_ROCK_PAPER_SCISSORS";
 		case MSG_HAND_RES:	return L"MSG_HAND_RES";
-		case MSG_ANNOUNCE_RACE:	return L"MSG_ANNOUNCE_RACE";
-		case MSG_ANNOUNCE_ATTRIB:	return L"MSG_ANNOUNCE_ATTRIB";
-		case MSG_ANNOUNCE_CARD:	return L"MSG_ANNOUNCE_CARD";
-		case MSG_ANNOUNCE_NUMBER:	return L"MSG_ANNOUNCE_NUMBER";
 		case MSG_CARD_HINT:	return L"MSG_CARD_HINT";
 		case MSG_PLAYER_HINT:	return L"MSG_PLAYER_HINT";
 		case MSG_MATCH_KILL:	return L"MSG_MATCH_KILL";
