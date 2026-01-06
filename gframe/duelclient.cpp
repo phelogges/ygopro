@@ -29,6 +29,7 @@ int DuelClient::last_select_hint = 0;
 unsigned char DuelClient::last_successful_msg[SIZE_NETWORK_BUFFER];
 size_t DuelClient::last_successful_msg_length = 0;
 wchar_t DuelClient::event_string[256];
+wchar_t DuelClient::format_string[512];
 std::mt19937 DuelClient::rnd;
 std::uniform_real_distribution<float> DuelClient::real_dist;
 
@@ -37,6 +38,131 @@ int DuelClient::match_kill = 0;
 std::vector<HostPacket> DuelClient::hosts;
 std::set<std::pair<unsigned int, unsigned short>> DuelClient::remotes;
 event* DuelClient::resp_event = 0;
+
+const wchar_t* GameMsgToString(short type) {
+	switch(type) {
+		case MSG_RETRY:	return L"MSG_RETRY";
+		case MSG_ANNOUNCE_CARD:	return L"MSG_ANNOUNCE_CARD";
+		case MSG_ANNOUNCE_ATTRIB:	return L"MSG_ANNOUNCE_ATTRIB";
+		case MSG_ANNOUNCE_RACE:	return L"MSG_ANNOUNCE_RACE";
+		case MSG_ANNOUNCE_NUMBER:	return L"MSG_ANNOUNCE_NUMBER";
+		case MSG_SELECT_EFFECTYN:	return L"MSG_SELECT_EFFECTYN";
+		case MSG_SELECT_YESNO:	return L"MSG_SELECT_YESNO";
+		case MSG_SELECT_OPTION:	return L"MSG_SELECT_OPTION";
+		case MSG_SELECT_CARD:	return L"MSG_SELECT_CARD";
+		case MSG_SELECT_UNSELECT_CARD:	return L"MSG_SELECT_UNSELECT_CARD";
+		case MSG_SELECT_TRIBUTE:	return L"MSG_SELECT_TRIBUTE";
+		case MSG_SELECT_SUM:	return L"MSG_SELECT_SUM";
+		case MSG_SORT_CARD:	return L"MSG_SORT_CARD";
+		case MSG_SELECT_CHAIN:	return L"MSG_SELECT_CHAIN";
+		case MSG_SELECT_PLACE:	return L"MSG_SELECT_PLACE";
+		case MSG_SELECT_DISFIELD:	return L"MSG_SELECT_DISFIELD";
+		case MSG_SELECT_POSITION:	return L"MSG_SELECT_POSITION";
+		case MSG_SELECT_COUNTER:	return L"MSG_SELECT_COUNTER";
+		case MSG_HINT:	return L"MSG_HINT";
+		case HINT_EVENT:	return L"HINT_EVENT";
+		case HINT_MESSAGE:	return L"HINT_MESSAGE";
+		case HINT_SELECTMSG:	return L"HINT_SELECTMSG";
+		case HINT_OPSELECTED:	return L"HINT_OPSELECTED";
+		case HINT_EFFECT:	return L"HINT_EFFECT";
+		case HINT_RACE:	return L"HINT_RACE";
+		case HINT_ATTRIB:	return L"HINT_ATTRIB";
+		case HINT_CODE:	return L"HINT_CODE";
+		case HINT_NUMBER:	return L"HINT_NUMBER";
+		case HINT_CARD:	return L"HINT_CARD";
+		case HINT_ZONE:	return L"HINT_ZONE";
+		case MSG_WIN:	return L"MSG_WIN";
+		case MSG_WAITING:	return L"MSG_WAITING";
+		case MSG_START:	return L"MSG_START";
+		case MSG_UPDATE_DATA:	return L"MSG_UPDATE_DATA";
+		case MSG_UPDATE_CARD:	return L"MSG_UPDATE_CARD";
+		case MSG_SELECT_BATTLECMD:	return L"MSG_SELECT_BATTLECMD";
+		case MSG_SELECT_IDLECMD:	return L"MSG_SELECT_IDLECMD";
+		case MSG_SELECT_EFFECTYN:	return L"MSG_SELECT_EFFECTYN";
+		case MSG_SELECT_YESNO:	return L"MSG_SELECT_YESNO";
+		case MSG_SELECT_OPTION:	return L"MSG_SELECT_OPTION";
+		case MSG_SELECT_CARD:	return L"MSG_SELECT_CARD";
+		case MSG_SELECT_UNSELECT_CARD:	return L"MSG_SELECT_UNSELECT_CARD";
+		case MSG_SELECT_CHAIN:	return L"MSG_SELECT_CHAIN";
+		case MSG_SELECT_PLACE:	return L"MSG_SELECT_PLACE";
+		case MSG_SELECT_DISFIELD:	return L"MSG_SELECT_DISFIELD";
+		case MSG_SELECT_POSITION:	return L"MSG_SELECT_POSITION";
+		case MSG_SELECT_TRIBUTE:	return L"MSG_SELECT_TRIBUTE";
+		case MSG_SELECT_COUNTER:	return L"MSG_SELECT_COUNTER";
+		case MSG_SELECT_SUM:	return L"MSG_SELECT_SUM";
+		case MSG_SORT_CARD:	return L"MSG_SORT_CARD";
+		case MSG_CONFIRM_DECKTOP:	return L"MSG_CONFIRM_DECKTOP";
+		case MSG_CONFIRM_EXTRATOP:	return L"MSG_CONFIRM_EXTRATOP";
+		case MSG_CONFIRM_CARDS:	return L"MSG_CONFIRM_CARDS";
+		case MSG_SHUFFLE_DECK:	return L"MSG_SHUFFLE_DECK";
+		case MSG_SHUFFLE_HAND:	return L"MSG_SHUFFLE_HAND";
+		case MSG_SHUFFLE_EXTRA:	return L"MSG_SHUFFLE_EXTRA";
+		case MSG_REFRESH_DECK:	return L"MSG_REFRESH_DECK";
+		case MSG_SWAP_GRAVE_DECK:	return L"MSG_SWAP_GRAVE_DECK";
+		case MSG_REVERSE_DECK:	return L"MSG_REVERSE_DECK";
+		case MSG_DECK_TOP:	return L"MSG_DECK_TOP";
+		case MSG_SHUFFLE_SET_CARD:	return L"MSG_SHUFFLE_SET_CARD";
+		case MSG_NEW_TURN:	return L"MSG_NEW_TURN";
+		case MSG_NEW_PHASE:	return L"MSG_NEW_PHASE";
+		case PHASE_DRAW:	return L"PHASE_DRAW";
+		case PHASE_STANDBY:	return L"PHASE_STANDBY";
+		case PHASE_MAIN1:	return L"PHASE_MAIN1";
+		case PHASE_BATTLE_START:	return L"PHASE_BATTLE_START";
+		case PHASE_MAIN2:	return L"PHASE_MAIN2";
+		case PHASE_END:	return L"PHASE_END";
+		case MSG_MOVE:	return L"MSG_MOVE";
+		case MSG_POS_CHANGE:	return L"MSG_POS_CHANGE";
+		case MSG_SET:	return L"MSG_SET";
+		case MSG_SWAP:	return L"MSG_SWAP";
+		case MSG_FIELD_DISABLED:	return L"MSG_FIELD_DISABLED";
+		case MSG_SUMMONING:	return L"MSG_SUMMONING";
+		case MSG_SUMMONED:	return L"MSG_SUMMONED";
+		case MSG_SPSUMMONING:	return L"MSG_SPSUMMONING";
+		case MSG_SPSUMMONED:	return L"MSG_SPSUMMONED";
+		case MSG_FLIPSUMMONING:	return L"MSG_FLIPSUMMONING";
+		case MSG_FLIPSUMMONED:	return L"MSG_FLIPSUMMONED";
+		case MSG_CHAINING:	return L"MSG_CHAINING";
+		case MSG_CHAINED:	return L"MSG_CHAINED";
+		case MSG_CHAIN_SOLVING:	return L"MSG_CHAIN_SOLVING";
+		case MSG_CHAIN_SOLVED:	return L"MSG_CHAIN_SOLVED";
+		case MSG_CHAIN_END:	return L"MSG_CHAIN_END";
+		case MSG_CHAIN_NEGATED:	return L"MSG_CHAIN_NEGATED";
+		case MSG_CHAIN_DISABLED:	return L"MSG_CHAIN_DISABLED";
+		case MSG_CARD_SELECTED:	return L"MSG_CARD_SELECTED";
+		case MSG_RANDOM_SELECTED:	return L"MSG_RANDOM_SELECTED";
+		case MSG_BECOME_TARGET:	return L"MSG_BECOME_TARGET";
+		case MSG_DRAW:	return L"MSG_DRAW";
+		case MSG_DAMAGE:	return L"MSG_DAMAGE";
+		case MSG_RECOVER:	return L"MSG_RECOVER";
+		case MSG_EQUIP:	return L"MSG_EQUIP";
+		case MSG_LPUPDATE:	return L"MSG_LPUPDATE";
+		case MSG_UNEQUIP:	return L"MSG_UNEQUIP";
+		case MSG_CARD_TARGET:	return L"MSG_CARD_TARGET";
+		case MSG_CANCEL_TARGET:	return L"MSG_CANCEL_TARGET";
+		case MSG_PAY_LPCOST:	return L"MSG_PAY_LPCOST";
+		case MSG_ADD_COUNTER:	return L"MSG_ADD_COUNTER";
+		case MSG_REMOVE_COUNTER:	return L"MSG_REMOVE_COUNTER";
+		case MSG_ATTACK:	return L"MSG_ATTACK";
+		case MSG_BATTLE:	return L"MSG_BATTLE";
+		case MSG_ATTACK_DISABLED:	return L"MSG_ATTACK_DISABLED";
+		case MSG_DAMAGE_STEP_START:	return L"MSG_DAMAGE_STEP_START";
+		case MSG_DAMAGE_STEP_END:	return L"MSG_DAMAGE_STEP_END";
+		case MSG_MISSED_EFFECT:	return L"MSG_MISSED_EFFECT";
+		case MSG_TOSS_COIN:	return L"MSG_TOSS_COIN";
+		case MSG_TOSS_DICE:	return L"MSG_TOSS_DICE";
+		case MSG_ROCK_PAPER_SCISSORS:	return L"MSG_ROCK_PAPER_SCISSORS";
+		case MSG_HAND_RES:	return L"MSG_HAND_RES";
+		case MSG_ANNOUNCE_RACE:	return L"MSG_ANNOUNCE_RACE";
+		case MSG_ANNOUNCE_ATTRIB:	return L"MSG_ANNOUNCE_ATTRIB";
+		case MSG_ANNOUNCE_CARD:	return L"MSG_ANNOUNCE_CARD";
+		case MSG_ANNOUNCE_NUMBER:	return L"MSG_ANNOUNCE_NUMBER";
+		case MSG_CARD_HINT:	return L"MSG_CARD_HINT";
+		case MSG_PLAYER_HINT:	return L"MSG_PLAYER_HINT";
+		case MSG_MATCH_KILL:	return L"MSG_MATCH_KILL";
+		case MSG_TAG_SWAP:	return L"MSG_TAG_SWAP";
+		case MSG_RELOAD_FIELD:	return L"MSG_RELOAD_FIELD";
+	}
+}
 
 bool DuelClient::StartClient(unsigned int ip, unsigned short port, bool create_game) {
 	if(connect_state)
@@ -991,23 +1117,29 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, int len) {
 			auto p = last_successful_msg;
 			auto last_msg = BufferIO::Read<uint8_t>(p);
 			int err_desc = 1421;
+			myswprintf(format_string, L"%ls %ls", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(last_msg));
 			switch(last_msg) {
 			case MSG_ANNOUNCE_CARD:
 				err_desc = 1422;
+				myswprintf(format_string, L"%ls %ls %ls", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(last_msg), dataManager.GetSysString(err_desc));
 				break;
 			case MSG_ANNOUNCE_ATTRIB:
 				err_desc = 1423;
+				myswprintf(format_string, L"%ls %ls %ls", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(last_msg), dataManager.GetSysString(err_desc));
 				break;
 			case MSG_ANNOUNCE_RACE:
 				err_desc = 1424;
+				myswprintf(format_string, L"%ls %ls %ls", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(last_msg), dataManager.GetSysString(err_desc));
 				break;
 			case MSG_ANNOUNCE_NUMBER:
 				err_desc = 1425;
+				myswprintf(format_string, L"%ls %ls %ls", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(last_msg), dataManager.GetSysString(err_desc));
 				break;
 			case MSG_SELECT_EFFECTYN:
 			case MSG_SELECT_YESNO:
 			case MSG_SELECT_OPTION:
 				err_desc = 1426;
+				myswprintf(format_string, L"%ls %ls %ls", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(last_msg), dataManager.GetSysString(err_desc));
 				break;
 			case MSG_SELECT_CARD:
 			case MSG_SELECT_UNSELECT_CARD:
@@ -1015,19 +1147,24 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, int len) {
 			case MSG_SELECT_SUM:
 			case MSG_SORT_CARD:
 				err_desc = 1427;
+				myswprintf(format_string, L"%ls %ls %ls", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(last_msg), dataManager.GetSysString(err_desc));
 				break;
 			case MSG_SELECT_CHAIN:
 				err_desc = 1428;
+				myswprintf(format_string, L"%ls %ls %ls", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(last_msg), dataManager.GetSysString(err_desc));
 				break;
 			case MSG_SELECT_PLACE:
 			case MSG_SELECT_DISFIELD:
 				err_desc = 1429;
+				myswprintf(format_string, L"%ls %ls %ls", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(last_msg), dataManager.GetSysString(err_desc));
 				break;
 			case MSG_SELECT_POSITION:
 				err_desc = 1430;
+				myswprintf(format_string, L"%ls %ls %ls", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(last_msg), dataManager.GetSysString(err_desc));
 				break;
 			case MSG_SELECT_COUNTER:
 				err_desc = 1431;
+				myswprintf(format_string, L"%ls %ls %ls", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(last_msg), dataManager.GetSysString(err_desc));
 				break;
 			default:
 				break;
@@ -1082,9 +1219,11 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, int len) {
 		switch (type) {
 		case HINT_EVENT: {
 			myswprintf(event_string, L"%ls", dataManager.GetDesc(data));
+			myswprintf(format_string, L"%ls %ls [player %d] [%ls]", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(type), player, dataManager.GetDesc(data));
 			break;
 		}
 		case HINT_MESSAGE: {
+			myswprintf(format_string, L"%ls %ls [player %d] [%ls]", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(type), player, dataManager.GetDesc(data));
 			mainGame->gMutex.lock();
 			mainGame->stMessage->setText(dataManager.GetDesc(data));
 			mainGame->PopupElement(mainGame->wMessage);
@@ -1094,12 +1233,14 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, int len) {
 			break;
 		}
 		case HINT_SELECTMSG: {
+			myswprintf(format_string, L"%ls %ls [player %d]", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(type), player);
 			select_hint = data;
 			last_select_hint = data;
 			break;
 		}
 		case HINT_OPSELECTED: {
 			myswprintf(textBuffer, dataManager.GetSysString(1510), dataManager.GetDesc(data));
+			myswprintf(format_string, L"%ls %ls [player %d] [%ls %ls]", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(type), player, dataManager.GetSysString(1510), dataManager.GetDesc(data));
 			mainGame->AddLog(textBuffer);
 			mainGame->gMutex.lock();
 			mainGame->SetStaticText(mainGame->stACMessage, 310, mainGame->guiFont, textBuffer);
@@ -1109,6 +1250,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, int len) {
 			break;
 		}
 		case HINT_EFFECT: {
+			myswprintf(format_string, L"%ls %ls [player %d]", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(type), player);
 			mainGame->showcardcode = data;
 			mainGame->showcarddif = 0;
 			mainGame->showcard = 1;
@@ -1118,6 +1260,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, int len) {
 		case HINT_RACE: {
 			const auto& race = dataManager.FormatRace(data);
 			myswprintf(textBuffer, dataManager.GetSysString(1511), race.c_str());
+			myswprintf(format_string, L"%ls %ls [player %d] [%ls %ls]", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(type), player, dataManager.GetSysString(1511), race.c_str());
 			mainGame->AddLog(textBuffer);
 			mainGame->gMutex.lock();
 			mainGame->SetStaticText(mainGame->stACMessage, 310, mainGame->guiFont, textBuffer);
@@ -1129,6 +1272,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, int len) {
 		case HINT_ATTRIB: {
 			const auto& attribute = dataManager.FormatAttribute(data);
 			myswprintf(textBuffer, dataManager.GetSysString(1511), attribute.c_str());
+			myswprintf(format_string, L"%ls %ls [player %d] [%ls %ls]", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(type), player, dataManager.GetSysString(1511), attribute.c_str());
 			mainGame->AddLog(textBuffer);
 			mainGame->gMutex.lock();
 			mainGame->SetStaticText(mainGame->stACMessage, 310, mainGame->guiFont, textBuffer);
@@ -1139,6 +1283,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, int len) {
 		}
 		case HINT_CODE: {
 			myswprintf(textBuffer, dataManager.GetSysString(1511), dataManager.GetName(data));
+			myswprintf(format_string, L"%ls %ls [player %d] [%ls %ls]", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(type), player, dataManager.GetSysString(1511), dataManager.GetName(data));
 			mainGame->AddLog(textBuffer, data);
 			mainGame->gMutex.lock();
 			mainGame->SetStaticText(mainGame->stACMessage, 310, mainGame->guiFont, textBuffer);
@@ -1149,6 +1294,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, int len) {
 		}
 		case HINT_NUMBER: {
 			myswprintf(textBuffer, dataManager.GetSysString(1512), data);
+			myswprintf(format_string, L"%ls %ls [player %d] [%ls %d]", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(type), player, dataManager.GetSysString(1512), data);
 			mainGame->AddLog(textBuffer);
 			mainGame->gMutex.lock();
 			mainGame->SetStaticText(mainGame->stACMessage, 310, mainGame->guiFont, textBuffer);
@@ -1158,6 +1304,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, int len) {
 			break;
 		}
 		case HINT_CARD: {
+			myswprintf(format_string, L"%ls %ls [player %d]", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(type), player);
 			mainGame->showcardcode = data;
 			mainGame->showcarddif = 0;
 			mainGame->showcard = 1;
@@ -1198,6 +1345,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, int len) {
 					}
 					str += L"(" + std::to_wstring(seq) + L")";
 					myswprintf(textBuffer, dataManager.GetSysString(1510), str.c_str());
+					myswprintf(format_string, L"%ls %ls [player %d] [%ls %ls]", GameMsgToString(mainGame->dInfo.curMsg), GameMsgToString(type), player, dataManager.GetSysString(1510), str.c_str());
 					mainGame->AddLog(textBuffer);
 				}
 			}
