@@ -1,69 +1,65 @@
 project (ygopro)
 
-if (NOT WIN32 AND NOT APPLE)
-    include (FindX11)   
-endif ()
+add_subdirectory(lzma)
+add_subdirectory(spmemvfs)
 
-add_subdirectory (lzma)
+file(GLOB SRC_FILES "*.h" "*.cpp")
 
-set (AUTO_FILES_RESULT)
-if (MSVC)
-    AutoFiles("." "res" "\\.(rc)$")
-    AutoFiles("." "src" "\\.(cpp|c|h)$" "CGUIButton.cpp|lzma/\\.*")
-else ()
-    AutoFiles("." "src" "\\.(cpp|c|h)$" "lzma/\\.*")
-endif ()
+add_executable(${PROJECT_NAME} WIN32 ${SRC_FILES})
 
 if (MSVC)
-    add_executable (ygopro WIN32 ${AUTO_FILES_RESULT})
-    set_target_properties (ygopro PROPERTIES
-        LINK_FLAGS /ENTRY:"mainCRTStartup"
-        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    # disable RTTI
+    target_compile_options(${PROJECT_NAME} PRIVATE /GR-)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE _IRR_WCHAR_FILESYSTEM)
+    target_link_options(${PROJECT_NAME} PRIVATE /ENTRY:mainCRTStartup)
+
+    target_sources(${PROJECT_NAME} PRIVATE "resource/gframe/ygopro.rc")
+
+    target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 iphlpapi)
+
+    find_package(OpenMP REQUIRED)
+    target_link_libraries(${PROJECT_NAME} PRIVATE OpenMP::OpenMP_CXX)
+
+elseif (UNIX AND NOT APPLE)
+    target_link_libraries(${PROJECT_NAME} PRIVATE GL X11 Xxf86vm dl pthread)
+
+    find_package(OpenMP REQUIRED)
+    target_link_libraries(${PROJECT_NAME} PRIVATE OpenMP::OpenMP_CXX)
+
+elseif (APPLE)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE GL_SILENCE_DEPRECATION)
+    target_link_libraries(${PROJECT_NAME} PRIVATE 
+        "-framework OpenGL"
+        "-framework Cocoa"
+        "-framework IOKit"
     )
-    set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ygopro)
+    set(TARGET_ARCHS "")
+    if(MAC_ARM)
+        list(APPEND TARGET_ARCHS "arm64")
+    endif()
+
+    if(MAC_INTEL)
+        list(APPEND TARGET_ARCHS "x86_64")
+    endif()
+
+    if(TARGET_ARCHS)
+        set_target_properties(YGOPro PROPERTIES OSX_ARCHITECTURES "${TARGET_ARCHS}")
+    endif()
+    
 else ()
-    add_executable (ygopro ${AUTO_FILES_RESULT})
-endif ()
+    message(FATAL "Only Windows, Linux, MacOS supported")
+endif()
 
-target_link_libraries (ygopro ocgcore clzma)
+target_include_directories(${PROJECT_NAME} PRIVATE ${LUA_INCLUDE_DIR})
 
-if (MSVC)
-    target_link_libraries (ygopro irrlicht freetype sqlite3 event)
-    include_directories ( "../irrlicht/include" "../freetype/include" "../event/include" "../sqlite3" )
-else ()
-    target_link_libraries (ygopro
-        ${IRRLICHT_LIBRARIES}
-        ${FREETYPE_LIBRARIES}
-        ${SQLITE_LIBRARIES}
-        ${LIBEVENT_LIBRARIES}
-        ${OPENGL_gl_LIBRARY}
-    )
-    include_directories (
-        ${IRRLICHT_INCLUDE_DIR}
-        ${FREETYPE_INCLUDE_DIR}
-        ${SQLITE_INCLUDE_DIRS}
-        ${LIBEVENT_INCLUDE_DIR}
-        ${OPENGL_INCLUDE_DIR}
-    )
-    target_link_libraries (ygopro ${CMAKE_THREAD_LIBS_INIT} ${DL_LIBRARIES})
-endif ()
-
-if (APPLE)
-    find_library(COCOA_LIBRARY Cocoa)
-    find_library(IOKIT_LIBRARY IOKit)
-    target_link_libraries(ygopro ${COCOA_LIBRARY} ${IOKIT_LIBRARY})
-endif ()
-
-if (USE_IRRKLANG)
-    add_definitions ( "-DYGOPRO_USE_IRRKLANG" )
-    if (MSVC)
-        target_link_libraries (ygopro ${IRRKLANG_DIR}/lib/Win32-visualStudio/irrKlang.lib)
-	elseif (CMAKE_SYSTEM MATCHES Linux)
-	    target_link_libraries (ygopro ${IRRKLANG_DIR}/bin/linux-gcc-64/libIrrKlang.so)
-	endif ()
-	include_directories ( "${IRRKLANG_DIR}/include" )
-endif ()
-
-if (WIN32)
-    target_link_libraries (ygopro ws2_32 winmm gdi32 kernel32 user32 imm32 opengl32)
-endif ()
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    irrlicht
+    ocgcore
+    clzma
+    cspmemvfs
+    miniaudio
+    ${LUA_LIBRARIES}                                                                                                                                                                                                                                   
+    unofficial::sqlite3::sqlite3
+    libevent::core libevent::extra libevent::pthreads
+    Freetype::Freetype
+)
