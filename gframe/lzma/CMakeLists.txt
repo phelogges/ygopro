@@ -1,6 +1,5 @@
 project (clzma)
 
-set (AUTO_FILES_RESULT)
-AutoFiles("." "src" "\\.(cpp|c|h)$")
+file(GLOB SRC_FILES "*.h" "*.c")
 
-add_library (clzma STATIC ${AUTO_FILES_RESULT})
+add_library(${PROJECT_NAME} STATIC ${SRC_FILES})
