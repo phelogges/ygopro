@@ -1,0 +1,19 @@
+{
+    "name": "ygopro",
+    "dependencies": [
+        {"name": "freetype"},
+        {"name": "libevent"},
+        {"name": "lua", "features": ["cpp"]},
+        {"name": "miniaudio"},
+        {"name": "sqlite3"},
+        {"name": "nlohmann-json"}
+    ],
+    "overrides": [
+        {"name": "freetype", "version": "2.13.3#0"},
+        {"name": "libevent", "version": "2.1.12+20230128#1"},
+        {"name": "lua", "version": "5.4.8#0"},
+        {"name":"miniaudio", "version":"0.11.23#0"},
+        {"name": "sqlite3", "version": "3.51.1#0"},
+        {"name": "nlohmann-json", "version": "3.12.0#1"}
+    ]
+}
