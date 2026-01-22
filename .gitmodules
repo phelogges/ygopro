@@ -1,6 +1,12 @@
 [submodule "ocgcore"]
 	path = ocgcore
-	url = https://github.com/moecube/ygopro-core
+	url = https://github.com/phelogges/ygopro-core
 [submodule "script"]
 	path = script
 	url = https://github.com/moecube/ygopro-scripts
+[submodule "third_party/miniaudio"]
+	path = third_party/miniaudio
+	url = https://github.com/mackron/miniaudio.git
+[submodule "third_party/irrlicht"]
+	path = third_party/irrlicht
+	url = https://github.com/phelogges/irrlicht
