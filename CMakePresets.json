@@ -1,0 +1,47 @@
+{
+    "version": 8,
+    "configurePresets": [
+        {
+            "name": "MacOS-Debug",
+            "displayName": "Clang 15.0.0 x86_64-apple-darwin25.2.0 Debug",
+            "description": "Using compilers: C = /usr/bin/clang, CXX = /usr/bin/clang++",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_C_COMPILER": "/usr/bin/clang",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed"
+            }
+        },
+        {
+            "name": "MacOS-RelWithDebInfo",
+            "displayName": "Clang 15.0.0 x86_64-apple-darwin25.2.0 RelWithDebInfo",
+            "description": "Using compilers: C = /usr/bin/clang, CXX = /usr/bin/clang++",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_C_COMPILER": "/usr/bin/clang",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "MacOS-Debug",
+            "displayName": "Clang 15.0.0 x86_64-apple-darwin25.2.0 Debug",
+            "configurePreset": "MacOS-Debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "MacOS-RelWithDebInfo",
+            "displayName": "Clang 15.0.0 x86_64-apple-darwin25.2.0 RelWithDebInfo",
+            "configurePreset": "MacOS-RelWithDebInfo",
+            "configuration": "RelWithDebInfo"
+        }
+    ]
+}
