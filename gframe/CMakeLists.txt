@@ -10,10 +10,10 @@ add_executable(${PROJECT_NAME} WIN32 ${SRC_FILES})
 if (MSVC)
     # disable RTTI
     target_compile_options(${PROJECT_NAME} PRIVATE /GR-)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE _IRR_WCHAR_FILESYSTEM)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE UNICODE _UNICODE _IRR_WCHAR_FILESYSTEM)
     target_link_options(${PROJECT_NAME} PRIVATE /ENTRY:mainCRTStartup)
 
-    target_sources(${PROJECT_NAME} PRIVATE "resource/gframe/ygopro.rc")
+    target_sources(${PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/resource/gframe/ygopro.rc")
 
     target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 iphlpapi)
 
@@ -60,6 +60,13 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     miniaudio
     ${LUA_LIBRARIES}                                                                                                                                                                                                                                   
     unofficial::sqlite3::sqlite3
-    libevent::core libevent::extra libevent::pthreads
+    libevent::core libevent::extra
+)
+
+if (NOT WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE libevent::pthreads)
+endif()
+
+target_link_libraries(${PROJECT_NAME} PRIVATE
     Freetype::Freetype
 )

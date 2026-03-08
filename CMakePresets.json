@@ -28,6 +28,34 @@
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed"
             }
+        },
+        {
+            "name": "VS2026-x64-Debug",
+            "displayName": "VS2026-x64-Debug",
+            "description": "VS2026-x64-Debug",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_C_COMPILER": "",
+                "CMAKE_CXX_COMPILER": "",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed"
+            }
+        },
+        {
+            "name": "VS2026-x64-RelWithDebInfo",
+            "displayName": "VS2026-x64-RelWithDebInfo",
+            "description": "VS2026-x64-RelWithDebInfo",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_C_COMPILER": "",
+                "CMAKE_CXX_COMPILER": "",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed"
+            }
         }
     ],
     "buildPresets": [
@@ -41,6 +69,18 @@
             "name": "MacOS-RelWithDebInfo",
             "displayName": "Clang 15.0.0 x86_64-apple-darwin25.2.0 RelWithDebInfo",
             "configurePreset": "MacOS-RelWithDebInfo",
+            "configuration": "RelWithDebInfo"
+        },
+        {
+            "name": "VS2026-x64-Debug",
+            "displayName": "VS2026-x64-Debug",
+            "configurePreset": "VS2026-x64-Debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "VS2026-x64-RelWithDebInfo",
+            "displayName": "VS2026-x64-RelWithDebInfo",
+            "configurePreset": "VS2026-x64-RelWithDebInfo",
             "configuration": "RelWithDebInfo"
         }
     ]
