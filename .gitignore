@@ -40,3 +40,6 @@
 /premake5
 /premake5.exe
 /pack
+
+out
+vcpkg_installed

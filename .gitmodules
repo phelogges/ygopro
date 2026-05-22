@@ -4,3 +4,9 @@
 [submodule "script"]
 	path = script
 	url = https://github.com/moecube/ygopro-scripts
+[submodule "third_party/miniaudio"]
+	path = third_party/miniaudio
+	url = https://github.com/mackron/miniaudio
+[submodule "third_party/irrlicht"]
+	path = third_party/irrlicht
+	url = https://github.com/mercury233/irrlicht
