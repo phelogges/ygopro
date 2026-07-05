@@ -1,7 +1,5 @@
 project (ygopro)
 
-add_subdirectory(lzma)
-
 file(GLOB SRC_FILES "*.h" "*.cpp")
 
 add_executable(${PROJECT_NAME} WIN32 ${SRC_FILES})
@@ -54,7 +52,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${LUA_INCLUDE_DIR})
 target_link_libraries(${PROJECT_NAME} PRIVATE
     irrlicht
     ocgcore
-    clzma
     miniaudio                                                                                                                                                                                                                                
     unofficial::sqlite3::sqlite3
     Freetype::Freetype
