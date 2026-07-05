@@ -15,6 +15,7 @@ find_package(JPEG REQUIRED MODULE)
 find_package(ZLIB REQUIRED)
 find_package(PNG REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(liblzma CONFIG REQUIRED)
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     add_compile_definitions(LUA_USE_LINUX)
