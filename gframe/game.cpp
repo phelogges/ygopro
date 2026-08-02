@@ -1,4 +1,5 @@
 #include "config.h"
+#include "agent_client/agent_client.h"
 #include "game.h"
 #include "file_system.h"
 #include "image_manager.h"
@@ -1038,6 +1039,7 @@ void Game::MainLoop() {
 	auto lastFrameTime = std::chrono::steady_clock::now();
 	constexpr auto targetFrameDuration = std::chrono::microseconds(16667);
 	while(device->run()) {
+		AgentClient::Instance().Poll();
 		auto size = driver->getScreenSize();
 		if(window_size != size) {
 			window_size = size;
@@ -1157,6 +1159,7 @@ void Game::MainLoop() {
 		timeEndPeriod(1);
 #endif
 	DuelClient::StopClient(CLIENT_CLOSE_REASON_EXIT);
+	AgentClient::Instance().Stop();
 	if(dInfo.isSingleMode)
 		SingleMode::StopPlay(true);
 	std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -1509,6 +1512,13 @@ void Game::LoadConfig(const char* file) {
 			gameConf.prefer_expansion_script = std::strtol(valbuf, nullptr, 10);
 		} else if(!std::strcmp(strbuf, "swap_yes_no_button")) {
 			gameConf.swap_yes_no_button = std::strtol(valbuf, nullptr, 10) > 0;
+		} else if(!std::strcmp(strbuf, "agent_enabled")) {
+			gameConf.agent_enabled = std::strtol(valbuf, nullptr, 10) > 0;
+		} else if(!std::strcmp(strbuf, "agent_port")) {
+			gameConf.agent_port = static_cast<unsigned short>(std::strtol(valbuf, nullptr, 10));
+		} else if(!std::strcmp(strbuf, "agent_timeout_ms")) {
+			int timeout = static_cast<int>(std::strtol(valbuf, nullptr, 10));
+			gameConf.agent_timeout_ms = timeout < 1000 ? 1000 : timeout;
 		} else if(!std::strcmp(strbuf, "window_maximized")) {
 			gameConf.window_maximized = std::strtol(valbuf, nullptr, 10) > 0;
 		} else if(!std::strcmp(strbuf, "window_width")) {
@@ -1561,6 +1571,10 @@ void Game::LoadConfig(const char* file) {
 				BufferIO::DecodeUTF8(valbuf, gameConf.lastdeck);
 			} else if(!std::strcmp(strbuf, "bot_deck_path")) {
 				BufferIO::DecodeUTF8(valbuf, gameConf.bot_deck_path);
+			} else if(!std::strcmp(strbuf, "agent_host")) {
+				BufferIO::CopyString(valbuf, gameConf.agent_host);
+			} else if(!std::strcmp(strbuf, "agent_log_path")) {
+				BufferIO::CopyString(valbuf, gameConf.agent_log_path);
 			}
 		}
 	}
@@ -1629,6 +1643,11 @@ void Game::SaveConfig() {
 	std::fprintf(fp, "hide_player_name = %d\n", gameConf.hide_player_name);
 	std::fprintf(fp, "prefer_expansion_script = %d\n", gameConf.prefer_expansion_script);
 	std::fprintf(fp, "swap_yes_no_button = %d\n", (chkSwapYesNoButton->isChecked() ? 1 : 0));
+	std::fprintf(fp, "agent_enabled = %d\n", gameConf.agent_enabled ? 1 : 0);
+	std::fprintf(fp, "agent_host = %s\n", gameConf.agent_host);
+	std::fprintf(fp, "agent_port = %u\n", gameConf.agent_port);
+	std::fprintf(fp, "agent_timeout_ms = %d\n", gameConf.agent_timeout_ms);
+	std::fprintf(fp, "agent_log_path = %s\n", gameConf.agent_log_path);
 	std::fprintf(fp, "window_maximized = %d\n", (gameConf.window_maximized ? 1 : 0));
 	std::fprintf(fp, "window_width = %d\n", gameConf.window_width);
 	std::fprintf(fp, "window_height = %d\n", gameConf.window_height);

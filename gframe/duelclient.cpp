@@ -3,6 +3,7 @@
 #include <thread>
 #include <random>
 #include "config.h"
+#include "agent_client/agent_client.h"
 #include "duelclient.h"
 #include "data_manager.h"
 #include "client_card.h"
@@ -400,12 +401,14 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 	}
 	case STOC_SELECT_HAND: {
 		mainGame->wHand->setVisible(true);
+		AgentClient::Instance().CapturePreDuelDecision("猜拳出拳");
 		break;
 	}
 	case STOC_SELECT_TP: {
 		mainGame->gMutex.lock();
 		mainGame->PopupElement(mainGame->wFTSelect);
 		mainGame->gMutex.unlock();
+		AgentClient::Instance().CapturePreDuelDecision("选择先攻或后攻");
 		break;
 	}
 	case STOC_HAND_RESULT: {
@@ -1013,6 +1016,11 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 }
 // Analyze STOC_GAME_MSG packet
 bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
+	struct AgentDecisionScope {
+		const unsigned char* message;
+		size_t length;
+		~AgentDecisionScope() { AgentClient::Instance().OnDecisionAvailable(message, length); }
+	} agentDecisionScope{msg, len};
 	unsigned char* pbuf = msg;
 	wchar_t textBuffer[256]{};
 	mainGame->dInfo.curMsg = BufferIO::Read<uint8_t>(pbuf);

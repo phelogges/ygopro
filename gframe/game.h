@@ -108,6 +108,11 @@ struct Config {
 	int resize_popup_menu{ 0 };
 	bool resize_select_window{ true };
 	bool swap_yes_no_button{ false };
+	bool agent_enabled{ false };
+	char agent_host[128]{ "127.0.0.1" };
+	unsigned short agent_port{ 7450 };
+	int agent_timeout_ms{ 15000 };
+	char agent_log_path[256]{ "agent-log.jsonl" };
 };
 
 struct DuelInfo {
