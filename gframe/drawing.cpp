@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <vector>
 #include "game.h"
 #include "client_card.h"
@@ -153,7 +154,7 @@ void Game::DrawSelectionLine(irr::video::S3DVertex* vec, bool stipple, irr::vide
 	};
 	driver->setMaterial(matManager.mOutLine);
 	driver->setTransform(irr::video::ETS_WORLD, irr::core::matrix4());
-	const auto drawFixedSegments = [&](const auto& getSegment) {
+	const auto drawFixedSegments = [&](const std::function<bool(int, ProjectedPoint&, ProjectedPoint&)>& getSegment) {
 		irr::video::S3DVertex vertices[4 * THICK_LINE_VERTICES_PER_SEGMENT];
 		irr::u16 indices[4 * THICK_LINE_INDICES_PER_SEGMENT];
 		size_t vertexCount = 0;

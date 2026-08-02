@@ -46,10 +46,11 @@
                 "CMAKE_CXX_COMPILER": "",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-                "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed"
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed",
+                "VCPKG_TARGET_TRIPLET": "x64-windows-static"
             },
             "environment": {
-                "VCPKG_FORCE_SYSTEM_BINARIES": "1"
+                "VCPKG_FORCE_SYSTEM_BINARIES": ""
             }
         },
         {
@@ -63,10 +64,11 @@
                 "CMAKE_CXX_COMPILER": "",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-                "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed"
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed",
+                "VCPKG_TARGET_TRIPLET": "x64-windows-static"
             },
             "environment": {
-                "VCPKG_FORCE_SYSTEM_BINARIES": "1"
+                "VCPKG_FORCE_SYSTEM_BINARIES": ""
             }
         }
     ],

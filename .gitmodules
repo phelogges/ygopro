@@ -3,10 +3,10 @@
 	url = https://github.com/moecube/ygopro-core
 [submodule "script"]
 	path = script
-	url = https://github.com/moecube/ygopro-scripts
+	url = git@github.com:moecube/ygopro-scripts.git
 [submodule "third_party/miniaudio"]
 	path = third_party/miniaudio
-	url = https://github.com/mackron/miniaudio
+	url = git@github.com:mackron/miniaudio.git
 [submodule "third_party/irrlicht"]
 	path = third_party/irrlicht
-	url = https://github.com/mercury233/irrlicht
+	url = git@github.com:mercury233/irrlicht.git

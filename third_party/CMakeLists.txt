@@ -55,6 +55,7 @@ target_include_directories(${irrlicht_target_name}
 
 target_compile_definitions(${irrlicht_target_name} PUBLIC
     "_IRR_STATIC_LIB_"
+    "NO_IRR_WCHAR_FILESYSTEM"
     "NO_IRR_USE_NON_SYSTEM_JPEG_LIB_"
     "NO_IRR_USE_NON_SYSTEM_LIB_PNG_"
     "NO_IRR_USE_NON_SYSTEM_ZLIB_"
@@ -119,7 +120,6 @@ if(MSVC)
     target_compile_definitions(${irrlicht_target_name} PRIVATE 
         UNICODE
         _UNICODE
-        _IRR_WCHAR_FILESYSTEM
         NO_IRR_COMPILE_WITH_DIRECT3D_9_
         NO_IRR_COMPILE_WITH_JOYSTICK_EVENTS_
     )
