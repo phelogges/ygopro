@@ -47,6 +47,21 @@ namespace {
 	event* resp_event{};
 	const std::set<int> select_effectyn_id{ 95, 96, 97, 218, 219, 220 };
 
+	bool IsPublicCardSource(uint32_t location, uint32_t position) noexcept {
+		if((location & LOCATION_OVERLAY) != 0) return false;
+		switch(location & 0x7f) {
+		case LOCATION_GRAVE:
+			return true;
+		case LOCATION_MZONE:
+		case LOCATION_SZONE:
+		case LOCATION_REMOVED:
+		case LOCATION_EXTRA:
+			return (position & POS_FACEUP) != 0;
+		default:
+			return false;
+		}
+	}
+
 	void EndRefreshHost() {
 		is_refreshing = false;
 		if(close_reason != CLIENT_CLOSE_REASON_EXIT)
@@ -401,14 +416,14 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 	}
 	case STOC_SELECT_HAND: {
 		mainGame->wHand->setVisible(true);
-		AgentClient::Instance().CapturePreDuelDecision("猜拳出拳");
+		AgentClient::Instance().CapturePreDuelDecision(agent_protocol::Decision::pre_duel_hand);
 		break;
 	}
 	case STOC_SELECT_TP: {
 		mainGame->gMutex.lock();
 		mainGame->PopupElement(mainGame->wFTSelect);
 		mainGame->gMutex.unlock();
-		AgentClient::Instance().CapturePreDuelDecision("选择先攻或后攻");
+		AgentClient::Instance().CapturePreDuelDecision(agent_protocol::Decision::pre_duel_turn_order);
 		break;
 	}
 	case STOC_HAND_RESULT: {
@@ -417,6 +432,7 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 		STOC_HandResult packet;
 		std::memcpy(&packet, pdata, sizeof packet);
 		const auto* pkt = &packet;
+		AgentClient::Instance().OnPreDuelHandResult(pkt->res1, pkt->res2);
 		mainGame->stHintMsg->setVisible(false);
 		mainGame->showcardcode = (pkt->res1 - 1) + ((pkt->res2 - 1) << 16);
 		mainGame->showcarddif = 50;
@@ -1143,10 +1159,12 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	}
 	case MSG_HINT: {
 		int type = BufferIO::Read<uint8_t>(pbuf);
-		int player = BufferIO::Read<uint8_t>(pbuf);
+		int player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		int data = BufferIO::Read<int32_t>(pbuf);
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping)
 			return true;
+		if(!mainGame->dInfo.isReplay)
+			AgentClient::Instance().OnEngineHint(static_cast<uint8_t>(type), player, static_cast<uint32_t>(data));
 		switch (type) {
 		case HINT_EVENT: {
 			myswprintf(event_string, L"%ls", dataManager.GetDesc(data));
@@ -1281,6 +1299,9 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		mainGame->dInfo.isFinished = true;
 		int player = BufferIO::Read<uint8_t>(pbuf);
 		int type = BufferIO::Read<uint8_t>(pbuf);
+		const auto winner = player == 2 ? agent_protocol::DuelWinner::draw
+			: mainGame->LocalPlayer(player) == 0 ? agent_protocol::DuelWinner::self : agent_protocol::DuelWinner::opponent;
+		AgentClient::Instance().OnDuelEnded(winner, static_cast<uint8_t>(player), static_cast<uint8_t>(type));
 		mainGame->showcarddif = 110;
 		mainGame->showcardp = 0;
 		mainGame->dInfo.vic_string = L"";
@@ -1322,6 +1343,8 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		return true;
 	}
 	case MSG_START: {
+		if(!mainGame->dInfo.isReplay && !mainGame->dInfo.isSingleMode)
+			AgentClient::Instance().BeginDuel();
 		mainGame->showcardcode = 11;
 		mainGame->showcarddif = 30;
 		mainGame->showcardp = 0;
@@ -2150,14 +2173,22 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		int count = BufferIO::Read<uint8_t>(pbuf);
 		unsigned int code;
 		ClientCard* pcard;
+		std::vector<AgentObservedCard> agent_confirmed;
+		agent_confirmed.reserve(count);
 		mainGame->dField.selectable_cards.clear();
 		for (int i = 0; i < count; ++i) {
 			code = BufferIO::Read<int32_t>(pbuf);
-			pbuf += 3;
+			int controller = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
+			unsigned int location = BufferIO::Read<uint8_t>(pbuf);
+			unsigned int sequence = BufferIO::Read<uint8_t>(pbuf);
 			pcard = *(mainGame->dField.deck[player].rbegin() + i);
 			if (code != 0)
 				pcard->SetCode(code);
+			agent_confirmed.push_back({code, controller, location, sequence, pcard->position, 0});
 		}
+		if(!mainGame->dInfo.isReplay)
+			AgentClient::Instance().OnCardsConfirmed(agent_protocol::CardObservationKind::confirm_deck_top,
+				player, false, agent_confirmed);
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping)
 			return true;
 		soundManager.PlaySoundEffect(SOUND_REVEAL);
@@ -2188,14 +2219,22 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		int count = BufferIO::Read<uint8_t>(pbuf);
 		unsigned int code;
 		ClientCard* pcard;
+		std::vector<AgentObservedCard> agent_confirmed;
+		agent_confirmed.reserve(count);
 		mainGame->dField.selectable_cards.clear();
 		for (int i = 0; i < count; ++i) {
 			code = BufferIO::Read<int32_t>(pbuf);
-			pbuf += 3;
+			int controller = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
+			unsigned int location = BufferIO::Read<uint8_t>(pbuf);
+			unsigned int sequence = BufferIO::Read<uint8_t>(pbuf);
 			pcard = *(mainGame->dField.extra[player].rbegin() + i + mainGame->dField.extra_p_count[player]);
 			if (code != 0)
 				pcard->SetCode(code);
+			agent_confirmed.push_back({code, controller, location, sequence, pcard->position, 0});
 		}
+		if(!mainGame->dInfo.isReplay)
+			AgentClient::Instance().OnCardsConfirmed(agent_protocol::CardObservationKind::confirm_extra_top,
+				player, false, agent_confirmed);
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping)
 			return true;
 		soundManager.PlaySoundEffect(SOUND_REVEAL);
@@ -2221,13 +2260,15 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		return true;
 	}
 	case MSG_CONFIRM_CARDS: {
-		/*int player = */mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
+		int player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		int skip_panel = BufferIO::Read<uint8_t>(pbuf);
 		int count = BufferIO::Read<uint8_t>(pbuf);
 		int c, s;
 		unsigned int code, l;
 		std::vector<ClientCard*> field_confirm;
 		std::vector<ClientCard*> panel_confirm;
+		std::vector<AgentObservedCard> agent_confirmed;
+		agent_confirmed.reserve(count);
 		ClientCard* pcard;
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping) {
 			pbuf += count * 7;
@@ -2244,6 +2285,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 			pcard = mainGame->dField.GetCard(c, l, s);
 			if (code != 0)
 				pcard->SetCode(code);
+			agent_confirmed.push_back({code, c, l, static_cast<uint32_t>(s), pcard->position, 0});
 			mainGame->gMutex.lock();
 			myswprintf(textBuffer, L"*[%ls]", dataManager.GetName(code));
 			mainGame->AddLog(textBuffer, code);
@@ -2270,6 +2312,9 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 					field_confirm.push_back(pcard);
 			}
 		}
+		if(!mainGame->dInfo.isReplay)
+			AgentClient::Instance().OnCardsConfirmed(agent_protocol::CardObservationKind::confirm_cards,
+				player, skip_panel != 0, agent_confirmed);
 		if (field_confirm.size() > 0) {
 			mainGame->WaitFrameSignal(5);
 			for(int i = 0; i < (int)field_confirm.size(); ++i) {
@@ -2324,6 +2369,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	}
 	case MSG_SHUFFLE_DECK: {
 		int player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
+		AgentClient::Instance().OnHiddenZoneShuffled(player, agent_protocol::Zone::deck);
 		if(mainGame->dField.deck[player].size() < 2)
 			return true;
 		bool rev = mainGame->dField.deck_reversed;
@@ -2363,6 +2409,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	}
 	case MSG_SHUFFLE_HAND: {
 		int player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
+		AgentClient::Instance().OnHiddenZoneShuffled(player, agent_protocol::Zone::hand);
 		int count = BufferIO::Read<uint8_t>(pbuf);
 		if(!mainGame->dInfo.isReplay || !mainGame->dInfo.isReplaySkiping) {
 			if(count > 1)
@@ -2497,6 +2544,10 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		unsigned int code = BufferIO::Read<int32_t>(pbuf);
 		ClientCard* pcard = mainGame->dField.GetCard(player, LOCATION_DECK, mainGame->dField.deck[player].size() - 1 - seq);
 		pcard->SetCode(code & 0x7fffffff);
+		if(!mainGame->dInfo.isReplay)
+			AgentClient::Instance().OnCardsConfirmed(agent_protocol::CardObservationKind::deck_top, player, false,
+				{{code & 0x7fffffff, player, LOCATION_DECK,
+				  static_cast<uint32_t>(mainGame->dField.deck[player].size() - 1 - seq), pcard->position, 0}});
 		bool rev = (code & 0x80000000) != 0;
 		if(pcard->is_reversed != rev) {
 			pcard->is_reversed = rev;
@@ -2560,6 +2611,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	case MSG_NEW_TURN: {
 		int player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		mainGame->dInfo.turn++;
+		AgentClient::Instance().OnTurnStarted(player, mainGame->dInfo.turn);
 		if(!mainGame->dInfo.isReplay && mainGame->dInfo.player_type < 7) {
 			mainGame->dField.tag_surrender = false;
 			mainGame->dField.tag_teammate_surrender = false;
@@ -2599,6 +2651,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	}
 	case MSG_NEW_PHASE: {
 		unsigned short phase = BufferIO::Read<uint16_t>(pbuf);
+		AgentClient::Instance().OnPhaseChanged(phase);
 		mainGame->btnPhaseStatus->setVisible(false);
 		mainGame->btnBP->setVisible(false);
 		mainGame->btnM2->setVisible(false);
@@ -2653,6 +2706,18 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		int cs = BufferIO::Read<uint8_t>(pbuf);
 		unsigned int cp = BufferIO::Read<uint8_t>(pbuf);
 		int reason = BufferIO::Read<int32_t>(pbuf);
+		uint32_t observed_code = code;
+		auto id_provenance = code == 0 ? agent_protocol::CardIdProvenance::unavailable
+			: agent_protocol::CardIdProvenance::engine_message;
+		if(code == 0 && !mainGame->dInfo.isReplay && !mainGame->dInfo.isSingleMode && IsPublicCardSource(pl, pp)) {
+			const ClientCard* source_card = mainGame->dField.GetCard(pc, pl, ps);
+			if(source_card && source_card->code != 0) {
+				observed_code = source_card->code;
+				id_provenance = agent_protocol::CardIdProvenance::public_client_cache;
+			}
+		}
+		AgentClient::Instance().OnCardMoved(code, observed_code, id_provenance,
+			pc, pl, ps, pp, cc, cl, cs, cp, static_cast<uint32_t>(reason));
 		if(!mainGame->dInfo.isReplay || !mainGame->dInfo.isReplaySkiping) {
 			if(cl & LOCATION_REMOVED && pl != cl)
 				soundManager.PlaySoundEffect(SOUND_BANISHED);
@@ -2936,10 +3001,11 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	}
 	case MSG_SUMMONING: {
 		unsigned int code = BufferIO::Read<int32_t>(pbuf);
-		/*int cc = */mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
-		/*int cl = */BufferIO::Read<uint8_t>(pbuf);
-		/*int cs = */BufferIO::Read<uint8_t>(pbuf);
-		/*int cp = */BufferIO::Read<uint8_t>(pbuf);
+		int cc = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
+		unsigned int cl = BufferIO::Read<uint8_t>(pbuf);
+		unsigned int cs = BufferIO::Read<uint8_t>(pbuf);
+		unsigned int cp = BufferIO::Read<uint8_t>(pbuf);
+		AgentClient::Instance().OnSummonAttempted(code, cc, cl, cs, cp, agent_protocol::SummonType::normal);
 		if(!mainGame->dInfo.isReplay || !mainGame->dInfo.isReplaySkiping) {
 			soundManager.PlaySoundEffect(SOUND_SUMMON);
 			myswprintf(event_string, dataManager.GetSysString(1603), dataManager.GetName(code));
@@ -2954,15 +3020,17 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		return true;
 	}
 	case MSG_SUMMONED: {
+		AgentClient::Instance().OnSummonSucceeded(agent_protocol::SummonType::normal);
 		myswprintf(event_string, dataManager.GetSysString(1604));
 		return true;
 	}
 	case MSG_SPSUMMONING: {
 		unsigned int code = BufferIO::Read<int32_t>(pbuf);
-		/*int cc = */mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
-		/*int cl = */BufferIO::Read<uint8_t>(pbuf);
-		/*int cs = */BufferIO::Read<uint8_t>(pbuf);
-		/*int cp = */BufferIO::Read<uint8_t>(pbuf);
+		int cc = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
+		unsigned int cl = BufferIO::Read<uint8_t>(pbuf);
+		unsigned int cs = BufferIO::Read<uint8_t>(pbuf);
+		unsigned int cp = BufferIO::Read<uint8_t>(pbuf);
+		AgentClient::Instance().OnSummonAttempted(code, cc, cl, cs, cp, agent_protocol::SummonType::special);
 		if(!mainGame->dInfo.isReplay || !mainGame->dInfo.isReplaySkiping) {
 			CardData cd;
 			if(dataManager.GetData(code, &cd) && (cd.type & TYPE_TOKEN))
@@ -2982,6 +3050,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		return true;
 	}
 	case MSG_SPSUMMONED: {
+		AgentClient::Instance().OnSummonSucceeded(agent_protocol::SummonType::special);
 		myswprintf(event_string, dataManager.GetSysString(1606));
 		return true;
 	}
@@ -2991,6 +3060,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		unsigned int cl = BufferIO::Read<uint8_t>(pbuf);
 		int cs = BufferIO::Read<uint8_t>(pbuf);
 		unsigned int cp = BufferIO::Read<uint8_t>(pbuf);
+		AgentClient::Instance().OnSummonAttempted(code, cc, cl, cs, cp, agent_protocol::SummonType::flip);
 		ClientCard* pcard = mainGame->dField.GetCard(cc, cl, cs);
 		pcard->SetCode(code);
 		pcard->position = cp;
@@ -3010,6 +3080,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		return true;
 	}
 	case MSG_FLIPSUMMONED: {
+		AgentClient::Instance().OnSummonSucceeded(agent_protocol::SummonType::flip);
 		myswprintf(event_string, dataManager.GetSysString(1608));
 		return true;
 	}
@@ -3081,6 +3152,9 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		mainGame->gMutex.lock();
 		mainGame->dField.chains.push_back(mainGame->dField.current_chain);
 		mainGame->gMutex.unlock();
+		AgentClient::Instance().OnChainAdded(mainGame->dField.current_chain.code, mainGame->dField.current_chain.controler,
+			mainGame->dField.current_chain.location, mainGame->dField.current_chain.sequence,
+			mainGame->dField.current_chain.desc, static_cast<uint32_t>(ct));
 		if (ct > 1)
 			mainGame->WaitFrameSignal(20);
 		mainGame->dField.last_chain = true;
@@ -3088,6 +3162,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	}
 	case MSG_CHAIN_SOLVING: {
 		int ct = BufferIO::Read<uint8_t>(pbuf);
+		AgentClient::Instance().OnChainSolving(static_cast<uint32_t>(ct));
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping)
 			return true;
 		if(mainGame->dField.chains.size() > 1 || mainGame->gameConf.draw_single_chain) {
@@ -3104,10 +3179,12 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		return true;
 	}
 	case MSG_CHAIN_SOLVED: {
-		/*int ct = */BufferIO::Read<uint8_t>(pbuf);
+		int ct = BufferIO::Read<uint8_t>(pbuf);
+		AgentClient::Instance().OnChainResolved(static_cast<uint32_t>(ct));
 		return true;
 	}
 	case MSG_CHAIN_END: {
+		AgentClient::Instance().OnChainEnded();
 		for(auto chit = mainGame->dField.chains.begin(); chit != mainGame->dField.chains.end(); ++chit) {
 			for(auto tgit = chit->target.begin(); tgit != chit->target.end(); ++tgit)
 				(*tgit)->is_showchaintarget = false;
@@ -3119,6 +3196,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	case MSG_CHAIN_NEGATED:
 	case MSG_CHAIN_DISABLED: {
 		int ct = BufferIO::Read<uint8_t>(pbuf);
+		AgentClient::Instance().OnChainStatus(static_cast<uint32_t>(ct), mainGame->dInfo.curMsg == MSG_CHAIN_DISABLED);
 		if(!mainGame->dInfo.isReplay || !mainGame->dInfo.isReplaySkiping) {
 			soundManager.PlaySoundEffect(SOUND_NEGATE);
 			mainGame->showcardcode = mainGame->dField.chains[ct - 1].code;
@@ -3164,12 +3242,17 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 			pbuf += count * 4;
 			return true;
 		}
+		std::vector<AgentObservedCard> indicated_cards;
+		indicated_cards.reserve(count);
 		for (int i = 0; i < count; ++i) {
 			int c = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 			unsigned int l = BufferIO::Read<uint8_t>(pbuf);
 			int s = BufferIO::Read<uint8_t>(pbuf);
-			/*int ss = */BufferIO::Read<uint8_t>(pbuf);
+			int ss = BufferIO::Read<uint8_t>(pbuf);
 			ClientCard* pcard = mainGame->dField.GetCard(c, l, s);
+			indicated_cards.push_back({pcard->code, c, l, static_cast<uint32_t>(s),
+				(l & LOCATION_OVERLAY) != 0 ? 0U : static_cast<uint32_t>(ss),
+				(l & LOCATION_OVERLAY) != 0 ? static_cast<uint32_t>(ss) : 0U});
 			pcard->is_highlighting = true;
 			mainGame->dField.current_chain.target.insert(pcard);
 			if(pcard->location & LOCATION_ONFIELD) {
@@ -3194,18 +3277,24 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 			mainGame->AddLog(textBuffer, pcard->code);
 			pcard->is_highlighting = false;
 		}
+		if(!mainGame->dInfo.isReplay)
+			AgentClient::Instance().OnCardsIndicated(indicated_cards);
 		return true;
 	}
 	case MSG_DRAW: {
 		int player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		int count = BufferIO::Read<uint8_t>(pbuf);
+		std::vector<uint32_t> draw_codes;
+		draw_codes.reserve(count);
 		ClientCard* pcard;
 		for (int i = 0; i < count; ++i) {
 			unsigned int code = BufferIO::Read<int32_t>(pbuf);
+			draw_codes.push_back(code);
 			pcard = mainGame->dField.GetCard(player, LOCATION_DECK, mainGame->dField.deck[player].size() - 1 - i);
 			if(!mainGame->dField.deck_reversed || code)
 				pcard->SetCode(code & 0x7fffffff);
 		}
+		AgentClient::Instance().OnCardsDrawn(player, draw_codes.data(), draw_codes.size());
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping) {
 			for (int i = 0; i < count; ++i) {
 				pcard = mainGame->dField.GetCard(player, LOCATION_DECK, mainGame->dField.deck[player].size() - 1);
@@ -3233,7 +3322,9 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	case MSG_DAMAGE: {
 		int player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		int val = BufferIO::Read<int32_t>(pbuf);
+		int before = mainGame->dInfo.lp[player];
 		int final = mainGame->dInfo.lp[player] - val;
+		AgentClient::Instance().OnLifePointsChanged(player, before, final < 0 ? 0 : final, agent_protocol::LifePointChange::damage);
 		if (final < 0)
 			final = 0;
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping) {
@@ -3264,7 +3355,9 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	case MSG_RECOVER: {
 		int player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		int val = BufferIO::Read<int32_t>(pbuf);
+		int before = mainGame->dInfo.lp[player];
 		int final = mainGame->dInfo.lp[player] + val;
+		AgentClient::Instance().OnLifePointsChanged(player, before, final, agent_protocol::LifePointChange::recover);
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping) {
 			mainGame->dInfo.lp[player] = final;
 			myswprintf(mainGame->dInfo.strLP[player], L"%d", mainGame->dInfo.lp[player]);
@@ -3294,13 +3387,17 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		int c1 = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		unsigned int l1 = BufferIO::Read<uint8_t>(pbuf);
 		int s1 = BufferIO::Read<uint8_t>(pbuf);
-		BufferIO::Read<uint8_t>(pbuf);
+		int ss1 = BufferIO::Read<uint8_t>(pbuf);
 		int c2 = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		unsigned int l2 = BufferIO::Read<uint8_t>(pbuf);
 		int s2 = BufferIO::Read<uint8_t>(pbuf);
-		BufferIO::Read<uint8_t>(pbuf);
+		int ss2 = BufferIO::Read<uint8_t>(pbuf);
 		ClientCard* pc1 = mainGame->dField.GetCard(c1, l1, s1);
 		ClientCard* pc2 = mainGame->dField.GetCard(c2, l2, s2);
+		if(!mainGame->dInfo.isReplay)
+			AgentClient::Instance().OnCardRelationChanged(agent_protocol::CardRelation::equip,
+				{pc1->code, c1, l1, static_cast<uint32_t>(s1), (l1 & LOCATION_OVERLAY) ? 0U : static_cast<uint32_t>(ss1), (l1 & LOCATION_OVERLAY) ? static_cast<uint32_t>(ss1) : 0U},
+				{pc2->code, c2, l2, static_cast<uint32_t>(s2), (l2 & LOCATION_OVERLAY) ? 0U : static_cast<uint32_t>(ss2), (l2 & LOCATION_OVERLAY) ? static_cast<uint32_t>(ss2) : 0U}, true);
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping) {
 			if(pc1->equipTarget)
 				pc1->equipTarget->equipped.erase(pc1);
@@ -3327,6 +3424,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	case MSG_LPUPDATE: {
 		int player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		int val = BufferIO::Read<int32_t>(pbuf);
+		AgentClient::Instance().OnLifePointsChanged(player, mainGame->dInfo.lp[player], val, agent_protocol::LifePointChange::set);
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping) {
 			mainGame->dInfo.lp[player] = val;
 			myswprintf(mainGame->dInfo.strLP[player], L"%d", mainGame->dInfo.lp[player]);
@@ -3346,8 +3444,14 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		int c1 = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		unsigned int l1 = BufferIO::Read<uint8_t>(pbuf);
 		int s1 = BufferIO::Read<uint8_t>(pbuf);
-		BufferIO::Read<uint8_t>(pbuf);
+		int ss1 = BufferIO::Read<uint8_t>(pbuf);
 		ClientCard* pc = mainGame->dField.GetCard(c1, l1, s1);
+		if(!mainGame->dInfo.isReplay && pc->equipTarget) {
+			ClientCard* target = pc->equipTarget;
+			AgentClient::Instance().OnCardRelationChanged(agent_protocol::CardRelation::equip,
+				{pc->code, c1, l1, static_cast<uint32_t>(s1), (l1 & LOCATION_OVERLAY) ? 0U : static_cast<uint32_t>(ss1), (l1 & LOCATION_OVERLAY) ? static_cast<uint32_t>(ss1) : 0U},
+				{target->code, target->controler, target->location, target->sequence, target->position, 0}, false);
+		}
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping) {
 			pc->equipTarget->equipped.erase(pc);
 			pc->equipTarget = 0;
@@ -3367,13 +3471,17 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		int c1 = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		unsigned int l1 = BufferIO::Read<uint8_t>(pbuf);
 		int s1 = BufferIO::Read<uint8_t>(pbuf);
-		BufferIO::Read<uint8_t>(pbuf);
+		int ss1 = BufferIO::Read<uint8_t>(pbuf);
 		int c2 = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		unsigned int l2 = BufferIO::Read<uint8_t>(pbuf);
 		int s2 = BufferIO::Read<uint8_t>(pbuf);
-		BufferIO::Read<uint8_t>(pbuf);
+		int ss2 = BufferIO::Read<uint8_t>(pbuf);
 		ClientCard* pc1 = mainGame->dField.GetCard(c1, l1, s1);
 		ClientCard* pc2 = mainGame->dField.GetCard(c2, l2, s2);
+		if(!mainGame->dInfo.isReplay)
+			AgentClient::Instance().OnCardRelationChanged(agent_protocol::CardRelation::card_target,
+				{pc1->code, c1, l1, static_cast<uint32_t>(s1), (l1 & LOCATION_OVERLAY) ? 0U : static_cast<uint32_t>(ss1), (l1 & LOCATION_OVERLAY) ? static_cast<uint32_t>(ss1) : 0U},
+				{pc2->code, c2, l2, static_cast<uint32_t>(s2), (l2 & LOCATION_OVERLAY) ? 0U : static_cast<uint32_t>(ss2), (l2 & LOCATION_OVERLAY) ? static_cast<uint32_t>(ss2) : 0U}, true);
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping) {
 			pc1->cardTarget.insert(pc2);
 			pc2->ownerTarget.insert(pc1);
@@ -3393,13 +3501,17 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		int c1 = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		unsigned int l1 = BufferIO::Read<uint8_t>(pbuf);
 		int s1 = BufferIO::Read<uint8_t>(pbuf);
-		BufferIO::Read<uint8_t>(pbuf);
+		int ss1 = BufferIO::Read<uint8_t>(pbuf);
 		int c2 = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		unsigned int l2 = BufferIO::Read<uint8_t>(pbuf);
 		int s2 = BufferIO::Read<uint8_t>(pbuf);
-		BufferIO::Read<uint8_t>(pbuf);
+		int ss2 = BufferIO::Read<uint8_t>(pbuf);
 		ClientCard* pc1 = mainGame->dField.GetCard(c1, l1, s1);
 		ClientCard* pc2 = mainGame->dField.GetCard(c2, l2, s2);
+		if(!mainGame->dInfo.isReplay)
+			AgentClient::Instance().OnCardRelationChanged(agent_protocol::CardRelation::card_target,
+				{pc1->code, c1, l1, static_cast<uint32_t>(s1), (l1 & LOCATION_OVERLAY) ? 0U : static_cast<uint32_t>(ss1), (l1 & LOCATION_OVERLAY) ? static_cast<uint32_t>(ss1) : 0U},
+				{pc2->code, c2, l2, static_cast<uint32_t>(s2), (l2 & LOCATION_OVERLAY) ? 0U : static_cast<uint32_t>(ss2), (l2 & LOCATION_OVERLAY) ? static_cast<uint32_t>(ss2) : 0U}, false);
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping) {
 			pc1->cardTarget.erase(pc2);
 			pc2->ownerTarget.erase(pc1);
@@ -3418,7 +3530,9 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	case MSG_PAY_LPCOST: {
 		int player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		int cost = BufferIO::Read<int32_t>(pbuf);
+		int before = mainGame->dInfo.lp[player];
 		int final = mainGame->dInfo.lp[player] - cost;
+		AgentClient::Instance().OnLifePointsChanged(player, before, final < 0 ? 0 : final, agent_protocol::LifePointChange::cost);
 		if (final < 0)
 			final = 0;
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping) {
@@ -3492,12 +3606,22 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		int ca = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		unsigned int la = BufferIO::Read<uint8_t>(pbuf);
 		int sa = BufferIO::Read<uint8_t>(pbuf);
-		BufferIO::Read<uint8_t>(pbuf);
+		unsigned int pa = BufferIO::Read<uint8_t>(pbuf);
 		mainGame->dField.attacker = mainGame->dField.GetCard(ca, la, sa);
 		int cd = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		unsigned int ld = BufferIO::Read<uint8_t>(pbuf);
 		int sd = BufferIO::Read<uint8_t>(pbuf);
-		BufferIO::Read<uint8_t>(pbuf);
+		unsigned int pd = BufferIO::Read<uint8_t>(pbuf);
+		const AgentObservedCard agent_attacker{mainGame->dField.attacker ? mainGame->dField.attacker->code : 0,
+			ca, la, static_cast<uint32_t>(sa), pa, 0};
+		AgentObservedCard agent_target{};
+		const AgentObservedCard* agent_target_pointer = nullptr;
+		if(ld != 0) {
+			const auto* target = mainGame->dField.GetCard(cd, ld, sd);
+			agent_target = {target ? target->code : 0, cd, ld, static_cast<uint32_t>(sd), pd, 0};
+			agent_target_pointer = &agent_target;
+		}
+		AgentClient::Instance().OnAttackDeclared(agent_attacker, agent_target_pointer);
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping)
 			return true;
 		float sy;
@@ -3543,19 +3667,31 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		int ca = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		unsigned int la = BufferIO::Read<uint8_t>(pbuf);
 		int sa = BufferIO::Read<uint8_t>(pbuf);
-		BufferIO::Read<uint8_t>(pbuf);
+		unsigned int pa = BufferIO::Read<uint8_t>(pbuf);
 		int aatk = BufferIO::Read<int32_t>(pbuf);
 		int adef = BufferIO::Read<int32_t>(pbuf);
-		/*int da = */BufferIO::Read<uint8_t>(pbuf);
+		bool da = BufferIO::Read<uint8_t>(pbuf) != 0;
 		int cd = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		unsigned int ld = BufferIO::Read<uint8_t>(pbuf);
 		int sd = BufferIO::Read<uint8_t>(pbuf);
-		BufferIO::Read<uint8_t>(pbuf);
+		unsigned int pd = BufferIO::Read<uint8_t>(pbuf);
 		int datk = BufferIO::Read<int32_t>(pbuf);
 		int ddef = BufferIO::Read<int32_t>(pbuf);
-		/*int dd = */BufferIO::Read<uint8_t>(pbuf);
+		bool dd = BufferIO::Read<uint8_t>(pbuf) != 0;
 		if(mainGame->dInfo.isReplay && mainGame->dInfo.isReplaySkiping)
 			return true;
+		const auto* attacker = mainGame->dField.GetCard(ca, la, sa);
+		const AgentObservedCard agent_attacker{attacker ? attacker->code : 0, ca, la,
+			static_cast<uint32_t>(sa), pa, 0};
+		AgentObservedCard agent_defender{};
+		const AgentObservedCard* agent_defender_pointer = nullptr;
+		if(ld != 0) {
+			const auto* defender = mainGame->dField.GetCard(cd, ld, sd);
+			agent_defender = {defender ? defender->code : 0, cd, ld, static_cast<uint32_t>(sd), pd, 0};
+			agent_defender_pointer = &agent_defender;
+		}
+		AgentClient::Instance().OnBattleSnapshot(agent_attacker, aatk, adef, da,
+			agent_defender_pointer, datk, ddef, dd);
 		mainGame->gMutex.lock();
 		ClientCard* pcard = mainGame->dField.GetCard(ca, la, sa);
 		if(aatk != pcard->attack) {
@@ -3581,6 +3717,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		return true;
 	}
 	case MSG_ATTACK_DISABLED: {
+		AgentClient::Instance().OnAttackDisabled();
 		myswprintf(event_string, dataManager.GetSysString(1621), dataManager.GetName(mainGame->dField.attacker->code));
 		return true;
 	}
@@ -4079,6 +4216,7 @@ void DuelClient::SetResponseB(void* respB, size_t len) {
 	response_len = len;
 }
 void DuelClient::SendResponse() {
+	AgentClient::Instance().OnDecisionSubmitted(response_buf, response_len);
 	switch(mainGame->dInfo.curMsg) {
 	case MSG_SELECT_BATTLECMD: {
 		mainGame->dField.ClearCommandFlag();

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include "event_handler.h"
+#include "agent_client/agent_client.h"
 #include "client_field.h"
 #include "network.h"
 #include "game.h"
@@ -37,6 +38,10 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 					mainGame->stHintMsg->setVisible(true);
 					CTOS_HandResult cshr;
 					cshr.res = id - BUTTON_HAND1 + 1;
+					const auto action = cshr.res == 1 ? agent_protocol::Action::scissors
+						: cshr.res == 2 ? agent_protocol::Action::rock : agent_protocol::Action::paper;
+					AgentClient::Instance().OnPreDuelDecisionSubmitted(
+						agent_protocol::Decision::pre_duel_hand, action, cshr.res);
 					DuelClient::SendPacketToServer(CTOS_HAND_RESULT, cshr);
 				}
 				break;
@@ -47,6 +52,8 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 				mainGame->HideElement(mainGame->wFTSelect);
 				CTOS_TPResult cstr;
 				cstr.res = BUTTON_SECOND - id;
+				AgentClient::Instance().OnPreDuelDecisionSubmitted(agent_protocol::Decision::pre_duel_turn_order,
+					cstr.res != 0 ? agent_protocol::Action::go_first : agent_protocol::Action::go_second, cstr.res);
 				DuelClient::SendPacketToServer(CTOS_TP_RESULT, cstr);
 				break;
 			}
@@ -150,6 +157,7 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			}
 			case BUTTON_SURRENDER_YES: {
 				soundManager.PlaySoundEffect(SOUND_BUTTON);
+				AgentClient::Instance().OnSurrenderRequested();
 				DuelClient::SendPacketToServer(CTOS_SURRENDER);
 				mainGame->HideElement(mainGame->wSurrender);
 				mainGame->dField.tag_surrender = true;
