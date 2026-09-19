@@ -8,15 +8,8 @@ from .framing import encode_frame
 
 @dataclass(frozen=True, slots=True)
 class EffectDescriptor:
-    """Description metadata associated with an engine activation candidate.
+    """Non-normative text and engine flags associated with an activation candidate."""
 
-    The ID and candidate flags come from the engine message. Text is resolved
-    from local client resources and the zero-based offset is client-derived;
-    neither is a printed effect number.
-    """
-
-    description_id: int
-    description_offset: int | None
     description_text: str | None
     engine_candidate_index: int | None
     raw_flags: int | None

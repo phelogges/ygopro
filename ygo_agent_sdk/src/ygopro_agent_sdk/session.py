@@ -206,16 +206,13 @@ class ProtocolSession:
             return None
         if not isinstance(value, dict):
             raise ProtocolError("effect_candidate must be an object")
-        description_id = ProtocolSession._integer(value, "description_id")
-        description_offset = value.get("description_offset")
-        if description_offset is not None and not isinstance(description_offset, int):
-            raise ProtocolError("description_offset must be an integer or null")
         description_text = value.get("description_text")
         if description_text is not None and not isinstance(description_text, str):
             raise ProtocolError("description_text must be a string")
+        raw = copy.deepcopy(value)
+        raw.pop("description_id", None)
+        raw.pop("description_offset", None)
         return EffectDescriptor(
-            description_id=description_id,
-            description_offset=description_offset,
             description_text=description_text,
             engine_candidate_index=ProtocolSession._nullable_integer(
                 value, "engine_candidate_index"
@@ -224,7 +221,7 @@ class ProtocolSession:
             operation=ProtocolSession._nullable_boolean(value, "operation"),
             reset=ProtocolSession._nullable_boolean(value, "reset"),
             forced=ProtocolSession._nullable_boolean(value, "forced"),
-            raw=copy.deepcopy(value),
+            raw=raw,
         )
 
     @staticmethod

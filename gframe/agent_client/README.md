@@ -74,9 +74,8 @@ agent_log_path = agent-log.jsonl
 `graveyard` 等；表示形式使用 `face_up_attack`、`face_down` 等。已知卡发送密码
 `id`；对手隐藏区域和未知卡只发送数量或 `known: false`。
 
-可发动候选额外带 `effect_candidate`。其中 `description_id` 是引擎描述 ID，
-`description_offset` 是该卡描述表内的零基槽位；它不等同于卡文印刷的①②③。
-`description_text` 是客户端资源中与描述 ID 对应的文本。`raw_flags`、`operation`、
+可发动候选额外带 `effect_candidate`。`description_text` 是客户端资源中可取得的提示文本，
+不代表卡文印刷的①②③。`raw_flags`、`operation`、
 `reset` 和 `forced` 均来自现有候选数据。`selection_hint.raw_value` 是上下文相关的
 原始提示值，不能脱离对应的 `MSG_SELECT_*` 消息解释。
 

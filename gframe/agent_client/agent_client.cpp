@@ -167,19 +167,8 @@ std::string DescriptionText(uint32_t description) {
 }
 
 json Description(uint32_t description) {
-	json result = {{"description_id", description}};
 	const auto text = DescriptionText(description);
-	if(!text.empty()) result["description_text"] = text;
-	return result;
-}
-
-json EffectDescriptor(uint32_t code, uint32_t description) {
-	auto result = Description(description);
-	result["description_offset"] = nullptr;
-	const uint64_t base = static_cast<uint64_t>(code) * 16;
-	if(code != 0 && description >= base && description < base + 16)
-		result["description_offset"] = static_cast<uint32_t>(description - base);
-	return result;
+	return text.empty() ? json::object() : json{{"description_text", text}};
 }
 
 protocol::Position PositionFromEngine(uint32_t location, uint32_t position) noexcept {
@@ -528,10 +517,12 @@ void AgentClient::OnCardMoved(uint32_t engine_code, uint32_t observed_code, prot
 }
 
 void AgentClient::OnChainAdded(uint32_t code, int player, uint32_t location, uint32_t sequence, uint32_t description, uint32_t chain_index) {
-	LogDuelEvent(protocol::Event::chain_added, {{"card", code == 0 ? json{{"known", false}} : json{{"known", true}, {"id", code}}},
+	json payload = {{"card", code == 0 ? json{{"known", false}} : json{{"known", true}, {"id", code}}},
 		{"source", Location(player, location, sequence, 0)},
-		{"effect", EffectDescriptor(code, description)}, {"chain_index", chain_index},
-		{"engine_evidence", {{"messages", json::array({"MSG_CHAINING", "MSG_CHAINED"})}}}});
+		{"chain_index", chain_index},
+		{"engine_evidence", {{"messages", json::array({"MSG_CHAINING", "MSG_CHAINED"})}}}};
+	if(const auto effect = Description(description); !effect.empty()) payload["effect"] = effect;
+	LogDuelEvent(protocol::Event::chain_added, std::move(payload));
 }
 
 void AgentClient::OnChainSolving(uint32_t chain_index) { LogDuelEvent(protocol::Event::chain_solving, {{"chain_index", chain_index}, {"engine_evidence", {{"message", "MSG_CHAIN_SOLVING"}}}}); }
@@ -873,7 +864,7 @@ void AgentClient::OnDecisionAvailable(const unsigned char* message, size_t lengt
 		if(card) choice["card"] = Card(card, true);
 		if(effect_candidate && *effect_candidate < mainGame->dField.activatable_descs.size()) {
 			const auto [description, flags] = mainGame->dField.activatable_descs[*effect_candidate];
-			auto effect = EffectDescriptor(card ? card->code : 0, static_cast<uint32_t>(description));
+			auto effect = Description(static_cast<uint32_t>(description));
 			effect["engine_candidate_index"] = *effect_candidate;
 			effect["raw_flags"] = flags;
 			effect["operation"] = (flags & EDESC_OPERATION) != 0;
@@ -943,8 +934,10 @@ void AgentClient::OnDecisionAvailable(const unsigned char* message, size_t lengt
 		std::memcpy(&code, message + 2, sizeof code);
 		std::memcpy(&description, message + 10, sizeof description);
 		const int player = mainGame->LocalPlayer(message[6]);
-		decision["effect_prompt"] = {{"card", code == 0 ? json{{"known", false}} : json{{"known", true}, {"id", code}}},
-			{"source", Location(player, message[7], message[8], message[9])}, {"effect", EffectDescriptor(code, description)}};
+		json prompt = {{"card", code == 0 ? json{{"known", false}} : json{{"known", true}, {"id", code}}},
+			{"source", Location(player, message[7], message[8], message[9])}};
+		if(const auto effect = Description(description); !effect.empty()) prompt["effect"] = effect;
+		decision["effect_prompt"] = std::move(prompt);
 	} else if(mainGame->dInfo.curMsg == MSG_SELECT_YESNO && length >= 6) {
 		uint32_t description{};
 		std::memcpy(&description, message + 2, sizeof description);

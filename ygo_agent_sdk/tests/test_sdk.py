@@ -131,7 +131,7 @@ class ProtocolSessionTests(unittest.TestCase):
         )
         self.assertEqual(session.events[0].kind, "card_moved")
 
-    def test_v3_effect_candidate_is_description_metadata_not_printed_index(self) -> None:
+    def test_v3_effect_candidate_exposes_text_without_engine_description_identifier(self) -> None:
         message = request(1, 1, {"mode": "snapshot", "data": {}})
         message["protocol_version"] = 3
         message["decision"]["selection_hint"] = {
@@ -157,7 +157,9 @@ class ProtocolSessionTests(unittest.TestCase):
         parsed = ProtocolSession().ingest_message(message)
         self.assertIsNotNone(parsed)
         effect = parsed.choices[0].effect_candidate  # type: ignore[union-attr]
-        self.assertEqual(effect.description_offset, 0)  # type: ignore[union-attr]
+        self.assertEqual(effect.description_text, "从卡组把1只怪兽加入手卡。")  # type: ignore[union-attr]
+        self.assertNotIn("description_id", effect.raw)  # type: ignore[union-attr]
+        self.assertNotIn("description_offset", effect.raw)  # type: ignore[union-attr]
         self.assertNotIn("printed_effect_index", effect.raw)  # type: ignore[union-attr]
         self.assertEqual(parsed.selection_hint["raw_value"], 507)  # type: ignore[union-attr,index]
 
