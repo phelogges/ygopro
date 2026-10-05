@@ -89,7 +89,7 @@ void LanTestRunner::Start() {
 				mainGame->ebDrawCount->setText(L"1");
 				mainGame->ebTimeLimit->setText(L"0");
 				mainGame->chkNoCheckDeck->setChecked(true);
-				mainGame->chkNoShuffleDeck->setChecked(false);
+				mainGame->chkNoShuffleDeck->setChecked(Environment("YGOPRO_AGENT_E2E_FIXED_DECK") == "1");
 			}
 		}
 		if(role_ == "host" && !NetServer::StartServer(port_, loopback_address, nullptr, false))

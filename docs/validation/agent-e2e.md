@@ -10,4 +10,15 @@ python3.12 tools/agent-e2e.py --games 3 --deck deck/test/test.ydk
 
 脚本启动 Python 确定性测试端及两个客户端进程，每局独立建房并保留 `out/agent-e2e-runs/` 下的结果、客户端诊断 JSONL 和进程日志。默认单局上限 300 秒，可用 `--timeout` 调整。若某一局没有双方的 `finished` 结果，脚本返回错误。Windows 构建可通过 `--client` 指向对应 exe；Python 3.12 是测试脚本所需，游戏运行时不依赖 Python。
 
-此入口只在设置 `YGOPRO_AGENT_E2E_ROLE=host|guest` 的独立测试进程中生效，不保存 `system.conf`。正式客户端仍走普通 UI 建房和 F10 接管。Null driver 的游戏运行路径必须经 macOS、Windows 实测，单靠编译或协议夹具不算通过。
+固定起手和脚本动作使用 YAML 场景：
+
+```bash
+uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario tests/scenarios/fixed-opening.yaml
+uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario tests/scenarios/summon-chain.yaml
+```
+
+场景模式单局运行，双方分别加载场景指定的 YDK；`#main` 前五张成为预期起手。它检查实际双端起手，按角色执行严格语义动作和可见状态断言，并在 `scenario-report.json` 中保存成功或失败诊断。`--host-deck`、`--guest-deck` 可覆盖场景卡组路径。写场景时遵循 [场景契约](../contracts/agent-scenario-v1.md)。房间“不洗牌”同时抑制后续卡组洗牌；其他引擎随机事件不能完全控制。原有三局随机回归继续保留。
+
+服务端发来的空 `MSG_SELECT_CHAIN` 响应窗口由客户端自动回复，不进入 Agent 决策请求，也不写入场景步骤。JSONL 的 `automatic_pass` 记录与出站动作包一一核对；回归还会拒绝任何只有 `pass` 候选却被送到 Agent 的请求。
+
+此入口只在设置 `YGOPRO_AGENT_E2E_ROLE=host|guest` 的独立测试进程中生效，不保存 `system.conf`。正式客户端仍走普通 UI 建房和 F10 接管。固定场景的客户端诊断日志上限为 100 MiB，超限写入截断标记并判测试失败；普通模式上限仍为 10 MiB。Null driver 的游戏运行路径必须经 macOS、Windows 实测，单靠编译或协议夹具不算通过。

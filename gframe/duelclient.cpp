@@ -1867,7 +1867,8 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 					panelmode = true;
 			}
 		}
-		if(!agent_client::AgentController::Instance().IsControlling() && !select_trigger && !mainGame->dField.chain_forced && (mainGame->ignore_chain || ((count == 0 || specount == 0) && !mainGame->always_chain)) && (count == 0 || !mainGame->chain_when_avail)) {
+		const bool agent_controlling = agent_client::AgentController::Instance().IsControlling();
+		if((agent_controlling && count == 0) || (!agent_controlling && !select_trigger && !mainGame->dField.chain_forced && (mainGame->ignore_chain || ((count == 0 || specount == 0) && !mainGame->always_chain)) && (count == 0 || !mainGame->chain_when_avail))) {
 			SetResponseI(-1);
 			mainGame->dField.ClearChainSelect();
 			if(mainGame->chkWaitChain->isChecked() && !mainGame->ignore_chain) {

@@ -2,6 +2,8 @@
 
 项目内的 Python 3.12 决策契约翻译包，运行时仅使用标准库。负责校验客户端快照、匹配当前提示候选、把结构化意图转换为 v1 响应。传输、卡库读取和 Agent 推理由调用方实现。
 
+本地 YAML 场景执行器使用可选的 `scenario` 依赖组（PyYAML）；基础翻译包和正式客户端不需要它。场景格式见 [场景契约](../docs/contracts/agent-scenario-v1.md)。
+
 ```python
 from agent_sdk import parse_request, build_response
 
@@ -53,4 +55,5 @@ uv run python -m unittest discover -s tests -v
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run pyright
+uv run --extra scenario python -m unittest discover -s tests -v
 ```

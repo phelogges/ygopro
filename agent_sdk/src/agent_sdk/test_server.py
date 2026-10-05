@@ -204,6 +204,9 @@ class DecisionServer(HTTPServer):
             self.address_family = socket.AF_INET6
         super().__init__((host, port), DecisionHandler)
 
+    def decide(self, value: object) -> Object:
+        return decide(value, self.digest)
+
 
 class DecisionHandler(BaseHTTPRequestHandler):
     def setup(self) -> None:
@@ -261,7 +264,7 @@ class DecisionHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(length)
             if len(body) != length:
                 raise DecisionError("invalid_intent", "Incomplete request body", 400)
-            response = decide(body, server.digest)
+            response = server.decide(body)
         except DecisionError as exc:
             self._error(exc.status, exc.code, str(exc))
         except UnsupportedPrompt as exc:

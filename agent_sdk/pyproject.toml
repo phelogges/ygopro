@@ -9,8 +9,11 @@ description = "Local decision-contract validation and intent translation for YGO
 requires-python = ">=3.12"
 dependencies = []
 
+[project.optional-dependencies]
+scenario = ["PyYAML>=6.0.2,<7"]
+
 [dependency-groups]
-dev = ["ruff", "pyright"]
+dev = ["ruff", "pyright", "types-PyYAML>=6.0.12,<7"]
 
 [tool.ruff]
 target-version = "py312"

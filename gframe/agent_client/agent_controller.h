@@ -86,6 +86,7 @@ private:
 	int turn_player_ = -1;
 	std::ofstream log_file_;
 	std::size_t log_size_ = 0;
+	bool log_truncated_ = false;
 	std::atomic<std::uint64_t> submission_serial_{0};
 };
 

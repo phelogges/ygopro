@@ -19,6 +19,8 @@ namespace ygo::agent_client {
 namespace {
 
 constexpr std::size_t max_log_size = 10 * 1024 * 1024;
+constexpr std::size_t max_e2e_log_size = 100 * 1024 * 1024;
+constexpr std::string_view log_truncated_marker = "{\"kind\":\"diagnostic_log_truncated\"}\n";
 constexpr std::size_t max_pending_events = 512;
 
 std::int64_t NowUnixMs() {
@@ -242,11 +244,19 @@ void AgentController::OnResponseSubmitted() {
 
 void AgentController::Log(const nlohmann::json& record) {
 	std::lock_guard<std::mutex> lock(log_mutex_);
-	if(!log_file_)
+	if(!log_file_ || log_truncated_)
 		return;
 	const std::string line = record.dump() + '\n';
-	if(log_size_ + line.size() > max_log_size)
+	const char* role = std::getenv("YGOPRO_AGENT_E2E_ROLE");
+	const std::size_t limit = role && *role ? max_e2e_log_size : max_log_size;
+	if(log_size_ + log_truncated_marker.size() > limit
+	   || line.size() > limit - log_size_ - log_truncated_marker.size()) {
+		log_file_ << log_truncated_marker;
+		log_file_.flush();
+		log_size_ += log_truncated_marker.size();
+		log_truncated_ = true;
 		return;
+	}
 	log_file_ << line;
 	log_file_.flush();
 	log_size_ += line.size();
@@ -343,14 +353,33 @@ nlohmann::json AgentController::BuildObservation() const {
 }
 
 void AgentController::OnGameMessage(const std::uint8_t* bytes, std::size_t length, bool already_answered) {
+	std::string phase;
+	int turn_player = -1;
+	bool automatic_empty_chain = false;
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 		if(!initialized_ || !available_ || mainGame->dInfo.isReplay || mainGame->dInfo.isSingleMode)
 			return;
-		RecordEvent(bytes, length);
+		automatic_empty_chain = controlling_ && already_answered && bytes && length >= 3
+			&& bytes[0] == MSG_SELECT_CHAIN && bytes[2] == 0;
+		if(!automatic_empty_chain)
+			RecordEvent(bytes, length);
+		phase = phase_;
+		turn_player = turn_player_;
 	}
-	if(already_answered)
+	if(const char* role = std::getenv("YGOPRO_AGENT_E2E_ROLE"); role && *role && bytes && length) {
+		auto observation = BuildObservation();
+		observation["phase"] = phase;
+		observation["turn_player"] = turn_player < 0 ? 0 : turn_player;
+		observation["test_role"] = role;
+		Log({{"kind", "visible_snapshot"}, {"role", role}, {"message_type", bytes[0]},
+			{"observation", std::move(observation)}, {"timestamp_unix_ms", NowUnixMs()}});
+	}
+	if(already_answered) {
+		if(automatic_empty_chain)
+			Log({{"kind", "automatic_pass"}, {"message_type", MSG_SELECT_CHAIN}, {"timestamp_unix_ms", NowUnixMs()}});
 		return;
+	}
 	std::vector<std::uint32_t> allowed_card_ids;
 	if(bytes && length && bytes[0] == MSG_ANNOUNCE_CARD) {
 		std::lock_guard<std::mutex> lock(mainGame->gMutex);

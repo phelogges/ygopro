@@ -1,0 +1,80 @@
+schema_version: 1
+decks:
+  host: host-chain.ydk
+  guest: guest-chain.ydk
+pregame:
+  host: rock
+  guest: paper
+  winner_chooses: go_second
+steps:
+  host:
+    - expect:
+        prompt: idle_command
+        phase: main_1
+        zones:
+          - player: self
+            name: hand
+            contains:
+              - {card_id: "15025844"}
+      action:
+        kind: choice
+        match: {kind: normal_summon, card_id: "15025844"}
+    - expect:
+        prompt: select_place
+      action:
+        kind: select_places
+        places:
+          - {controller: 0, location: monster, sequence: 0}
+    - expect:
+        prompt: idle_command
+        phase: main_1
+        zones:
+          - player: self
+            name: monster
+            contains:
+              - {card_id: "15025844", sequence: 0}
+      action:
+        kind: choice
+        match: {kind: activate, card_id: "55144522", description_id: 0}
+    - expect:
+        prompt: select_place
+      action:
+        kind: select_places
+        places:
+          - {controller: 0, location: spell, sequence: 0}
+  guest:
+    - expect:
+        prompt: chain
+      action:
+        kind: choice
+        match: {kind: activate, card_id: "14558127"}
+      wait_for:
+        timeout_ms: 5000
+        expect:
+          zones:
+            - player: self
+              name: graveyard
+              contains:
+                - {card_id: "14558127"}
+goal:
+  kind: checkpoint
+  expect:
+    host:
+      zones:
+        - player: self
+          name: hand
+          count: 3
+        - player: self
+          name: monster
+          contains:
+            - {card_id: "15025844"}
+        - player: self
+          name: graveyard
+          contains:
+            - {card_id: "55144522"}
+    guest:
+      zones:
+        - player: self
+          name: graveyard
+          contains:
+            - {card_id: "14558127"}
