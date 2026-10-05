@@ -11,10 +11,25 @@
 #include "replay_mode.h"
 #include "single_mode.h"
 #include "materials.h"
+#include "agent_client/agent_controller.h"
 
 namespace ygo {
 
 bool ClientField::OnEvent(const irr::SEvent& event) {
+	if(agent_client::AgentController::Instance().IsControlling() &&
+	   ((mainGame->dInfo.isStarted && !mainGame->dInfo.isFinished) ||
+	    agent_client::AgentController::Instance().HasPendingDecision())) {
+		if(event.EventType == irr::EET_KEY_INPUT_EVENT &&
+		   event.KeyInput.Key == irr::KEY_F10 && !event.KeyInput.PressedDown)
+			agent_client::AgentController::Instance().Toggle();
+		const bool notification_ack = event.EventType == irr::EET_GUI_EVENT &&
+			event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED &&
+			event.GUIEvent.Caller->getID() == BUTTON_MSG_OK && mainGame->wMessage->isVisible();
+		if(!notification_ack && (event.EventType == irr::EET_KEY_INPUT_EVENT ||
+		   event.EventType == irr::EET_MOUSE_INPUT_EVENT ||
+		   event.EventType == irr::EET_GUI_EVENT))
+			return true;
+	}
 	if(OnCommonEvent(event))
 		return false;
 	switch(event.EventType) {
@@ -37,6 +52,7 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 					mainGame->stHintMsg->setVisible(true);
 					CTOS_HandResult cshr;
 					cshr.res = id - BUTTON_HAND1 + 1;
+					agent_client::AgentController::Instance().OnResponseSubmitted();
 					DuelClient::SendPacketToServer(CTOS_HAND_RESULT, cshr);
 				}
 				break;
@@ -47,6 +63,7 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 				mainGame->HideElement(mainGame->wFTSelect);
 				CTOS_TPResult cstr;
 				cstr.res = BUTTON_SECOND - id;
+				agent_client::AgentController::Instance().OnResponseSubmitted();
 				DuelClient::SendPacketToServer(CTOS_TP_RESULT, cstr);
 				break;
 			}
@@ -1652,6 +1669,10 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 		break;
 	}
 	case irr::EET_KEY_INPUT_EVENT: {
+		if(event.KeyInput.Key == irr::KEY_F10 && !event.KeyInput.PressedDown) {
+			agent_client::AgentController::Instance().Toggle();
+			return true;
+		}
 		if (mainGame->HasFocus(irr::gui::EGUIET_EDIT_BOX))
 			break;
 		switch(event.KeyInput.Key) {

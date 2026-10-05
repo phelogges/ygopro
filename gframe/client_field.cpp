@@ -8,6 +8,7 @@
 #include "image_manager.h"
 #include "game.h"
 #include "materials.h"
+#include "agent_client/agent_controller.h"
 
 namespace ygo {
 
@@ -1043,7 +1044,8 @@ void ClientField::FadeCard(ClientCard * pcard, int alpha, int frame) {
 }
 bool ClientField::ShowSelectSum(bool panelmode) {
 	select_ready = CheckSelectSum();
-	if(select_ready && (selectsum_cards.size() == 0 || selectable_cards.size() == 0)) {
+	if(select_ready && (selectsum_cards.size() == 0 || selectable_cards.size() == 0)
+		&& !agent_client::AgentController::Instance().IsControlling()) {
 		SetResponseSelectedCards();
 		ShowCancelOrFinishButton(0);
 		if(mainGame->wCardSelect->isVisible())

@@ -1,0 +1,13 @@
+# 无界面操作的局域网对局回归
+
+测试模式让两个独立客户端进程直接调用现有 LAN API，分别扮演 host 和 guest。两端使用 Irrlicht Null driver 保留客户端状态解析、帧信号和 AgentController，直接发送原有 `CTOS_UPDATE_DECK`、`CTOS_HS_READY`、`CTOS_HS_START`，不注入鼠标或 GUI 按钮事件，也不修改服务端实现。
+
+先以 `cmake --preset MacOS-Debug && cmake --build --preset MacOS-Debug` 构建，然后从仓库根目录运行：
+
+```bash
+python3.12 tools/agent-e2e.py --games 3 --deck deck/test/test.ydk
+```
+
+脚本启动 Python 确定性测试端及两个客户端进程，每局独立建房并保留 `out/agent-e2e-runs/` 下的结果、客户端诊断 JSONL 和进程日志。默认单局上限 300 秒，可用 `--timeout` 调整。若某一局没有双方的 `finished` 结果，脚本返回错误。Windows 构建可通过 `--client` 指向对应 exe；Python 3.12 是测试脚本所需，游戏运行时不依赖 Python。
+
+此入口只在设置 `YGOPRO_AGENT_E2E_ROLE=host|guest` 的独立测试进程中生效，不保存 `system.conf`。正式客户端仍走普通 UI 建房和 F10 接管。Null driver 的游戏运行路径必须经 macOS、Windows 实测，单靠编译或协议夹具不算通过。

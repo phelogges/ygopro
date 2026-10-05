@@ -10,6 +10,8 @@
 #include "duelclient.h"
 #include "netserver.h"
 #include "single_mode.h"
+#include "agent_client/agent_controller.h"
+#include "agent_client/lan_test_runner.h"
 #include <thread>
 #include <chrono>
 #ifdef _WIN32
@@ -89,6 +91,8 @@ bool Game::Initialize() {
 		params.DriverType = irr::video::EDT_DIRECT3D9;
 	else
 		params.DriverType = irr::video::EDT_OPENGL;
+	if(agent_client::LanTestRunner::Instance().Active())
+		params.DriverType = irr::video::EDT_NULL;
 	params.WindowSize = irr::core::dimension2d<irr::u32>(gameConf.window_width, gameConf.window_height);
 	device = irr::createDeviceEx(params);
 #ifdef __APPLE__
@@ -1017,6 +1021,8 @@ bool Game::Initialize() {
 	return true;
 }
 void Game::MainLoop() {
+	agent_client::AgentController::Instance().Initialize();
+	agent_client::LanTestRunner::Instance().Start();
 	wchar_t cap[256];
 	camera = smgr->addCameraSceneNode(0);
 	irr::core::matrix4 mProjection;
@@ -1038,6 +1044,8 @@ void Game::MainLoop() {
 	auto lastFrameTime = std::chrono::steady_clock::now();
 	constexpr auto targetFrameDuration = std::chrono::microseconds(16667);
 	while(device->run()) {
+		agent_client::AgentController::Instance().Poll();
+		agent_client::LanTestRunner::Instance().Poll();
 		auto size = driver->getScreenSize();
 		if(window_size != size) {
 			window_size = size;
@@ -1156,11 +1164,13 @@ void Game::MainLoop() {
 	else
 		timeEndPeriod(1);
 #endif
+	agent_client::AgentController::Instance().Stop();
 	DuelClient::StopClient(CLIENT_CLOSE_REASON_EXIT);
 	if(dInfo.isSingleMode)
 		SingleMode::StopPlay(true);
 	std::this_thread::sleep_for(std::chrono::milliseconds(500));
-	SaveConfig();
+	if(!agent_client::LanTestRunner::Instance().Active())
+		SaveConfig();
 	device->drop();
 }
 void Game::BuildProjectionMatrix(irr::core::matrix4& mProjection, irr::f32 left, irr::f32 right, irr::f32 bottom, irr::f32 top, irr::f32 znear, irr::f32 zfar) {

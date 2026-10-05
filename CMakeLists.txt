@@ -43,3 +43,18 @@ add_subdirectory(third_party)
 # add_subdirectory(ocgcore)
 add_subdirectory(gframe)
 
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(agent_codec_test tests/agent_codec_test.cpp gframe/agent_client/decision_codec.cpp)
+    target_include_directories(agent_codec_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/gframe)
+    target_link_libraries(agent_codec_test PRIVATE nlohmann_json::nlohmann_json)
+    add_test(NAME agent_codec COMMAND agent_codec_test)
+    find_package(Python3 3.12 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME agent_codec_sdk_contract
+            COMMAND ${CMAKE_COMMAND} -E env
+                "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/agent_sdk/src"
+                ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_codec_sdk.py
+                $<TARGET_FILE:agent_codec_test>)
+    endif()
+endif()

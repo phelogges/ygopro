@@ -13,6 +13,8 @@
 #include "deck_manager.h"
 #include "replay.h"
 #include "mysocket.h"
+#include "agent_client/agent_controller.h"
+#include "agent_client/lan_test_runner.h"
 #include <event2/event.h>
 #include <event2/bufferevent.h>
 #include <event2/buffer.h>
@@ -66,6 +68,7 @@ unsigned char DuelClient::selftype = 0;
 std::vector<HostPacket> DuelClient::hosts;
 
 int DuelClient::WriteBufferEvent(bufferevent* bufev, const void* data, size_t size) {
+	agent_client::AgentController::Instance().OnWirePacket(false, data, size);
 	return bufferevent_write(bufev, data, size);
 }
 
@@ -81,7 +84,8 @@ bool DuelClient::StartClient(unsigned int ip, unsigned short port, bool create_g
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = htonl(ip);
 	sin.sin_port = htons(port);
-	client_bev = bufferevent_socket_new(client_base, -1, BEV_OPT_CLOSE_ON_FREE);
+	client_bev = bufferevent_socket_new(client_base, -1,
+		BEV_OPT_CLOSE_ON_FREE | BEV_OPT_THREADSAFE | BEV_OPT_DEFER_CALLBACKS | BEV_OPT_UNLOCK_CALLBACKS);
 	bufferevent_setcb(client_bev, ClientRead, nullptr, ClientEvent, (void*)create_game);
 	if (bufferevent_socket_connect(client_bev, (sockaddr*)&sin, sizeof(sin)) < 0) {
 		bufferevent_free(client_bev);
@@ -139,8 +143,10 @@ void DuelClient::ClientRead(bufferevent* bev, void* ctx) {
 		if (len < packet_len + 2)
 			break;
 		int read_len = evbuffer_remove(input, duel_client_read, packet_len + 2);
-		if (read_len > 2)
+		if (read_len > 2) {
+			agent_client::AgentController::Instance().OnWirePacket(true, duel_client_read, read_len);
 			HandleSTOCPacketLan(&duel_client_read[2], read_len - 2);
+		}
 		len -= packet_len + 2;
 	}
 }
@@ -282,11 +288,24 @@ void DuelClient::ClientThread() {
 void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 	unsigned char* pdata = data;
 	unsigned char pktType = BufferIO::Read<uint8_t>(pdata);
+	if(agent_client::LanTestRunner::Instance().Active() &&
+	   (pktType == STOC_REPLAY || pktType == STOC_DUEL_END)) {
+		if(pktType == STOC_DUEL_END)
+			agent_client::AgentController::Instance().OnDuelEnd();
+		agent_client::LanTestRunner::Instance().OnPacket(pktType, pdata, len - 1);
+		return;
+	}
 	switch(pktType) {
 	case STOC_GAME_MSG: {
 		if (len < 1 + sizeof(unsigned char))
 			return;
+		const auto submission_before = agent_client::AgentController::Instance().SubmissionSerial();
 		ClientAnalyze(pdata, len - 1);
+		const bool answered = submission_before != agent_client::AgentController::Instance().SubmissionSerial();
+		if(pdata[0] == MSG_RETRY && last_successful_msg_length)
+			agent_client::AgentController::Instance().OnGameMessage(last_successful_msg, last_successful_msg_length, answered);
+		else
+			agent_client::AgentController::Instance().OnGameMessage(pdata, len - 1, answered);
 		break;
 	}
 	case STOC_ERROR_MSG: {
@@ -399,12 +418,14 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 	}
 	case STOC_SELECT_HAND: {
 		mainGame->wHand->setVisible(true);
+		agent_client::AgentController::Instance().OnPreDuelDecision(agent_client::DecisionSource::select_hand);
 		break;
 	}
 	case STOC_SELECT_TP: {
 		mainGame->gMutex.lock();
 		mainGame->PopupElement(mainGame->wFTSelect);
 		mainGame->gMutex.unlock();
+		agent_client::AgentController::Instance().OnPreDuelDecision(agent_client::DecisionSource::select_turn_player);
 		break;
 	}
 	case STOC_HAND_RESULT: {
@@ -666,6 +687,7 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 		break;
 	}
 	case STOC_DUEL_START: {
+		agent_client::AgentController::Instance().OnDuelStart();
 		mainGame->HideElement(mainGame->wHostPrepare);
 		mainGame->WaitFrameSignal(11);
 		mainGame->gMutex.lock();
@@ -743,6 +765,7 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 		break;
 	}
 	case STOC_DUEL_END: {
+		agent_client::AgentController::Instance().OnDuelEnd();
 		mainGame->gMutex.lock();
 		if(mainGame->dInfo.player_type < 7)
 			mainGame->btnLeaveGame->setVisible(false);
@@ -1009,6 +1032,7 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 		break;
 	}
 	}
+	agent_client::LanTestRunner::Instance().OnPacket(pktType, pdata, len - 1);
 }
 // Analyze STOC_GAME_MSG packet
 bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
@@ -1047,6 +1071,10 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 	switch(mainGame->dInfo.curMsg) {
 	case MSG_RETRY: {
 		if(last_successful_msg_length) {
+			if(agent_client::AgentController::Instance().IsControlling()) {
+				select_hint = last_select_hint;
+				return ClientAnalyze(last_successful_msg, last_successful_msg_length);
+			}
 			auto p = last_successful_msg;
 			auto last_msg = BufferIO::Read<uint8_t>(p);
 			int err_desc = 1421;
@@ -1144,6 +1172,12 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 			break;
 		}
 		case HINT_MESSAGE: {
+			if(agent_client::AgentController::Instance().IsControlling()) {
+				mainGame->gMutex.lock();
+				mainGame->AddLog(dataManager.GetDesc(data));
+				mainGame->gMutex.unlock();
+				break;
+			}
 			mainGame->gMutex.lock();
 			mainGame->stMessage->setText(dataManager.GetDesc(data));
 			mainGame->PopupElement(mainGame->wMessage);
@@ -1833,7 +1867,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 					panelmode = true;
 			}
 		}
-		if(!select_trigger && !mainGame->dField.chain_forced && (mainGame->ignore_chain || ((count == 0 || specount == 0) && !mainGame->always_chain)) && (count == 0 || !mainGame->chain_when_avail)) {
+		if(!agent_client::AgentController::Instance().IsControlling() && !select_trigger && !mainGame->dField.chain_forced && (mainGame->ignore_chain || ((count == 0 || specount == 0) && !mainGame->always_chain)) && (count == 0 || !mainGame->chain_when_avail)) {
 			SetResponseI(-1);
 			mainGame->dField.ClearChainSelect();
 			if(mainGame->chkWaitChain->isChecked() && !mainGame->ignore_chain) {
@@ -1842,7 +1876,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 			DuelClient::SendResponse();
 			return true;
 		}
-		if(mainGame->chkAutoChain->isChecked() && mainGame->dField.chain_forced && !(mainGame->always_chain || mainGame->chain_when_avail)) {
+		if(!agent_client::AgentController::Instance().IsControlling() && mainGame->chkAutoChain->isChecked() && mainGame->dField.chain_forced && !(mainGame->always_chain || mainGame->chain_when_avail)) {
 			for(size_t i = 0; i < mainGame->dField.activatable_descs.size();++i) {
 				auto it = mainGame->dField.activatable_descs[i];
 				if(it.second >> 8) {
@@ -1907,7 +1941,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		select_hint = 0;
 		mainGame->stHintMsg->setText(textBuffer);
 		mainGame->stHintMsg->setVisible(true);
-		if (mainGame->dInfo.curMsg == MSG_SELECT_PLACE && (
+		if (!agent_client::AgentController::Instance().IsControlling() && mainGame->dInfo.curMsg == MSG_SELECT_PLACE && (
 			(mainGame->chkMAutoPos->isChecked() && mainGame->dField.selectable_field & 0x7f007f) ||
 			(mainGame->chkSTAutoPos->isChecked() && !(mainGame->dField.selectable_field & 0x7f007f)))) {
 			unsigned int filter;
@@ -1971,8 +2005,9 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 		/*int selecting_player = */BufferIO::Read<uint8_t>(pbuf);
 		unsigned int code = (unsigned int)BufferIO::Read<int32_t>(pbuf);
 		unsigned int positions = BufferIO::Read<uint8_t>(pbuf);
-		if (positions == 0x1 || positions == 0x2 || positions == 0x4 || positions == 0x8) {
+		if (!agent_client::AgentController::Instance().IsControlling() && (positions == 0x1 || positions == 0x2 || positions == 0x4 || positions == 0x8)) {
 			SetResponseI(positions);
+			DuelClient::SendResponse();
 			return true;
 		}
 		mainGame->gMutex.lock();
@@ -2303,7 +2338,8 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 			}
 			mainGame->WaitFrameSignal(5);
 		}
-		if (!skip_panel && panel_confirm.size() && mainGame->dInfo.player_type != 7) {
+		if (!skip_panel && panel_confirm.size() && mainGame->dInfo.player_type != 7 &&
+			!agent_client::AgentController::Instance().IsControlling()) {
 			std::sort(panel_confirm.begin(), panel_confirm.end(), ClientCard::client_card_sort);
 			mainGame->gMutex.lock();
 			mainGame->dField.selectable_cards = panel_confirm;
@@ -4073,6 +4109,7 @@ void DuelClient::SetResponseB(void* respB, size_t len) {
 	response_len = len;
 }
 void DuelClient::SendResponse() {
+	agent_client::AgentController::Instance().OnResponseSubmitted();
 	switch(mainGame->dInfo.curMsg) {
 	case MSG_SELECT_BATTLECMD: {
 		mainGame->dField.ClearCommandFlag();
