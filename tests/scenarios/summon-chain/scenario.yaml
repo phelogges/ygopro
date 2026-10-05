@@ -1,7 +1,7 @@
 schema_version: 1
 decks:
-  host: host-chain.ydk
-  guest: guest-chain.ydk
+  host: host.ydk
+  guest: guest.ydk
 pregame:
   host: rock
   guest: paper

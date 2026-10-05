@@ -45,9 +45,13 @@ LanTestRunner& LanTestRunner::Instance() {
 	return runner;
 }
 
-LanTestRunner::LanTestRunner() : role_(Environment("YGOPRO_AGENT_E2E_ROLE")) {}
+LanTestRunner::LanTestRunner()
+	: role_(Environment("YGOPRO_AGENT_E2E_ROLE")),
+	  visible_(Environment("YGOPRO_AGENT_E2E_GUI") == "1") {}
 
 bool LanTestRunner::Active() const noexcept { return !role_.empty(); }
+bool LanTestRunner::Visible() const noexcept { return Active() && visible_; }
+const std::string& LanTestRunner::Role() const noexcept { return role_; }
 
 void LanTestRunner::Start() {
 	if(!Active()) return;
@@ -60,6 +64,8 @@ void LanTestRunner::Start() {
 	result_path_ = Environment("YGOPRO_AGENT_E2E_RESULT_PATH");
 	if(result_path_.empty()) result_path_ = "agent-e2e-" + role_ + ".json";
 	deck_path_ = Environment("YGOPRO_AGENT_E2E_DECK", "deck/test/test.ydk");
+	if(role_ == "host") surrender_path_ = Environment("YGOPRO_AGENT_E2E_SURRENDER_PATH");
+	if(Visible()) checkpoint_path_ = Environment("YGOPRO_AGENT_E2E_CHECKPOINT_PATH");
 	try {
 		if(role_ != "host" && role_ != "guest") throw std::runtime_error("E2E role must be host or guest");
 		if(Environment("YGOPRO_AGENT_ENABLE") != "1")
@@ -74,6 +80,8 @@ void LanTestRunner::Start() {
 		{
 			std::lock_guard<std::mutex> game_lock(mainGame->gMutex);
 			mainGame->bot_mode = false;
+			// StartClient bypasses the main-menu button that normally hides this window.
+			mainGame->wMainMenu->setVisible(false);
 			mainGame->ebNickName->setText(role_ == "host" ? L"Agent E2E Host" : L"Agent E2E Guest");
 			mainGame->ebJoinHost->setText(L"127.0.0.1");
 			mainGame->ebJoinPass->setText(L"");
@@ -173,10 +181,47 @@ void LanTestRunner::Poll() {
 		may_start = !done && role_ == "host" && ready_sent_ && !start_sent_ && ready_[0] && ready_[1];
 	}
 	if(done) { Finish(); return; }
+	if(!checkpoint_path_.empty()) {
+		std::error_code filesystem_error;
+		const bool reached = std::filesystem::is_regular_file(std::filesystem::u8path(checkpoint_path_), filesystem_error);
+		if(filesystem_error && filesystem_error != std::errc::no_such_file_or_directory) {
+			OnError("Cannot inspect E2E checkpoint trigger: " + filesystem_error.message());
+			Finish();
+			return;
+		}
+		if(reached) { Finish(); return; }
+	}
 	if(!AgentController::Instance().IsControlling()) {
 		OnError("Agent control was disabled during E2E; no manual fallback is available");
 		Finish();
 		return;
+	}
+	if(!surrender_path_.empty()) {
+		bool may_surrender = false;
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			may_surrender = duel_started_ && !duel_end_ && !surrender_sent_;
+		}
+		if(may_surrender) {
+			std::error_code filesystem_error;
+			const bool triggered = std::filesystem::is_regular_file(std::filesystem::u8path(surrender_path_), filesystem_error);
+			if(filesystem_error && filesystem_error != std::errc::no_such_file_or_directory) {
+				OnError("Cannot inspect E2E surrender trigger: " + filesystem_error.message());
+				Finish();
+				return;
+			}
+			if(triggered) {
+				bool send_surrender = false;
+				{
+					std::lock_guard<std::mutex> lock(mutex_);
+					if(error_.empty() && duel_started_ && !duel_end_ && !surrender_sent_) {
+						surrender_sent_ = true;
+						send_surrender = true;
+					}
+				}
+				if(send_surrender) DuelClient::SendPacketToServer(CTOS_SURRENDER);
+			}
+		}
 	}
 	if(send_deck) {
 		try {
@@ -211,7 +256,8 @@ void LanTestRunner::Finish() {
 			{"status", error_.empty() ? "finished" : "error"}, {"error", error_},
 			{"joined", joined_}, {"self_type", self_type_}, {"deck_sent", deck_sent_},
 			{"ready_sent", ready_sent_}, {"start_sent", start_sent_},
-			{"duel_started", duel_started_}, {"win_seen", win_seen_}, {"duel_end", duel_end_},
+			{"duel_started", duel_started_}, {"surrender_sent", surrender_sent_},
+			{"win_seen", win_seen_}, {"duel_end", duel_end_},
 			{"winner", win_seen_ ? nlohmann::json(winner_) : nlohmann::json(nullptr)},
 			{"win_reason", win_seen_ ? nlohmann::json(win_reason_) : nlohmann::json(nullptr)},
 			{"ready", {ready_[0], ready_[1]}}, {"deck_path", deck_path_}, {"port", port_},
@@ -226,7 +272,8 @@ void LanTestRunner::Finish() {
 	} catch(const std::exception& exception) {
 		std::cerr << exception.what() << '\n' << result.dump() << '\n';
 	}
-	if(mainGame && mainGame->device) mainGame->device->closeDevice();
+	if(Visible()) AgentController::Instance().Stop();
+	else if(mainGame && mainGame->device) mainGame->device->closeDevice();
 }
 
 } // namespace ygo::agent_client

@@ -13,11 +13,15 @@ python3.12 tools/agent-e2e.py --games 3 --deck deck/test/test.ydk
 固定起手和脚本动作使用 YAML 场景：
 
 ```bash
-uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario tests/scenarios/fixed-opening.yaml
-uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario tests/scenarios/summon-chain.yaml
+uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario tests/scenarios/fixed-opening/scenario.yaml
+uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario tests/scenarios/summon-chain/scenario.yaml
+uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario tests/scenarios/duel-001/scenario.yaml --timeout 80
+uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario tests/scenarios/duel-001/scenario.yaml --gui --timeout 80
 ```
 
 场景模式单局运行，双方分别加载场景指定的 YDK；`#main` 前五张成为预期起手。它检查实际双端起手，按角色执行严格语义动作和可见状态断言，并在 `scenario-report.json` 中保存成功或失败诊断。`--host-deck`、`--guest-deck` 可覆盖场景卡组路径。写场景时遵循 [场景契约](../contracts/agent-scenario-v1.md)。房间“不洗牌”同时抑制后续卡组洗牌；其他引擎随机事件不能完全控制。原有三局随机回归继续保留。
+
+`--gui` 使用两个正常渲染的客户端窗口观看同一剧本；`--step-delay` 指定每个明确脚本动作前的额外等待秒数，默认 1，范围 0～10。正常动画先由客户端处理，然后场景服务等待并返回下一动作；自动放弃的无关提示不增加等待。GUI 模式临时关闭快速动画，自动增加测试总超时预算，窗口在报告产生后保留到手动关闭。无 `--gui` 时仍使用无界面快速回归。详细设计见 [可视化场景验证](../design/agent-gui-e2e.md)。
 
 服务端发来的空 `MSG_SELECT_CHAIN` 响应窗口由客户端自动回复，不进入 Agent 决策请求，也不写入场景步骤。JSONL 的 `automatic_pass` 记录与出站动作包一一核对；回归还会拒绝任何只有 `pass` 候选却被送到 Agent 的请求。
 

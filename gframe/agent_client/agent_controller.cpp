@@ -150,18 +150,30 @@ void ShowAgentMessage(const std::string& message) {
 
 void DismissPromptWindows() {
 	std::lock_guard<std::mutex> ui_lock(mainGame->gMutex);
-	for(auto& fading : mainGame->fadingList) {
-		if(fading.signalAction) {
-			fading.signalAction = false;
-			fading.guiFading->setRelativePosition(fading.fadingSize);
-			fading.guiFading->setVisible(false);
-		}
-	}
-	for(irr::gui::IGUIElement* window : {mainGame->wQuery, mainGame->wOptions,
+	const auto prompt_windows = {mainGame->wQuery, mainGame->wOptions,
 		mainGame->wPosSelect, mainGame->wCardSelect, mainGame->wANCard,
 		mainGame->wANNumber, mainGame->wANAttribute, mainGame->wANRace,
-		mainGame->wHand, mainGame->wFTSelect})
+		mainGame->wHand, mainGame->wFTSelect};
+	// DrawGUI reopens windows with pending fade-in frames. Remove their animations
+	// before hiding them, including fades that do not carry a response signal.
+	for(auto it = mainGame->fadingList.begin(); it != mainGame->fadingList.end();) {
+		if(std::find(prompt_windows.begin(), prompt_windows.end(), it->guiFading) == prompt_windows.end()) {
+			++it;
+			continue;
+		}
+		it->guiFading->setRelativePosition(it->fadingSize);
+		it = mainGame->fadingList.erase(it);
+	}
+	for(irr::gui::IGUIElement* window : prompt_windows) {
+		mainGame->SetImageButtonDrawing(window, false);
 		window->setVisible(false);
+	}
+	if(mainGame->dField.highlighting_card) {
+		mainGame->dField.highlighting_card->is_highlighting = false;
+		mainGame->dField.highlighting_card = nullptr;
+	}
+	mainGame->stCardListTip->setVisible(false);
+	mainGame->dField.ShowCancelOrFinishButton(0);
 }
 
 } // namespace

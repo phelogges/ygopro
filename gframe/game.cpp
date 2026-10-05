@@ -14,6 +14,7 @@
 #include "agent_client/lan_test_runner.h"
 #include <thread>
 #include <chrono>
+#include <cstdlib>
 #ifdef _WIN32
 #include <windows.h>
 #include <timeapi.h>
@@ -29,6 +30,7 @@ extern char **environ;
 #endif
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
+#include <CoreGraphics/CoreGraphics.h>
 #endif
 
 #if defined(__SSE2__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || \
@@ -85,15 +87,29 @@ void DuelInfo::Clear() {
 bool Game::Initialize() {
 	LoadConfig("system.conf");
 	LoadConfig("load-once.conf");
+	const auto& test_runner = agent_client::LanTestRunner::Instance();
 	irr::SIrrlichtCreationParameters params{};
 	params.AntiAlias = gameConf.antialias;
 	if(gameConf.use_d3d)
 		params.DriverType = irr::video::EDT_DIRECT3D9;
 	else
 		params.DriverType = irr::video::EDT_OPENGL;
-	if(agent_client::LanTestRunner::Instance().Active())
+	if(test_runner.Active() && !test_runner.Visible())
 		params.DriverType = irr::video::EDT_NULL;
 	params.WindowSize = irr::core::dimension2d<irr::u32>(gameConf.window_width, gameConf.window_height);
+	if(test_runner.Visible()) {
+		gameConf.quick_animation = 0;
+		gameConf.window_maximized = false;
+		params.WindowSize = irr::core::dimension2d<irr::u32>(800, 500);
+		int desktop_width = 0;
+#ifdef __APPLE__
+		desktop_width = static_cast<int>(CGRectGetWidth(CGDisplayBounds(CGMainDisplayID())));
+#elif defined(_WIN32)
+		desktop_width = GetSystemMetrics(SM_CXSCREEN);
+#endif
+		if(desktop_width >= 1640)
+			params.WindowPosition = irr::core::position2di(test_runner.Role() == "host" ? 20 : 840, 50);
+	}
 	device = irr::createDeviceEx(params);
 #ifdef __APPLE__
 	FixMacOSBundleWorkingDirectory();
@@ -204,7 +220,9 @@ bool Game::Initialize() {
 	lpcFont = irr::gui::CGUITTFont::createTTFont(env, gameConf.numfont, 48);
 	guiFont = irr::gui::CGUITTFont::createTTFont(env, gameConf.textfont, gameConf.textfontsize);
 	smgr = device->getSceneManager();
-	device->setWindowCaption(L"YGOPro");
+	device->setWindowCaption(test_runner.Visible()
+		? (test_runner.Role() == "host" ? L"YGOPro [Host]" : L"YGOPro [Guest]")
+		: L"YGOPro");
 	device->setResizable(true);
 	if(gameConf.window_maximized)
 		device->maximizeWindow();
@@ -1147,7 +1165,11 @@ void Game::MainLoop() {
 		if(now - targetTime > targetFrameDuration)
 			lastFrameTime = now;
 		if(now - lastFpsTime >= std::chrono::milliseconds(1000)) {
-			myswprintf(cap, L"YGOPro FPS: %d", fps);
+			if(agent_client::LanTestRunner::Instance().Visible())
+				myswprintf(cap, agent_client::LanTestRunner::Instance().Role() == "host"
+					? L"YGOPro [Host] FPS: %d" : L"YGOPro [Guest] FPS: %d", fps);
+			else
+				myswprintf(cap, L"YGOPro FPS: %d", fps);
 			device->setWindowCaption(cap);
 			fps = 0;
 			lastFpsTime += std::chrono::milliseconds(1000);

@@ -2,8 +2,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from agent_sdk.scenario import Scenario, ScenarioError
+from agent_sdk.scenario_server import ScenarioDecisionServer
 
 
 def fixture(kind: str = "idle_command") -> dict[str, Any]:
@@ -273,6 +275,185 @@ class ScenarioTests(unittest.TestCase):
         finish_pregame(scenario)
         with self.assertRaisesRegex(ScenarioError, "expected prompt idle_command"):
             scenario.decide("host", fixture("chain"))
+
+    def test_optional_decline_skips_unrelated_prompt_and_preserves_step(self) -> None:
+        data = scene()
+        data["defaults"] = {"optional": "decline"}
+        scenario = Scenario(data)
+        finish_pregame(scenario)
+        request = fixture("chain")
+        request["prompt_id"] = 17
+        request["prompt"]["candidates"] = [
+            {"id": "a", "kind": "activate", "description": "发动"},
+            {"id": "p", "kind": "pass", "description": "放弃"},
+        ]
+        response = scenario.decide("host", request)
+        self.assertEqual(response["action"], {"kind": "choice", "candidate_id": "p"})
+        self.assertEqual(response["prompt_id"], 17)
+        self.assertEqual(scenario.remaining_steps()["host"], 1)
+        self.assertEqual(
+            scenario.status()["ignored_decisions"],
+            [
+                {
+                    "role": "host",
+                    "prompt_id": 17,
+                    "prompt_kind": "chain",
+                    "candidates": [{"kind": "activate"}, {"kind": "pass"}],
+                }
+            ],
+        )
+        scenario.decide("host", fixture())
+        self.assertEqual(scenario.remaining_steps()["host"], 0)
+
+    def test_optional_decline_waits_for_visible_precondition(self) -> None:
+        data = scene()
+        data["defaults"] = {"optional": "decline"}
+        step = data["steps"]["host"][0]
+        step["expect"] = {"prompt": "chain", "phase": "battle"}
+        step["action"] = {"kind": "choice", "match": {"kind": "activate", "card_id": "123"}}
+        scenario = Scenario(data)
+        finish_pregame(scenario)
+        request = fixture("chain")
+        request["prompt"]["candidates"] = [
+            {
+                "id": "a",
+                "kind": "activate",
+                "description": "发动",
+                "card": {
+                    "instance_id": "i0",
+                    "card_id": 123,
+                    "controller": 0,
+                    "location": "hand",
+                    "sequence": 0,
+                },
+            },
+            {"id": "p", "kind": "pass", "description": "放弃"},
+        ]
+        self.assertEqual(
+            scenario.decide("host", request)["action"],
+            {"kind": "choice", "candidate_id": "p"},
+        )
+        self.assertEqual(scenario.remaining_steps()["host"], 1)
+        request["observation"]["phase"] = "battle"
+        self.assertEqual(
+            scenario.decide("host", request)["action"],
+            {"kind": "choice", "candidate_id": "a"},
+        )
+        self.assertEqual(len(scenario.status()["ignored_decisions"]), 1)
+
+    def test_optional_decline_skips_same_kind_without_scripted_candidate(self) -> None:
+        data = scene()
+        data["defaults"] = {"optional": "decline"}
+        data["steps"]["host"][0]["expect"] = {"prompt": "chain"}
+        data["steps"]["host"][0]["action"] = {
+            "kind": "choice",
+            "match": {"kind": "activate", "card_id": "123"},
+        }
+        scenario = Scenario(data)
+        finish_pregame(scenario)
+        request = fixture("chain")
+        request["prompt"]["candidates"] = [
+            {"id": "other", "kind": "activate", "description": "其他效果"},
+            {"id": "p", "kind": "pass", "description": "放弃"},
+        ]
+        self.assertEqual(
+            scenario.decide("host", request)["action"],
+            {"kind": "choice", "candidate_id": "p"},
+        )
+        self.assertEqual(scenario.remaining_steps()["host"], 1)
+
+    def test_optional_decline_rejects_forced_or_ambiguous_action(self) -> None:
+        data = scene()
+        data["defaults"] = {"optional": "decline"}
+        scenario = Scenario(data)
+        finish_pregame(scenario)
+        request = fixture("effect_yes_no")
+        request["prompt"]["candidates"] = [
+            {"id": "a", "kind": "activate", "description": "发动"},
+            {"id": "d", "kind": "decline", "description": "放弃"},
+        ]
+        self.assertEqual(
+            scenario.decide("host", request)["action"],
+            {"kind": "choice", "candidate_id": "d"},
+        )
+        request["prompt"]["candidates"].pop()
+        with self.assertRaisesRegex(ScenarioError, "expected prompt idle_command"):
+            scenario.decide("host", request)
+        data["steps"]["host"][0]["expect"]["prompt"] = "chain"
+        data["steps"]["host"][0]["action"]["match"] = {"kind": "activate"}
+        scenario = Scenario(data)
+        finish_pregame(scenario)
+        request = fixture("chain")
+        request["prompt"]["candidates"] = [
+            {"id": "a1", "kind": "activate", "description": "发动一"},
+            {"id": "a2", "kind": "activate", "description": "发动二"},
+            {"id": "p", "kind": "pass", "description": "放弃"},
+        ]
+        with self.assertRaisesRegex(ScenarioError, "expected 1 matches, found 2"):
+            scenario.decide("host", request)
+
+    def test_optional_decline_schema_is_strict(self) -> None:
+        data = scene()
+        data["defaults"] = {"optional": "pass"}
+        with self.assertRaisesRegex(ScenarioError, "defaults.optional: expected decline"):
+            Scenario(data)
+        data["defaults"] = {"optional": "decline", "other": True}
+        with self.assertRaisesRegex(ScenarioError, "unknown fields"):
+            Scenario(data)
+
+    def test_random_event_allowlist_and_surrender_goal(self) -> None:
+        data = scene()
+        data["allowed_random_events"] = ["hand_shuffle"]
+        data["goal"] = {
+            "kind": "duel_end",
+            "winner": "guest",
+            "surrender": {"role": "host", "expect": {"host": {}, "guest": {}}},
+        }
+        scenario = Scenario(data)
+        self.assertEqual(scenario.allowed_random_messages, {33})
+        for invalid in (["hand_shuffle", "hand_shuffle"], ["coin"], [0]):
+            data["allowed_random_events"] = invalid
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ScenarioError, "only unique hand_shuffle"):
+                    Scenario(data)
+        data["allowed_random_events"] = []
+        data["goal"]["winner"] = "host"
+        with self.assertRaisesRegex(ScenarioError, "requires host surrender and guest winner"):
+            Scenario(data)
+
+    def test_full_duel_fixture_parses(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        scenario = Scenario.load(root / "tests/scenarios/duel-001/scenario.yaml")
+        self.assertEqual(scenario.goal["winner"], "guest")
+        self.assertEqual(scenario.allowed_random_messages, {33})
+
+    def test_gui_pacing_skips_automatic_optional_decline(self) -> None:
+        data = scene()
+        data["defaults"] = {"optional": "decline"}
+        scenario = Scenario(data)
+        finish_pregame(scenario)
+        with tempfile.TemporaryDirectory() as directory:
+            server = ScenarioDecisionServer.__new__(ScenarioDecisionServer)
+            server.scenario = scenario
+            server.digest = "a" * 64
+            server.status_path = Path(directory) / "status.json"
+            server.decisions = 0
+            server.last_action_unix_ms = 0
+            server.failure = None
+            server.step_delay = 1
+            optional = fixture("chain")
+            optional["prompt"]["candidates"] = [
+                {"id": "a", "kind": "activate", "description": "发动"},
+                {"id": "p", "kind": "pass", "description": "放弃"},
+            ]
+            optional["observation"]["test_role"] = "host"
+            scripted = fixture()
+            scripted["observation"]["test_role"] = "host"
+            with patch("agent_sdk.scenario_server.time.sleep") as sleep:
+                server.decide(optional)
+                sleep.assert_not_called()
+                server.decide(scripted)
+                sleep.assert_called_once_with(1)
 
 
 if __name__ == "__main__":

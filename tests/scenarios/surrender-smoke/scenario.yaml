@@ -1,0 +1,27 @@
+schema_version: 1
+decks:
+  host: ../../../deck/test/test.ydk
+  guest: ../../../deck/test/test.ydk
+pregame:
+  host: rock
+  guest: scissors
+  winner_chooses: go_first
+steps:
+  host: []
+  guest: []
+goal:
+  kind: duel_end
+  winner: guest
+  surrender:
+    role: host
+    expect:
+      host:
+        zones:
+          - player: self
+            name: hand
+            count: 5
+      guest:
+        zones:
+          - player: self
+            name: hand
+            count: 5

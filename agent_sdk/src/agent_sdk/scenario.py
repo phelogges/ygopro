@@ -52,6 +52,7 @@ SELECTOR_FIELDS = {
     "ordinal",
     "expected_matches",
 }
+OPTIONAL_DECLINE_KINDS = {"chain": "pass", "effect_yes_no": "decline", "yes_no": "decline"}
 
 
 class ScenarioError(ValueError):
@@ -294,11 +295,32 @@ class Scenario:
             copy.deepcopy(data),
             "scenario",
             {"schema_version", "decks", "pregame", "steps", "goal"},
-            {"schema_version", "decks", "pregame", "steps", "goal"},
+            {
+                "schema_version",
+                "decks",
+                "pregame",
+                "steps",
+                "goal",
+                "defaults",
+                "allowed_random_events",
+            },
         )
         if type(root["schema_version"]) is not int or root["schema_version"] != 1:
             raise ScenarioError("scenario.schema_version: expected 1")
         self.source = source
+        defaults = _dict(root.get("defaults", {}), "defaults", set(), {"optional"})
+        if "optional" in defaults and defaults["optional"] != "decline":
+            raise ScenarioError("defaults.optional: expected decline")
+        self._optional_decline = defaults.get("optional") == "decline"
+        allowed_random_events = _list(
+            root.get("allowed_random_events", []), "allowed_random_events"
+        )
+        if allowed_random_events not in ([], ["hand_shuffle"]):
+            raise ScenarioError("allowed_random_events: only unique hand_shuffle is supported")
+        self.allowed_random_messages: set[int] = (
+            {33} if "hand_shuffle" in allowed_random_events else set()
+        )
+        self.ignored_decisions: list[dict[str, Any]] = []
         self.decks = _dict(root["decks"], "decks", set(ROLES), set(ROLES))
         for role in ROLES:
             _string(self.decks[role], f"decks.{role}")
@@ -342,7 +364,7 @@ class Scenario:
                     )
                     _integer(check["timeout_ms"], f"{path}.wait_for.timeout_ms", 1)
                     _assertion(check["expect"], f"{path}.wait_for.expect")
-        self.goal = _dict(root["goal"], "goal", {"kind"}, {"kind", "expect", "winner"})
+        self.goal = _dict(root["goal"], "goal", {"kind"}, {"kind", "expect", "winner", "surrender"})
         if self.goal["kind"] == "checkpoint":
             _dict(self.goal, "goal", {"kind", "expect"}, {"kind", "expect"})
             targets = _dict(self.goal["expect"], "goal.expect", set(), set(ROLES))
@@ -352,9 +374,25 @@ class Scenario:
                 targets.setdefault(role, {})
                 _assertion(targets[role], f"goal.expect.{role}")
         elif self.goal["kind"] == "duel_end":
-            _dict(self.goal, "goal", {"kind", "winner"}, {"kind", "winner"})
+            _dict(self.goal, "goal", {"kind", "winner"}, {"kind", "winner", "surrender"})
             if self.goal["winner"] not in (*ROLES, "draw", "any"):
                 raise ScenarioError("goal.winner: expected host, guest, draw, or any")
+            if "surrender" in self.goal:
+                surrender = _dict(
+                    self.goal["surrender"],
+                    "goal.surrender",
+                    {"role", "expect"},
+                    {"role", "expect"},
+                )
+                if surrender["role"] != "host" or self.goal["winner"] != "guest":
+                    raise ScenarioError(
+                        "goal.surrender: currently requires host surrender and guest winner"
+                    )
+                expectations = _dict(
+                    surrender["expect"], "goal.surrender.expect", set(ROLES), set(ROLES)
+                )
+                for role in ROLES:
+                    _assertion(expectations[role], f"goal.surrender.expect.{role}")
         else:
             raise ScenarioError("goal.kind: expected checkpoint or duel_end")
         self._cursors = {role: 0 for role in ROLES}
@@ -408,7 +446,53 @@ class Scenario:
             "first_player_role": self.first_player_role,
             "remaining_steps": self.remaining_steps(),
             "wait_for": self.wait_for,
+            "ignored_decisions": self.ignored_decisions,
         }
+
+    def _decline_optional(self, role: str, request: DecisionRequest) -> Object | None:
+        if not self._optional_decline:
+            return None
+        kind = cast(str, request.prompt["kind"])
+        decline_kind = OPTIONAL_DECLINE_KINDS.get(kind)
+        if decline_kind is None:
+            return None
+        matches = [c for c in request.candidates if c["kind"] == decline_kind]
+        if len(matches) != 1:
+            return None
+        candidate = matches[0]
+        try:
+            response = build_response(
+                request,
+                {"kind": "choice", "candidate_id": candidate["id"]},
+                "剧本自动放弃无关可选提示",
+            )
+        except ContractError:
+            return None
+        self.ignored_decisions.append(
+            {
+                "role": role,
+                "prompt_id": request.data["prompt_id"],
+                "prompt_kind": kind,
+                "candidates": [
+                    {
+                        "kind": item["kind"],
+                        **(
+                            {"card_id": cast(Object, item["card"])["card_id"]}
+                            if isinstance(item.get("card"), dict)
+                            and "card_id" in cast(Object, item["card"])
+                            else {}
+                        ),
+                        **(
+                            {"description_id": item["description_id"]}
+                            if "description_id" in item
+                            else {}
+                        ),
+                    }
+                    for item in request.candidates
+                ],
+            }
+        )
+        return response
 
     def assert_visible(self, role: str, snapshot: object, expected: object) -> None:
         if role not in ROLES:
@@ -535,6 +619,8 @@ class Scenario:
             raise ScenarioError(f"{role} prompt {kind}: pregame selection incomplete")
         index = self._cursors[role]
         if index >= len(self.steps[role]):
+            if response := self._decline_optional(role, parsed):
+                return response
             raise ScenarioError(
                 f"{role} prompt {kind}: no scripted step after {index} steps; "
                 f"candidates={parsed.candidates}"
@@ -542,15 +628,30 @@ class Scenario:
         step = self.steps[role][index]
         expected = step["expect"]
         if kind != expected["prompt"]:
+            if response := self._decline_optional(role, parsed):
+                return response
             raise ScenarioError(
                 f"{role} step {index + 1}: expected prompt {expected['prompt']}, "
                 f"actual {kind}; candidates={parsed.candidates}"
             )
-        self.assert_visible(
-            role, parsed.data["observation"], {k: v for k, v in expected.items() if k != "prompt"}
-        )
         plan = step["action"]
         action_kind = plan["kind"]
+        if action_kind in ("choice", "select_step") and self._optional_decline:
+            matches = [c for c in parsed.candidates if _candidate_match(c, plan["match"])]
+            if not matches and (response := self._decline_optional(role, parsed)):
+                return response
+        try:
+            self.assert_visible(
+                role,
+                parsed.data["observation"],
+                {k: v for k, v in expected.items() if k != "prompt"},
+            )
+        except ScenarioError:
+            if action_kind in ("choice", "select_step") and (
+                response := self._decline_optional(role, parsed)
+            ):
+                return response
+            raise
         context = f"{role} step {index + 1} prompt {kind}"
         if action_kind in ("choice", "select_step"):
             action: Object = {

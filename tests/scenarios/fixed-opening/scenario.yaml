@@ -1,7 +1,7 @@
 schema_version: 1
 decks:
-  host: ../../deck/test/test.ydk
-  guest: ../../deck/test/test.ydk
+  host: ../../../deck/test/test.ydk
+  guest: ../../../deck/test/test.ydk
 pregame:
   host: rock
   guest: paper

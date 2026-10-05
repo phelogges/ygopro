@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Run real LAN duels between two noninteractive agent clients."""
+"""Run scripted LAN duels with headless or visible agent clients."""
 
 from __future__ import annotations
 
 import argparse
 import base64
 import json
+import math
 import os
 import socket
 import sqlite3
@@ -124,13 +125,13 @@ def check_opening(
         )
 
 
-def matching_snapshot(
+def matching_snapshot_time(
     scenario: Any,
     role: str,
     expected: dict[str, Any],
     snapshots: list[dict[str, Any]],
     after_unix_ms: int,
-) -> bool:
+) -> int | None:
     for record in snapshots:
         if record["timestamp_unix_ms"] < after_unix_ms:
             continue
@@ -138,8 +139,21 @@ def matching_snapshot(
             scenario.assert_visible(role, record["observation"], expected)
         except ValueError:
             continue
-        return True
-    return False
+        return int(record["timestamp_unix_ms"])
+    return None
+
+
+def matching_snapshot(
+    scenario: Any,
+    role: str,
+    expected: dict[str, Any],
+    snapshots: list[dict[str, Any]],
+    after_unix_ms: int,
+) -> bool:
+    return (
+        matching_snapshot_time(scenario, role, expected, snapshots, after_unix_ms)
+        is not None
+    )
 
 
 def checkpoint_failure(
@@ -175,10 +189,15 @@ def run_scripted_duel(
     clients: list[subprocess.Popen[bytes]],
     expected_opening: dict[str, tuple[int, ...]],
     timeout: int,
+    *,
+    gui: bool = False,
+    step_delay: float = 0,
 ) -> dict[str, Any]:
     roles = ("host", "guest")
     tails = {role: SnapshotTail(work / f"game-1-{role}.jsonl") for role in roles}
     status_path = work / "scenario-status.json"
+    surrender_path = work / "surrender-host.request"
+    checkpoint_path = work / "checkpoint-reached.request"
     deadline = time.monotonic() + timeout + 10
     while time.monotonic() < deadline:
         status = json.loads(status_path.read_text(encoding="utf-8"))
@@ -187,10 +206,15 @@ def run_scripted_duel(
         for role, child in zip(roles, clients, strict=True):
             tails[role].poll()
             check_opening(role, tails[role].opening_hand, expected_opening[role])
-            if tails[role].random_messages:
+            unapproved_random = [
+                message
+                for message in tails[role].random_messages
+                if message not in scenario.allowed_random_messages
+            ]
+            if unapproved_random:
                 raise RuntimeError(
                     f"{role}: observable uncontrolled random message "
-                    f"{tails[role].random_messages[0]} in fixed-deck scenario"
+                    f"{unapproved_random[0]} in fixed-deck scenario"
                 )
             result_path = work / f"game-1-{role}.json"
             if result_path.exists():
@@ -241,6 +265,33 @@ def run_scripted_duel(
             )
             for wait in status["wait_for"]
         )
+        surrender = scenario.goal.get("surrender")
+        surrender_snapshots = (
+            [
+                matching_snapshot_time(
+                    scenario,
+                    role,
+                    surrender["expect"][role],
+                    tails[role].snapshots,
+                    status["last_action_unix_ms"],
+                )
+                for role in roles
+            ]
+            if surrender and hands_ready and steps_done and waits_done
+            else []
+        )
+        if (
+            surrender
+            and not surrender_path.exists()
+            and len(surrender_snapshots) == 2
+            and all(timestamp is not None for timestamp in surrender_snapshots)
+            and time.time_ns() // 1_000_000
+            >= max(
+                timestamp for timestamp in surrender_snapshots if timestamp is not None
+            )
+            + int(step_delay * 1000)
+        ):
+            surrender_path.write_text("surrender\n", encoding="ascii")
         if (
             scenario.goal["kind"] == "checkpoint"
             and hands_ready
@@ -259,12 +310,23 @@ def run_scripted_duel(
         ):
             for role in roles:
                 audit_decisions(tails[role].path, require_hand=False)
+            if gui:
+                checkpoint_path.write_text("reached\n", encoding="ascii")
+                checkpoint_deadline = time.monotonic() + 5
+                while time.monotonic() < checkpoint_deadline:
+                    if all((work / f"game-1-{role}.json").is_file() for role in roles):
+                        break
+                    time.sleep(0.05)
+                else:
+                    raise RuntimeError("GUI clients did not acknowledge checkpoint")
             return {
                 "status": "checkpoint_passed",
                 "opening_hands": {role: tails[role].opening_hand for role in roles},
                 "decisions": status["decisions"],
             }
-        if all(child.poll() is not None for child in clients):
+        if all((work / f"game-1-{role}.json").is_file() for role in roles) and (
+            gui or all(child.poll() is not None for child in clients)
+        ):
             if scenario.goal["kind"] != "duel_end":
                 raise RuntimeError("clients ended before checkpoint was reached")
             if not hands_ready or not steps_done or not waits_done:
@@ -298,6 +360,10 @@ def run_scripted_duel(
                 raise RuntimeError(
                     f"winner {winner} differs from expected {scenario.goal['winner']}"
                 )
+            if surrender and (
+                not surrender_path.exists() or not results[0].get("surrender_sent")
+            ):
+                raise RuntimeError("scripted host surrender was not sent")
             for role in roles:
                 audit_decisions(tails[role].path, require_hand=False)
             return {"status": "duel_finished", "winner": winner, "results": results}
@@ -464,6 +530,17 @@ def main() -> int:
     parser.add_argument("--host-deck")
     parser.add_argument("--guest-deck")
     parser.add_argument("--scenario", help="YAML scripted fixed-deck duel")
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="show both duel clients and retain their windows",
+    )
+    parser.add_argument(
+        "--step-delay",
+        type=float,
+        default=None,
+        help="seconds to view each scripted action after animation (GUI default: 1)",
+    )
     parser.add_argument("--games", type=int)
     parser.add_argument("--timeout", type=int, default=300)
     args = parser.parse_args()
@@ -502,6 +579,26 @@ def main() -> int:
         )
     if scenario and games != 1:
         parser.error("scripted scenarios run exactly one duel")
+    if args.gui and not scenario:
+        parser.error("--gui requires --scenario")
+    if args.step_delay is not None and not args.gui:
+        parser.error("--step-delay requires --gui")
+    step_delay = (
+        (1.0 if args.step_delay is None else args.step_delay) if args.gui else 0.0
+    )
+    if not math.isfinite(step_delay) or not 0 <= step_delay <= 10:
+        parser.error("--step-delay must be between 0 and 10 seconds")
+    scripted_actions = (
+        sum(
+            len(scenario.steps[role]) + len(scenario.pregame[role])
+            for role in ("host", "guest")
+        )
+        + 1
+        + int("surrender" in scenario.goal)
+        if scenario
+        else 0
+    )
+    effective_timeout = args.timeout + math.ceil(scripted_actions * step_delay)
     expected_opening = (
         {role: opening_from_deck(deck, cards_db) for role, deck in decks.items()}
         if scenario
@@ -531,6 +628,8 @@ def main() -> int:
                         str(cards_db),
                         "--port",
                         str(agent_port),
+                        "--step-delay",
+                        str(step_delay),
                     ]
                     if scenario
                     else [
@@ -564,7 +663,7 @@ def main() -> int:
                                     "YGOPRO_AGENT_E2E_PORT": str(lan_port),
                                     "YGOPRO_AGENT_E2E_DECK": str(decks[role]),
                                     "YGOPRO_AGENT_E2E_TIMEOUT_MS": str(
-                                        args.timeout * 1000
+                                        effective_timeout * 1000
                                     ),
                                     "YGOPRO_AGENT_E2E_RESULT_PATH": str(
                                         work / f"game-{game}-{role}.json"
@@ -576,6 +675,21 @@ def main() -> int:
                             )
                             if scenario:
                                 child_env["YGOPRO_AGENT_E2E_FIXED_DECK"] = "1"
+                                if args.gui:
+                                    child_env["YGOPRO_AGENT_E2E_GUI"] = "1"
+                                    child_env["YGOPRO_AGENT_E2E_CHECKPOINT_PATH"] = str(
+                                        work / "checkpoint-reached.request"
+                                    )
+                                    child_env["YGOPRO_AGENT_TIMEOUT_MS"] = str(
+                                        max(
+                                            20000,
+                                            math.ceil((2 * step_delay + 10) * 1000),
+                                        )
+                                    )
+                                if role == "host" and "surrender" in scenario.goal:
+                                    child_env["YGOPRO_AGENT_E2E_SURRENDER_PATH"] = str(
+                                        work / "surrender-host.request"
+                                    )
                             with (work / f"game-{game}-{role}.log").open(
                                 "wb"
                             ) as child_output:
@@ -586,13 +700,21 @@ def main() -> int:
                                         env=child_env,
                                         stdout=child_output,
                                         stderr=subprocess.STDOUT,
+                                        start_new_session=args.gui
+                                        and os.name == "posix",
                                     )
                                 )
                             if role == "host":
                                 wait_for_port(lan_port, time.monotonic() + 10)
                         if scenario:
                             outcome = run_scripted_duel(
-                                scenario, work, clients, expected_opening, args.timeout
+                                scenario,
+                                work,
+                                clients,
+                                expected_opening,
+                                effective_timeout,
+                                gui=args.gui,
+                                step_delay=step_delay,
                             )
                             print(
                                 f"scenario: {json.dumps(outcome, ensure_ascii=False)}",
@@ -651,8 +773,9 @@ def main() -> int:
                                 )
                             starting_hands[role].add(hand)
                     finally:
-                        for child in clients:
-                            stop(child)
+                        if not args.gui:
+                            for child in clients:
+                                stop(child)
             finally:
                 stop(server)
     except Exception as exc:
