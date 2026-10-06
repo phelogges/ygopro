@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 from agent_sdk.scenario import Scenario, ScenarioError
@@ -417,8 +417,19 @@ class ScenarioTests(unittest.TestCase):
                 with self.assertRaisesRegex(ScenarioError, "only unique hand_shuffle"):
                     Scenario(data)
         data["allowed_random_events"] = []
-        data["goal"]["winner"] = "host"
-        with self.assertRaisesRegex(ScenarioError, "requires host surrender and guest winner"):
+        goal = cast(dict[str, Any], data["goal"])
+        goal["winner"] = "host"
+        with self.assertRaisesRegex(ScenarioError, "requires a duelist role"):
+            Scenario(data)
+        cast(dict[str, Any], goal["surrender"])["role"] = "guest"
+        self.assertEqual(Scenario(data).goal["winner"], "host")
+        goal["expect"] = {
+            "host": {"zones": [{"player": "self", "name": "monster", "count": 1}]},
+            "guest": {"life_points": [8000, 8000]},
+        }
+        self.assertEqual(Scenario(data).goal["expect"]["host"]["zones"][0]["player"], 0)
+        del cast(dict[str, Any], goal["expect"])["guest"]
+        with self.assertRaisesRegex(ScenarioError, "missing"):
             Scenario(data)
 
     def test_full_duel_fixture_parses(self) -> None:

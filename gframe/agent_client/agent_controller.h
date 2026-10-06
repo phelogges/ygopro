@@ -34,6 +34,8 @@ public:
 	void OnDuelStart();
 	void OnDuelEnd();
 	void Poll(); // main thread
+	// Returns only information visible to this client; also used by local recording.
+	nlohmann::json BuildObservation() const;
 
 private:
 	struct Pending {
@@ -60,7 +62,6 @@ private:
 	void Log(const nlohmann::json& record);
 	void FailCurrent(const std::string& code);
 	std::string NewId();
-	nlohmann::json BuildObservation() const;
 
 	mutable std::mutex mutex_;
 	std::mutex log_mutex_;

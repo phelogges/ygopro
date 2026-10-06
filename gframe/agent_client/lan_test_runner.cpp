@@ -64,7 +64,7 @@ void LanTestRunner::Start() {
 	result_path_ = Environment("YGOPRO_AGENT_E2E_RESULT_PATH");
 	if(result_path_.empty()) result_path_ = "agent-e2e-" + role_ + ".json";
 	deck_path_ = Environment("YGOPRO_AGENT_E2E_DECK", "deck/test/test.ydk");
-	if(role_ == "host") surrender_path_ = Environment("YGOPRO_AGENT_E2E_SURRENDER_PATH");
+	surrender_path_ = Environment("YGOPRO_AGENT_E2E_SURRENDER_PATH");
 	if(Visible()) checkpoint_path_ = Environment("YGOPRO_AGENT_E2E_CHECKPOINT_PATH");
 	try {
 		if(role_ != "host" && role_ != "guest") throw std::runtime_error("E2E role must be host or guest");

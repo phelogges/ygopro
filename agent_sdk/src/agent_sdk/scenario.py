@@ -374,9 +374,13 @@ class Scenario:
                 targets.setdefault(role, {})
                 _assertion(targets[role], f"goal.expect.{role}")
         elif self.goal["kind"] == "duel_end":
-            _dict(self.goal, "goal", {"kind", "winner"}, {"kind", "winner", "surrender"})
+            _dict(self.goal, "goal", {"kind", "winner"}, {"kind", "winner", "surrender", "expect"})
             if self.goal["winner"] not in (*ROLES, "draw", "any"):
                 raise ScenarioError("goal.winner: expected host, guest, draw, or any")
+            if "expect" in self.goal:
+                targets = _dict(self.goal["expect"], "goal.expect", set(ROLES), set(ROLES))
+                for role in ROLES:
+                    _assertion(targets[role], f"goal.expect.{role}")
             if "surrender" in self.goal:
                 surrender = _dict(
                     self.goal["surrender"],
@@ -384,9 +388,12 @@ class Scenario:
                     {"role", "expect"},
                     {"role", "expect"},
                 )
-                if surrender["role"] != "host" or self.goal["winner"] != "guest":
+                surrender_role = surrender["role"]
+                if surrender_role not in ROLES or self.goal["winner"] != (
+                    "guest" if surrender_role == "host" else "host"
+                ):
                     raise ScenarioError(
-                        "goal.surrender: currently requires host surrender and guest winner"
+                        "goal.surrender: requires a duelist role and the other role as winner"
                     )
                 expectations = _dict(
                     surrender["expect"], "goal.surrender.expect", set(ROLES), set(ROLES)

@@ -12,7 +12,7 @@
 
 - 客户端只向 Agent 服务发送本方可见状态、提示和合法候选；不得泄露隐藏卡身份。卡片静态资料由二期 Agent 使用卡片 ID 查询，客户端不复制卡名或效果文本。
 - `agent_sdk/` 将结构化意图校验并翻译为语义动作；客户端再次核对会话、提示、候选与参数，然后使用原有响应编码。LLM 不得直接生成 CTOS 字节或绕过客户端校验。
-- 改动请求、响应、候选含义或动作映射时，同步更新 `docs/contracts/` 和对应测试。架构设计放在 `docs/design/`，实际验证状态放在 `docs/validation/`。先读 [HTTP 契约](docs/contracts/agent-http-v1.md)、[动作契约](docs/contracts/duel-actions.md) 和 [一期设计](docs/design/agent-phase-1.md)；固定牌序回归另读 [场景契约](docs/contracts/agent-scenario-v1.md)。
+- 改动请求、响应、候选含义或动作映射时，同步更新 `docs/contracts/` 和对应测试。架构设计放在 `docs/design/`，实际验证状态放在 `docs/validation/`。先读 [HTTP 契约](docs/contracts/agent-http-v1.md)、[动作契约](docs/contracts/duel-actions.md) 和 [一期设计](docs/design/agent-phase-1.md)；固定牌序回归另读 [场景契约](docs/contracts/agent-scenario-v1.md)，人工对局录制另读 [录制契约](docs/contracts/duel-recording-v1.md)。
 
 ## 构建与验证
 

@@ -58,7 +58,7 @@ uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario
 
 可见区域断言仅使用该客户端的本方视角：`count` 检查数量，`contains` 检查可见卡的 ID 与重复数量，`exact` 检查完整可见集合。公开场上卡可附区域序号、表示形式和客户端已知的数值；隐藏对手手牌、双方牌库内容不可断言。`zones.player` 使用 `self` 或 `opponent`，也可写视角内的 `0` 或 `1`。步骤中的 `wait_for: {timeout_ms, expect}` 等待动作后某次可见快照满足条件；下一决策前仍需成立的状态应在下一步 `expect` 再断言。客户端测试入口会在处理游戏消息后记录本方可见快照，数据仅用于本地测试，不增加 Agent HTTP 的隐藏信息。
 
-`goal.kind: checkpoint` 在双方步骤耗尽且两端目标断言成立后报告 `checkpoint_passed`，不要求对局终局。`goal.kind: duel_end` 必须指定 `winner: host|guest|draw|any`，并核对两客户端的权威 `MSG_WIN` 与 `STOC_DUEL_END`，报告 `duel_finished`。两种目标都要求步骤耗尽。`duel_end` 可指定 `surrender: {role: host, expect: {host: ..., guest: ...}}`：测试器在步骤耗尽且两端后置可见断言成立后发出一次本地信号，Host 测试客户端使用既有投降协议；目前该路径仅支持 Host 投降、Guest 获胜。
+`goal.kind: checkpoint` 在双方步骤耗尽且两端目标断言成立后报告 `checkpoint_passed`，不要求对局终局。`goal.kind: duel_end` 必须指定 `winner: host|guest|draw|any`，并核对两客户端的权威 `MSG_WIN` 与 `STOC_DUEL_END`，报告 `duel_finished`。可选的 `goal.expect.{host,guest}` 检查终局后各自可见快照。两种目标都要求步骤耗尽。`duel_end` 可指定 `surrender: {role: host|guest, expect: {host: ..., guest: ...}}`：测试器在步骤耗尽且两端后置可见断言成立后发出一次本地信号，由指定一端使用既有投降协议；赢家必须是另一端。
 
 完整展开样例见 [`tests/scenarios/duel-001/scenario.yaml`](../../tests/scenarios/duel-001/scenario.yaml)。其 Host 卡组副本额外包含第二张 `53927851`，因为达维检索第一张后，米克拉需要从卡组特召另一张。其他结构和前五张起手与 `deck/test/host1.ydk` 一致。
 

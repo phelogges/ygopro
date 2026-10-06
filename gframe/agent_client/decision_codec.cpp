@@ -516,6 +516,130 @@ EncodedResponse encode(const DecisionData& d, const Json& action) {
 	}
 	invalid("未知语义动作类型");
 }
+
+Json decode(const DecisionData& d, std::uint8_t packet_type, const std::uint8_t* payload, std::size_t length) {
+	if(length > UINT8_MAX || (length != 0 && payload == nullptr))
+		invalid("响应大小或指针无效");
+	const auto matches = [&](const Json& action) {
+		try {
+			const auto response = encode(d, action);
+			return response.packet_type == packet_type && response.payload.size() == length &&
+			       std::equal(response.payload.begin(), response.payload.end(), payload);
+		} catch(const CodecFailure&) {
+			return false;
+		}
+	};
+	std::optional<Json> found;
+	const auto accept = [&](Json action) {
+		if(!matches(action))
+			return;
+		if(found && *found != action)
+			throw CodecFailure("ambiguous_response", "响应对应多个合法动作");
+		found = std::move(action);
+	};
+	for(const auto& c : d.candidates) {
+		const auto kind = d.message == MSG_SELECT_UNSELECT_CARD && c.kind != "finish" && c.kind != "cancel"
+		                      ? "select_step"
+		                      : "choice";
+		accept({{"kind", kind}, {"candidate_id", c.id}});
+	}
+	if(packet_type == CTOS_RESPONSE && d.message == MSG_ANNOUNCE_CARD && length == 4) {
+		std::uint32_t code{};
+		for(unsigned i = 0; i < 4; ++i)
+			code |= std::uint32_t(payload[i]) << (8 * i);
+		accept({{"kind", "announce_card"}, {"card_id", code}});
+	}
+	if(packet_type == CTOS_RESPONSE &&
+	   (d.message == MSG_SELECT_CARD || d.message == MSG_SELECT_TRIBUTE || d.message == MSG_SELECT_SUM) && length > 0) {
+		const auto count = payload[0];
+		if(length == std::size_t(count) + 1) {
+			Json ids = Json::array();
+			std::size_t start = 1;
+			if(d.message == MSG_SELECT_SUM && count >= d.mandatory_count && length > d.mandatory_count) {
+				bool placeholders = true;
+				for(std::size_t i = 0; i < d.mandatory_count; ++i)
+					placeholders &= payload[1 + i] == 0;
+				if(placeholders) {
+					for(std::size_t i = 0; i < d.mandatory_count; ++i)
+						ids.push_back(d.candidates[i].id);
+					start += d.mandatory_count;
+				}
+			}
+			for(std::size_t i = start; i < length; ++i) {
+				const auto index = std::size_t(payload[i]) + (d.message == MSG_SELECT_SUM ? d.mandatory_count : 0);
+				if(index >= d.candidates.size()) {
+					ids = nullptr;
+					break;
+				}
+				ids.push_back(d.candidates[index].id);
+			}
+			if(ids.is_array())
+				accept({{"kind", "select_cards"}, {"candidate_ids", std::move(ids)}});
+		}
+	}
+	if(packet_type == CTOS_RESPONSE && d.message == MSG_SORT_CARD && length + 1 == d.candidates.size()) {
+		Json ids = Json::array();
+		std::vector<bool> used(length);
+		for(std::size_t rank = 0; rank < length; ++rank) {
+			std::size_t index{};
+			for(; index < length && payload[index] != rank; ++index) {
+			}
+			if(index == length || used[index]) {
+				ids = nullptr;
+				break;
+			}
+			used[index] = true;
+			ids.push_back(d.candidates[index].id);
+		}
+		if(ids.is_array())
+			accept({{"kind", "select_cards"}, {"candidate_ids", std::move(ids)}});
+	}
+	if(packet_type == CTOS_RESPONSE && (d.message == MSG_ANNOUNCE_RACE || d.message == MSG_ANNOUNCE_ATTRIB) &&
+	   length == 4) {
+		std::uint32_t mask{};
+		for(unsigned i = 0; i < 4; ++i)
+			mask |= std::uint32_t(payload[i]) << (8 * i);
+		Json ids = Json::array();
+		for(const auto& c : d.candidates)
+			if(mask & c.value)
+				ids.push_back(c.id);
+		accept({{"kind", "select_cards"}, {"candidate_ids", std::move(ids)}});
+	}
+	if(packet_type == CTOS_RESPONSE && d.message == MSG_SELECT_COUNTER && length == d.candidates.size() * 2) {
+		Json allocations = Json::array();
+		for(std::size_t i = 0; i < d.candidates.size(); ++i) {
+			const auto count = std::uint32_t(payload[2 * i]) | (std::uint32_t(payload[2 * i + 1]) << 8);
+			if(count)
+				allocations.push_back({{"candidate_id", d.candidates[i].id}, {"count", count}});
+		}
+		accept({{"kind", "distribute_counters"}, {"allocations", std::move(allocations)}});
+	}
+	if(packet_type == CTOS_RESPONSE && (d.message == MSG_SELECT_PLACE || d.message == MSG_SELECT_DISFIELD) &&
+	   length % 3 == 0) {
+		Json places = Json::array();
+		bool known = true;
+		for(std::size_t i = 0; i < length; i += 3) {
+			const auto found_place = std::find_if(d.candidates.begin(), d.candidates.end(), [&](const auto& c) {
+				return c.controller == payload[i] && c.location == payload[i + 1] && c.sequence == payload[i + 2];
+			});
+			if(found_place == d.candidates.end()) {
+				known = false;
+				break;
+			}
+			places.push_back({{"controller", found_place->controller},
+			                  {"location", location_name(found_place->location)},
+			                  {"sequence", found_place->sequence}});
+		}
+		if(known)
+			accept({{"kind", "select_places"}, {"places", std::move(places)}});
+	}
+	if(packet_type == CTOS_RESPONSE && (d.message == MSG_SELECT_PLACE || d.message == MSG_SELECT_DISFIELD) &&
+	   length == 3 && d.target == 0 && payload[0] == *d.player && payload[1] == 0 && payload[2] == 0)
+		accept({{"kind", "select_places"}, {"places", Json::array()}});
+	if(!found)
+		invalid("响应不属于当前提示的合法动作");
+	return *found;
+}
 } // namespace
 
 DecisionPrompt::DecisionPrompt(std::shared_ptr<const DecisionData> data) : data_(std::move(data)) {}
@@ -534,5 +658,10 @@ EncodeDecisionResult EncodeDecision(const DecisionPrompt& prompt, const Json& ac
 		return {std::move(response), {}};
 	} catch(const CodecFailure& error) { return {std::nullopt, {error.code(), error.what()}}; }
 	catch(const Json::exception&) { return {std::nullopt, {"invalid_action", "动作缺少必填字段或字段类型错误"}}; }
+}
+DecodeDecisionResult DecodeDecisionResponse(const DecisionPrompt& prompt, std::uint8_t packet_type,
+	const std::uint8_t* payload, std::size_t length) {
+	try { return {decode(*prompt.data_, packet_type, payload, length), {}}; }
+	catch(const CodecFailure& error) { return {std::nullopt, {error.code(), error.what()}}; }
 }
 } // namespace ygo::agent_client

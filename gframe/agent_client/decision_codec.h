@@ -21,6 +21,7 @@ struct DecisionError {
 struct DecisionData;
 struct ParseDecisionResult;
 struct EncodeDecisionResult;
+struct DecodeDecisionResult;
 
 // Owns the immutable wire interpretation; JSON returned to HTTP is descriptive only.
 class DecisionPrompt {
@@ -35,6 +36,8 @@ private:
 	friend ParseDecisionResult ParseDecision(const std::uint8_t*, std::size_t, DecisionSource,
 		const std::vector<std::uint32_t>*);
 	friend EncodeDecisionResult EncodeDecision(const DecisionPrompt&, const nlohmann::json&);
+	friend DecodeDecisionResult DecodeDecisionResponse(const DecisionPrompt&, std::uint8_t,
+		const std::uint8_t*, std::size_t);
 };
 
 struct ParseDecisionResult {
@@ -54,6 +57,11 @@ struct EncodeDecisionResult {
 	DecisionError error;
 };
 
+struct DecodeDecisionResult {
+	std::optional<nlohmann::json> action;
+	DecisionError error;
+};
+
 // game_message includes MSG_* as byte zero and must contain exactly one message.
 // Pre-duel sources take an empty payload (nullptr, 0 is valid).
 // For ANNOUNCE_CARD only, allowed_card_ids must be resolved by the caller from
@@ -64,6 +72,11 @@ ParseDecisionResult ParseDecision(const std::uint8_t* bytes, std::size_t length,
 	DecisionSource source = DecisionSource::game_message,
 	const std::vector<std::uint32_t>* allowed_card_ids = nullptr);
 EncodeDecisionResult EncodeDecision(const DecisionPrompt& prompt, const nlohmann::json& action);
+// Reconstructs a semantic action from the response actually sent by the client.
+// Fails if the bytes are malformed, illegal for this prompt, or encode more than
+// one distinct candidate (for example finish and cancel both use -1).
+DecodeDecisionResult DecodeDecisionResponse(const DecisionPrompt& prompt, std::uint8_t packet_type,
+	const std::uint8_t* payload, std::size_t length);
 
 } // namespace ygo::agent_client
 #endif

@@ -13,6 +13,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import uuid
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -196,7 +197,9 @@ def run_scripted_duel(
     roles = ("host", "guest")
     tails = {role: SnapshotTail(work / f"game-1-{role}.jsonl") for role in roles}
     status_path = work / "scenario-status.json"
-    surrender_path = work / "surrender-host.request"
+    surrender = scenario.goal.get("surrender")
+    surrender_role = surrender["role"] if surrender else None
+    surrender_path = work / f"surrender-{surrender_role}.request"
     checkpoint_path = work / "checkpoint-reached.request"
     deadline = time.monotonic() + timeout + 10
     while time.monotonic() < deadline:
@@ -265,7 +268,6 @@ def run_scripted_duel(
             )
             for wait in status["wait_for"]
         )
-        surrender = scenario.goal.get("surrender")
         surrender_snapshots = (
             [
                 matching_snapshot_time(
@@ -360,10 +362,30 @@ def run_scripted_duel(
                 raise RuntimeError(
                     f"winner {winner} differs from expected {scenario.goal['winner']}"
                 )
+            if "expect" in scenario.goal:
+                for role in roles:
+                    terminal = [
+                        record
+                        for record in tails[role].snapshots
+                        if record["message_type"] == 5
+                    ]
+                    if not terminal:
+                        raise RuntimeError(f"{role}: terminal MSG_WIN snapshot missing")
+                    try:
+                        scenario.assert_visible(
+                            role,
+                            terminal[-1]["observation"],
+                            scenario.goal["expect"][role],
+                        )
+                    except ValueError as exc:
+                        raise RuntimeError(
+                            f"{role}: terminal visible state differs from goal.expect: {exc}"
+                        ) from exc
             if surrender and (
-                not surrender_path.exists() or not results[0].get("surrender_sent")
+                not surrender_path.exists()
+                or not results[roles.index(surrender_role)].get("surrender_sent")
             ):
-                raise RuntimeError("scripted host surrender was not sent")
+                raise RuntimeError(f"scripted {surrender_role} surrender was not sent")
             for role in roles:
                 audit_decisions(tails[role].path, require_hand=False)
             return {"status": "duel_finished", "winner": winner, "results": results}
@@ -543,6 +565,9 @@ def main() -> int:
     )
     parser.add_argument("--games", type=int)
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument(
+        "--record-output", help="capture both clients while running one scripted duel"
+    )
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     client = (root / args.client).resolve()
@@ -579,6 +604,8 @@ def main() -> int:
         )
     if scenario and games != 1:
         parser.error("scripted scenarios run exactly one duel")
+    if args.record_output and (not scenario or games != 1):
+        parser.error("--record-output requires one scripted duel")
     if args.gui and not scenario:
         parser.error("--gui requires --scenario")
     if args.step_delay is not None and not args.gui:
@@ -609,6 +636,10 @@ def main() -> int:
     environment["PYTHONPATH"] = str(root / "agent_sdk" / "src")
     work = root / "out" / "agent-e2e-runs" / f"{int(time.time())}-{os.getpid()}"
     work.mkdir(parents=True, exist_ok=False)
+    record_dir = (root / args.record_output).resolve() if args.record_output else None
+    record_id = uuid.uuid4().hex if record_dir else None
+    if record_dir:
+        record_dir.mkdir(parents=True, exist_ok=False)
     starting_hands: dict[str, set[tuple[int, ...]]] = {"host": set(), "guest": set()}
     outcome: dict[str, Any] | None = None
     failure: BaseException | None = None
@@ -675,6 +706,12 @@ def main() -> int:
                             )
                             if scenario:
                                 child_env["YGOPRO_AGENT_E2E_FIXED_DECK"] = "1"
+                                if record_dir:
+                                    child_env["YGOPRO_DUEL_RECORD_ID"] = record_id or ""
+                                    child_env["YGOPRO_DUEL_RECORD_ROLE"] = role
+                                    child_env["YGOPRO_DUEL_RECORD_PATH"] = str(
+                                        record_dir / f"{role}.jsonl"
+                                    )
                                 if args.gui:
                                     child_env["YGOPRO_AGENT_E2E_GUI"] = "1"
                                     child_env["YGOPRO_AGENT_E2E_CHECKPOINT_PATH"] = str(
@@ -686,9 +723,12 @@ def main() -> int:
                                             math.ceil((2 * step_delay + 10) * 1000),
                                         )
                                     )
-                                if role == "host" and "surrender" in scenario.goal:
+                                if (
+                                    "surrender" in scenario.goal
+                                    and role == scenario.goal["surrender"]["role"]
+                                ):
                                     child_env["YGOPRO_AGENT_E2E_SURRENDER_PATH"] = str(
-                                        work / "surrender-host.request"
+                                        work / f"surrender-{role}.request"
                                     )
                             with (work / f"game-{game}-{role}.log").open(
                                 "wb"

@@ -14,6 +14,7 @@
 #include "replay.h"
 #include "mysocket.h"
 #include "agent_client/agent_controller.h"
+#include "agent_client/duel_recorder.h"
 #include "agent_client/lan_test_runner.h"
 #include <event2/event.h>
 #include <event2/bufferevent.h>
@@ -69,6 +70,7 @@ std::vector<HostPacket> DuelClient::hosts;
 
 int DuelClient::WriteBufferEvent(bufferevent* bufev, const void* data, size_t size) {
 	agent_client::AgentController::Instance().OnWirePacket(false, data, size);
+	agent_client::DuelRecorder::Instance().OnWirePacket(false, data, size);
 	return bufferevent_write(bufev, data, size);
 }
 
@@ -107,6 +109,7 @@ bool DuelClient::StartClient(unsigned int ip, unsigned short port, bool create_g
 void DuelClient::ConnectTimeout(EventSocket fd, short events, void* arg) {
 	if(connect_state & CONNECT_STATE_JOINED)
 		return;
+	agent_client::DuelRecorder::Instance().OnConnectionClosed("connect_timeout");
 	if(close_reason == CLIENT_CLOSE_REASON_NONE) {
 		mainGame->btnCreateHost->setEnabled(true);
 		mainGame->btnJoinHost->setEnabled(true);
@@ -145,6 +148,7 @@ void DuelClient::ClientRead(bufferevent* bev, void* ctx) {
 		int read_len = evbuffer_remove(input, duel_client_read, packet_len + 2);
 		if (read_len > 2) {
 			agent_client::AgentController::Instance().OnWirePacket(true, duel_client_read, read_len);
+			agent_client::DuelRecorder::Instance().OnWirePacket(true, duel_client_read, read_len);
 			HandleSTOCPacketLan(&duel_client_read[2], read_len - 2);
 		}
 		len -= packet_len + 2;
@@ -206,6 +210,8 @@ void DuelClient::ClientEvent(bufferevent* bev, short events, void* ctx) {
 		bufferevent_enable(bev, EV_READ);
 		connect_state |= CONNECT_STATE_CONNECTED;
 	} else if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
+		agent_client::DuelRecorder::Instance().OnConnectionClosed(
+			(events & BEV_EVENT_EOF) ? "eof" : "socket_error");
 		bufferevent_disable(bev, EV_READ);
 		if(close_reason == CLIENT_CLOSE_REASON_NONE) {
 			if(!(connect_state & CONNECT_STATE_JOINED)) {
@@ -278,6 +284,7 @@ void DuelClient::ClientEvent(bufferevent* bev, short events, void* ctx) {
 }
 void DuelClient::ClientThread() {
 	event_base_dispatch(client_base);
+	agent_client::DuelRecorder::Instance().OnConnectionClosed("network_loop_ended");
 	CancelConnectTimeout();
 	bufferevent_free(client_bev);
 	event_base_free(client_base);
@@ -290,8 +297,10 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 	unsigned char pktType = BufferIO::Read<uint8_t>(pdata);
 	if(agent_client::LanTestRunner::Instance().Active() &&
 	   (pktType == STOC_REPLAY || pktType == STOC_DUEL_END)) {
-		if(pktType == STOC_DUEL_END)
+		if(pktType == STOC_DUEL_END) {
 			agent_client::AgentController::Instance().OnDuelEnd();
+			agent_client::DuelRecorder::Instance().OnDuelEnd();
+		}
 		agent_client::LanTestRunner::Instance().OnPacket(pktType, pdata, len - 1);
 		return;
 	}
@@ -306,6 +315,7 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 			agent_client::AgentController::Instance().OnGameMessage(last_successful_msg, last_successful_msg_length, answered);
 		else
 			agent_client::AgentController::Instance().OnGameMessage(pdata, len - 1, answered);
+		agent_client::DuelRecorder::Instance().OnGameMessage(pdata, len - 1, answered);
 		break;
 	}
 	case STOC_ERROR_MSG: {
@@ -419,6 +429,7 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 	case STOC_SELECT_HAND: {
 		mainGame->wHand->setVisible(true);
 		agent_client::AgentController::Instance().OnPreDuelDecision(agent_client::DecisionSource::select_hand);
+		agent_client::DuelRecorder::Instance().OnPreDuelDecision(agent_client::DecisionSource::select_hand);
 		break;
 	}
 	case STOC_SELECT_TP: {
@@ -426,6 +437,7 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 		mainGame->PopupElement(mainGame->wFTSelect);
 		mainGame->gMutex.unlock();
 		agent_client::AgentController::Instance().OnPreDuelDecision(agent_client::DecisionSource::select_turn_player);
+		agent_client::DuelRecorder::Instance().OnPreDuelDecision(agent_client::DecisionSource::select_turn_player);
 		break;
 	}
 	case STOC_HAND_RESULT: {
@@ -508,6 +520,7 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 		STOC_JoinGame packet;
 		std::memcpy(&packet, pdata, sizeof packet);
 		const auto* pkt = &packet;
+		agent_client::DuelRecorder::Instance().OnRoomJoined(pkt->info);
 		std::wstring str;
 		wchar_t msgbuf[256];
 		myswprintf(msgbuf, L"%ls%ls\n", dataManager.GetSysString(1226), deckManager.GetLFListName(pkt->info.lflist));
@@ -688,6 +701,7 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 	}
 	case STOC_DUEL_START: {
 		agent_client::AgentController::Instance().OnDuelStart();
+		agent_client::DuelRecorder::Instance().OnDuelStart();
 		mainGame->HideElement(mainGame->wHostPrepare);
 		mainGame->WaitFrameSignal(11);
 		mainGame->gMutex.lock();
@@ -766,6 +780,7 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 	}
 	case STOC_DUEL_END: {
 		agent_client::AgentController::Instance().OnDuelEnd();
+		agent_client::DuelRecorder::Instance().OnDuelEnd();
 		mainGame->gMutex.lock();
 		if(mainGame->dInfo.player_type < 7)
 			mainGame->btnLeaveGame->setVisible(false);
@@ -826,11 +841,13 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 		std::wcsftime(timetext, sizeof timetext / sizeof timetext[0], L"%Y-%m-%d %H-%M-%S", std::localtime(&starttime));
 		mainGame->ebRSName->setText(timetext);
 		if(!mainGame->chkAutoSaveReplay->isChecked()) {
+			agent_client::DuelRecorder::Instance().OnReplaySavePrompt();
 			mainGame->wReplaySave->setText(dataManager.GetSysString(1340));
 			mainGame->PopupElement(mainGame->wReplaySave);
 			mainGame->gMutex.unlock();
 			mainGame->replaySignal.Reset();
 			mainGame->replaySignal.Wait();
+			agent_client::DuelRecorder::Instance().OnReplaySaveResolved();
 		}
 		else {
 			mainGame->actionParam = 1;
@@ -4147,6 +4164,7 @@ void DuelClient::SendResponse() {
 	}
 }
 void DuelClient::SendUpdateDeck(const Deck& deck) {
+	agent_client::DuelRecorder::Instance().OnDeckSubmitted(deck);
 	std::vector<unsigned char> deckbuf;
 	deckbuf.reserve(1024);
 	BufferIO::VectorWrite<uint32_t>(deckbuf, static_cast<uint32_t>(deck.main.size() + deck.extra.size()));
