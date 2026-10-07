@@ -19,25 +19,25 @@ struct HttpResult {
 
 // Plain HTTP transport. JSON interpretation belongs to the caller.
 class HttpClient final {
-public:
+  public:
 	using Completion = std::function<void(HttpResult)>;
 	static constexpr std::size_t max_json_size = 1024 * 1024;
 
 	HttpClient() = default;
 	~HttpClient();
-	HttpClient(const HttpClient&) = delete;
-	HttpClient& operator=(const HttpClient&) = delete;
+	HttpClient(const HttpClient &) = delete;
+	HttpClient &operator=(const HttpClient &) = delete;
 
 	// Returns false for invalid configuration or an already running client.
-	bool Start(std::string host, std::uint16_t port, std::string token,
-	           int timeout_ms, Completion completion);
+	bool Start(std::string host, std::uint16_t port, std::string token, int timeout_ms, Completion completion);
 	// Returns false while busy, stopped, or if the JSON exceeds the size limit.
-	bool Submit(std::string json, std::string path = "/v2/decision");
+	bool Submit(std::string json, std::string path = "/v2/decision", int timeout_ms = 0);
+	bool Get(std::string path, int timeout_ms = 0);
 	// Cancels pending work. Joins the worker except when called by its callback.
 	// Callbacks run on the worker; they must be short and must not throw.
 	void Stop();
 
-private:
+  private:
 	struct State;
 	static void Run(std::shared_ptr<State> state);
 	std::mutex mutex_;

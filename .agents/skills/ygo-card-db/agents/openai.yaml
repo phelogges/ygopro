@@ -1,0 +1,7 @@
+display_name: ygo-card-db
+short_description: 游戏王卡片数据库查询
+default_prompt: |
+  给定卡片8位密码（id），从 YGOPro 格式的 cards.cdb 数据库中检索卡片信息，
+  以自然语言为主的 JSON 格式输出，适合输入给 LLM 做语义理解。
+  支持通过卡片 id 查询，并自动解码二进制字段（类型、种族、属性、效果分类、
+  连接箭头、灵摆刻度等）。

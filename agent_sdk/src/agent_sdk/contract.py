@@ -1,4 +1,4 @@
-"""Strict validation of known decision fields in v1 and v2 envelopes.
+"""Strict validation of known decision fields in v1, v2, and v3 envelopes.
 
 Composite constraint profile: min_count/max_count (or count), candidate mandatory; tribute uses
 candidate.weight and min_weight/max_weight; sum uses target and candidate.value_options
@@ -161,9 +161,9 @@ def _decode(value: object) -> Object:
 def parse_request(value: object) -> DecisionRequest:
     """Validate a JSON string/bytes or mapping; additive envelope fields are allowed."""
     data = _decode(value)
-    if type(data.get("schema_version")) is not int or data["schema_version"] not in (1, 2):
+    if type(data.get("schema_version")) is not int or data["schema_version"] not in (1, 2, 3):
         raise ContractError("unsupported schema_version")
-    if data["schema_version"] == 2:
+    if data["schema_version"] in (2, 3):
         _int(data.get("state_version"), "state_version", 1)
         if type(data.get("history_complete")) is not bool:
             raise ContractError("history_complete: expected boolean")
@@ -192,7 +192,7 @@ def parse_request(value: object) -> DecisionRequest:
     for key in ("zones", "events"):
         for item in _array(observation.get(key), key):
             obj = _object(item, key)
-            if key == "events" and data["schema_version"] == 2:
+            if key == "events" and data["schema_version"] in (2, 3):
                 _int(obj.get("event_id"), "event.event_id", 1)
                 _string(obj.get("kind"), "event.kind")
             if "card" in obj and (key == "zones" or data["schema_version"] == 1):
@@ -501,7 +501,7 @@ def build_response(request: DecisionRequest, intent: object, reason: str) -> Obj
     response = {
         key: request.data[key] for key in ("schema_version", "session_id", "duel_id", "prompt_id")
     }
-    if request.data["schema_version"] == 2:
+    if request.data["schema_version"] in (2, 3):
         response["state_version"] = request.data["state_version"]
         events = cast(list[Object], cast(Object, request.data["observation"])["events"])
         response["ack_event_id"] = events[-1]["event_id"] if events else 0
@@ -519,7 +519,7 @@ def validate_response(request: DecisionRequest, value: object) -> Object:
             or response.get(key) != request.data[key]
         ):
             raise ContractError(f"stale or invalid response {key}")
-    if request.data["schema_version"] == 2:
+    if request.data["schema_version"] in (2, 3):
         if response.get("state_version") != request.data["state_version"]:
             raise ContractError("stale or invalid response state_version")
         ack = _int(response.get("ack_event_id"), "ack_event_id")

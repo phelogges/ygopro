@@ -9,12 +9,14 @@
 
 #include <nlohmann/json.hpp>
 #include <charconv>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 namespace ygo::agent_client {
@@ -70,9 +72,15 @@ void LanTestRunner::Start() {
 		if(role_ != "host" && role_ != "guest") throw std::runtime_error("E2E role must be host or guest");
 		if(Environment("YGOPRO_AGENT_ENABLE") != "1")
 			throw std::runtime_error("E2E requires YGOPRO_AGENT_ENABLE=1");
+		if(!mainGame || !mainGame->device) throw std::runtime_error("Game device is not initialized");
+		if(Environment("YGOPRO_AGENT_PROTOCOL") == "v3") {
+			for(int attempt = 0; attempt < 100 && !AgentController::Instance().IsControlling(); ++attempt) {
+				AgentController::Instance().Poll();
+				std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			}
+		}
 		if(!AgentController::Instance().IsControlling())
 			throw std::runtime_error("Agent controller initialization failed or control is disabled");
-		if(!mainGame || !mainGame->device) throw std::runtime_error("Game device is not initialized");
 		port_ = static_cast<std::uint16_t>(IntegerEnvironment("YGOPRO_AGENT_E2E_PORT", 7921, 1, 65535));
 		timeout_ = std::chrono::milliseconds(IntegerEnvironment("YGOPRO_AGENT_E2E_TIMEOUT_MS", 300000, 1, 3600000));
 		if(!std::filesystem::is_regular_file(std::filesystem::u8path(deck_path_)))

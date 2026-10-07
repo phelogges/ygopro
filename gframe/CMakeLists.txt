@@ -1,6 +1,6 @@
 project (ygopro)
 
-file(GLOB SRC_FILES "*.h" "*.cpp" "agent_client/*.h" "agent_client/*.cpp")
+file(GLOB SRC_FILES CONFIGURE_DEPENDS "*.h" "*.cpp" "agent_client/*.h" "agent_client/*.cpp")
 
 add_executable(${PROJECT_NAME} WIN32 ${SRC_FILES})
 

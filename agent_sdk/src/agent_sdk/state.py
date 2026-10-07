@@ -227,8 +227,8 @@ def _fingerprint(value: JSONObject) -> str:
 
 
 def _identity(envelope: JSONObject) -> tuple[str, str, str]:
-    if type(envelope.get("schema_version")) is not int or envelope["schema_version"] != 2:
-        raise StateError("unsupported_version", "schema_version must be 2")
+    if type(envelope.get("schema_version")) is not int or envelope["schema_version"] not in (2, 3):
+        raise StateError("unsupported_version", "schema_version must be 2 or 3")
     session = _string(envelope.get("session_id"), "session_id")
     duel = _string(envelope.get("duel_id"), "duel_id")
     digest = _string(envelope.get("database_sha256"), "database_sha256")

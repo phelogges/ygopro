@@ -263,33 +263,92 @@ std::string AgentController::NewId() {
 }
 
 void AgentController::Initialize() {
-	std::lock_guard<std::mutex> lock(mutex_);
-	if(initialized_)
-		return;
-	initialized_ = true;
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		if(initialized_)
+			return;
+		initialized_ = true;
+	}
 	if(!EnabledByEnvironment())
 		return;
-	if(const char* value = std::getenv("YGOPRO_AGENT_HOST"))
-		host_ = value;
-	if(const char* value = std::getenv("YGOPRO_AGENT_TOKEN"))
-		token_ = value;
-	if(const auto value = EnvInt("YGOPRO_AGENT_PORT", 1, 65535))
-		port_ = static_cast<std::uint16_t>(*value);
-	if(const auto value = EnvInt("YGOPRO_AGENT_TIMEOUT_MS", 100, 120000))
-		timeout_ms_ = *value;
-	if(host_ != "127.0.0.1" && host_ != "localhost" && host_ != "::1" && token_.empty())
-		return;
-	const char* database_path = std::getenv("YGOPRO_AGENT_DB_PATH");
+	const char *protocol = std::getenv("YGOPRO_AGENT_PROTOCOL");
+	const char *e2e_role = std::getenv("YGOPRO_AGENT_E2E_ROLE");
+	v3_ = (protocol && std::string(protocol) == "v3") ||
+		(!(protocol && std::string(protocol) == "v2") && !(e2e_role && *e2e_role));
+	if(v3_) {
+		if(const char *profile = std::getenv("YGOPRO_AGENT_CONFIG"); profile && *profile)
+			profile_ = profile;
+		if(const char *executable = std::getenv("YGOPRO_AGENT_SERVER_EXECUTABLE"); executable && *executable)
+			server_executable_ = executable;
+		host_ = "127.0.0.1";
+		token_ = NewId() + NewId();
+		boot_nonce_ = NewId();
+	} else {
+		if(const char *value = std::getenv("YGOPRO_AGENT_HOST"))
+			host_ = value;
+		if(const char *value = std::getenv("YGOPRO_AGENT_TOKEN"))
+			token_ = value;
+		if(const auto value = EnvInt("YGOPRO_AGENT_PORT", 1, 65535))
+			port_ = static_cast<std::uint16_t>(*value);
+		if(const auto value = EnvInt("YGOPRO_AGENT_TIMEOUT_MS", 100, 120000))
+			timeout_ms_ = *value;
+		if(host_ != "127.0.0.1" && host_ != "localhost" && host_ != "::1" && token_.empty())
+			return;
+	}
+	const char *database_path = std::getenv("YGOPRO_AGENT_DB_PATH");
 	const auto digest = agent::ComputeFileSha256(database_path && *database_path ? database_path : "cards.cdb");
 	if(!digest)
 		return;
 	database_sha256_ = digest.hex;
-	if(const char* path = std::getenv("YGOPRO_AGENT_LOG_PATH"); path && *path)
+	if(const char *path = std::getenv("YGOPRO_AGENT_LOG_PATH"); path && *path)
 		log_file_.open(path, std::ios::binary | std::ios::app);
 	session_id_ = NewId();
-	available_ = http_.Start(host_, port_, token_, timeout_ms_,
-		[this](agent::HttpResult result) { OnHttpResult(std::move(result)); });
-	controlling_ = available_;
+	if(!StartService()) {
+		std::lock_guard<std::mutex> lock(mutex_);
+		notices_.push_back("Agent 服务启动失败，请检查 .agents 配置和端口");
+	}
+}
+
+bool AgentController::StartService() {
+	if(v3_) {
+		AgentProcessReady startup;
+		std::string error;
+		if(!process_.Start(server_executable_, profile_, token_, boot_nonce_, startup, error)) {
+			Log({{"kind", "agent_error"},
+				 {"code", "process_start_failed"},
+				 {"message", error},
+				 {"timestamp_unix_ms", NowUnixMs()}});
+			return false;
+		}
+		port_ = startup.port;
+		timeout_ms_ = startup.decision_timeout_ms;
+	}
+	const bool started = http_.Start(host_, port_, token_, timeout_ms_,
+									 [this](agent::HttpResult result) { OnHttpResult(std::move(result)); });
+	if(!started) {
+		process_.Stop();
+		return false;
+	}
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		available_ = true;
+		ready_ = !v3_;
+		controlling_ = !v3_;
+		if(v3_) {
+			in_flight_prompt_id_ = std::numeric_limits<std::uint64_t>::max();
+			in_flight_ready_ = true;
+		}
+	}
+	if(v3_ && !http_.Get("/v3/ready", 3000)) {
+		http_.Stop();
+		process_.Stop();
+		std::lock_guard<std::mutex> lock(mutex_);
+		available_ = false;
+		in_flight_prompt_id_ = 0;
+		in_flight_ready_ = false;
+		return false;
+	}
+	return true;
 }
 
 void AgentController::Stop() {
@@ -298,8 +357,10 @@ void AgentController::Stop() {
 		controlling_ = false;
 		available_ = false;
 		pending_.reset();
+		action_result_queued_ = false;
 	}
 	http_.Stop();
+	process_.Stop();
 }
 
 bool AgentController::IsControlling() const noexcept {
@@ -572,7 +633,7 @@ void AgentController::OnGameMessage(const std::uint8_t* bytes, std::size_t lengt
 	bool background_sync = false;
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
-		if(!initialized_ || !available_ || mainGame->dInfo.isReplay || mainGame->dInfo.isSingleMode)
+		if(!initialized_ || (!available_ && !v3_) || mainGame->dInfo.isReplay || mainGame->dInfo.isSingleMode)
 			return;
 		automatic_empty_chain = controlling_ && already_answered && bytes && length >= 3
 			&& bytes[0] == MSG_SELECT_CHAIN && bytes[2] == 0;
@@ -635,9 +696,8 @@ void AgentController::OnDecision(DecisionPrompt decision) {
 	bool cancel_previous = false;
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
-		cancel_previous = in_flight_prompt_id_ != 0;
-		if(duel_id_.empty())
-		{
+		cancel_previous = in_flight_prompt_id_ != 0 && !in_flight_ready_;
+		if(duel_id_.empty()) {
 			duel_id_ = NewId();
 			next_event_id_ = 0;
 			next_state_version_ = 0;
@@ -665,10 +725,14 @@ void AgentController::OnDecision(DecisionPrompt decision) {
 bool AgentController::RestartTransport() {
 	http_.Stop();
 	const bool started = http_.Start(host_, port_, token_, timeout_ms_,
-		[this](agent::HttpResult result) { OnHttpResult(std::move(result)); });
+									 [this](agent::HttpResult result) { OnHttpResult(std::move(result)); });
 	std::lock_guard<std::mutex> lock(mutex_);
 	available_ = started;
 	in_flight_prompt_id_ = 0;
+	in_flight_ready_ = false;
+	in_flight_query_result_ = false;
+	in_flight_action_result_ = false;
+	action_result_queued_ = false;
 	completed_.clear();
 	return started;
 }
@@ -678,12 +742,12 @@ void AgentController::SubmitBackgroundSync() {
 	std::uint64_t event_id = 0;
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
-		if(!available_ || !history_complete_ || duel_id_.empty() ||
-		   in_flight_prompt_id_ || events_.empty()) return;
-		request = {{"schema_version", 2}, {"session_id", session_id_},
-			{"duel_id", duel_id_}, {"database_sha256", database_sha256_},
-			{"history_complete", true}, {"events", nlohmann::json::array()}};
-		for(const auto& event : events_) {
+		if(!available_ || !history_complete_ || duel_id_.empty() || in_flight_prompt_id_ || events_.empty())
+			return;
+		request = {{"schema_version", v3_ ? 3 : 2}, {"session_id", session_id_},
+				   {"duel_id", duel_id_},			{"database_sha256", database_sha256_},
+				   {"history_complete", true},		{"events", nlohmann::json::array()}};
+		for(const auto &event : events_) {
 			request["events"].push_back(event);
 			if(request.dump().size() > agent::HttpClient::max_json_size / 2) {
 				request["events"].erase(request["events"].size() - 1);
@@ -704,9 +768,8 @@ void AgentController::SubmitBackgroundSync() {
 		in_flight_terminal_ = false;
 		in_flight_duel_id_ = duel_id_;
 	}
-	Log({{"kind", "state_sync_request"}, {"message", request},
-		{"timestamp_unix_ms", NowUnixMs()}});
-	if(!http_.Submit(request.dump(), "/v2/sync")) {
+	Log({{"kind", "state_sync_request"}, {"message", request}, {"timestamp_unix_ms", NowUnixMs()}});
+	if(!http_.Submit(request.dump(), v3_ ? "/v3/sync" : "/v2/sync")) {
 		std::lock_guard<std::mutex> lock(mutex_);
 		if(in_flight_background_ && in_flight_event_id_ == event_id)
 			in_flight_prompt_id_ = 0;
@@ -718,12 +781,16 @@ void AgentController::SubmitTerminalSync() {
 	std::uint64_t event_id = 0;
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
-		if(!available_ || !terminal_ || !terminal_->history_complete ||
-		   terminal_->attempts >= 3 || in_flight_prompt_id_) return;
-		request = {{"schema_version", 2}, {"session_id", session_id_},
-			{"duel_id", terminal_->duel_id}, {"database_sha256", database_sha256_},
-			{"history_complete", terminal_->history_complete}, {"events", nlohmann::json::array()}};
-		for(const auto& event : terminal_->events) {
+		if(!available_ || !terminal_ || !terminal_->history_complete || terminal_->attempts >= 3 ||
+		   in_flight_prompt_id_)
+			return;
+		request = {{"schema_version", v3_ ? 3 : 2},
+				   {"session_id", session_id_},
+				   {"duel_id", terminal_->duel_id},
+				   {"database_sha256", database_sha256_},
+				   {"history_complete", terminal_->history_complete},
+				   {"events", nlohmann::json::array()}};
+		for(const auto &event : terminal_->events) {
 			if(event.at("event_id").get<std::uint64_t>() <= terminal_->acknowledged_event_id)
 				continue;
 			request["events"].push_back(event);
@@ -732,7 +799,8 @@ void AgentController::SubmitTerminalSync() {
 				break;
 			}
 		}
-		if(request["events"].empty()) return;
+		if(request["events"].empty())
+			return;
 		event_id = request["events"].back().at("event_id").get<std::uint64_t>();
 		in_flight_prompt_id_ = std::numeric_limits<std::uint64_t>::max();
 		in_flight_event_id_ = event_id;
@@ -744,9 +812,8 @@ void AgentController::SubmitTerminalSync() {
 		in_flight_duel_id_ = terminal_->duel_id;
 		++terminal_->attempts;
 	}
-	Log({{"kind", "terminal_sync_request"}, {"message", request},
-		{"timestamp_unix_ms", NowUnixMs()}});
-	if(!http_.Submit(request.dump(), "/v2/sync")) {
+	Log({{"kind", "terminal_sync_request"}, {"message", request}, {"timestamp_unix_ms", NowUnixMs()}});
+	if(!http_.Submit(request.dump(), v3_ ? "/v3/sync" : "/v2/sync")) {
 		std::lock_guard<std::mutex> lock(mutex_);
 		if(in_flight_terminal_ && in_flight_event_id_ == event_id)
 			in_flight_prompt_id_ = 0;
@@ -754,14 +821,27 @@ void AgentController::SubmitTerminalSync() {
 }
 
 void AgentController::SubmitPending() {
+	if(v3_) {
+		bool receipt_pending = false;
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			receipt_pending = action_receipt_.has_value();
+		}
+		if(receipt_pending) {
+			SubmitActionResult();
+			return;
+		}
+	}
 	std::optional<nlohmann::json> status_request;
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 		if(!available_ || !controlling_ || !pending_ || pending_->submitted || in_flight_prompt_id_)
 			return;
 		if(needs_status_) {
-			status_request = nlohmann::json{{"schema_version", 2}, {"session_id", session_id_},
-				{"duel_id", duel_id_}, {"database_sha256", database_sha256_}};
+			status_request = nlohmann::json{{"schema_version", v3_ ? 3 : 2},
+											{"session_id", session_id_},
+											{"duel_id", duel_id_},
+											{"database_sha256", database_sha256_}};
 			in_flight_prompt_id_ = pending_->prompt_id;
 			in_flight_state_version_ = 0;
 			in_flight_event_id_ = 0;
@@ -774,16 +854,16 @@ void AgentController::SubmitPending() {
 		}
 	}
 	if(status_request) {
-		Log({{"kind", "state_status_request"}, {"message", *status_request},
-			{"timestamp_unix_ms", NowUnixMs()}});
-		if(!http_.Submit(status_request->dump(), "/v2/status"))
+		Log({{"kind", "state_status_request"}, {"message", *status_request}, {"timestamp_unix_ms", NowUnixMs()}});
+		if(!http_.Submit(status_request->dump(), v3_ ? "/v3/status" : "/v2/status"))
 			FailCurrent("transport_busy");
 		return;
 	}
 	const auto snapshot = BuildObservation();
 	nlohmann::json request;
 	std::uint64_t prompt_id = 0;
-	std::string path = "/v2/decision";
+	std::int64_t deadline_unix_ms = 0;
+	std::string path = v3_ ? "/v3/decision" : "/v2/decision";
 	std::string failure;
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
@@ -796,105 +876,270 @@ void AgentController::SubmitPending() {
 				pending_->frozen_snapshot = snapshot;
 				pending_->frozen_snapshot["turn_player"] = turn_player_ < 0 ? 0 : turn_player_;
 				pending_->frozen_snapshot["phase"] = phase_;
-				if(const char* role = std::getenv("YGOPRO_AGENT_E2E_ROLE"); role && *role)
+				if(const char *role = std::getenv("YGOPRO_AGENT_E2E_ROLE"); role && *role)
 					pending_->frozen_snapshot["test_role"] = role;
 				pending_->frozen_events = events_;
 				pending_->state_version = ++next_state_version_;
 				pending_->frozen = true;
 			}
-		prompt_id = pending_->prompt_id;
-		auto prompt = pending_->decision.prompt();
-		for(auto& candidate : prompt["candidates"]) {
-			if(candidate.contains("card") && candidate["card"].contains("controller")) {
-				auto& card = candidate["card"];
-				const int controller = mainGame->LocalPlayer(card["controller"].get<int>());
-				card["controller"] = controller;
-				if(card.contains("location") && card.contains("sequence") && card["location"].is_string()) {
-					const auto location = card["location"].get<std::string>();
-					std::uint32_t mask = 0;
-					if(location == "hand") mask = LOCATION_HAND;
-					else if(location == "monster") mask = LOCATION_MZONE;
-					else if(location == "spell") mask = LOCATION_SZONE;
-					else if(location == "graveyard") mask = LOCATION_GRAVE;
-					else if(location == "banished") mask = LOCATION_REMOVED;
-					else if(location == "extra") mask = LOCATION_EXTRA;
-					if(mask)
-						card["instance_id"] = std::to_string(controller) + ":" + std::to_string(mask) + ":" + std::to_string(card["sequence"].get<std::size_t>());
-					if(location == "graveyard" && mainGame->dField.cant_check_grave) {
-						card["instance_id"] = "candidate-" + candidate["id"].get<std::string>();
-						card.erase("sequence");
+			prompt_id = pending_->prompt_id;
+			deadline_unix_ms = pending_->deadline_unix_ms;
+			auto prompt = pending_->decision.prompt();
+			for(auto &candidate : prompt["candidates"]) {
+				if(candidate.contains("card") && candidate["card"].contains("controller")) {
+					auto &card = candidate["card"];
+					const int controller = mainGame->LocalPlayer(card["controller"].get<int>());
+					card["controller"] = controller;
+					if(card.contains("location") && card.contains("sequence") && card["location"].is_string()) {
+						const auto location = card["location"].get<std::string>();
+						std::uint32_t mask = 0;
+						if(location == "hand")
+							mask = LOCATION_HAND;
+						else if(location == "monster")
+							mask = LOCATION_MZONE;
+						else if(location == "spell")
+							mask = LOCATION_SZONE;
+						else if(location == "graveyard")
+							mask = LOCATION_GRAVE;
+						else if(location == "banished")
+							mask = LOCATION_REMOVED;
+						else if(location == "extra")
+							mask = LOCATION_EXTRA;
+						if(mask)
+							card["instance_id"] = std::to_string(controller) + ":" + std::to_string(mask) + ":" +
+												  std::to_string(card["sequence"].get<std::size_t>());
+						if(location == "graveyard" && mainGame->dField.cant_check_grave) {
+							card["instance_id"] = "candidate-" + candidate["id"].get<std::string>();
+							card.erase("sequence");
+						}
 					}
 				}
+				if(candidate.contains("controller"))
+					candidate["controller"] = mainGame->LocalPlayer(candidate["controller"].get<int>());
 			}
-			if(candidate.contains("controller"))
-				candidate["controller"] = mainGame->LocalPlayer(candidate["controller"].get<int>());
-		}
-		request = {
-			{"schema_version", 2}, {"session_id", session_id_}, {"duel_id", duel_id_},
-			{"prompt_id", prompt_id}, {"database_sha256", database_sha256_},
-			{"state_version", pending_->state_version}, {"history_complete", true},
-			{"deadline_unix_ms", pending_->deadline_unix_ms},
-			{"observation", pending_->frozen_snapshot}, {"prompt", std::move(prompt)}
-		};
-		request["observation"]["events"] = nlohmann::json::array();
-		for(const auto& event : pending_->frozen_events)
-			if(event.at("event_id").get<std::uint64_t>() > acknowledged_event_id_)
-				request["observation"]["events"].push_back(event);
-		if(request.dump().size() > agent::HttpClient::max_json_size) {
-			if(request["observation"]["events"].empty()) {
-				failure = "snapshot_too_large";
-			} else {
-				path = "/v2/sync";
-				nlohmann::json sync{{"schema_version", 2}, {"session_id", session_id_},
-					{"duel_id", duel_id_}, {"database_sha256", database_sha256_},
-					{"history_complete", true}, {"events", nlohmann::json::array()}};
-				for(const auto& event : request["observation"]["events"]) {
-					sync["events"].push_back(event);
-					if(sync.dump().size() > agent::HttpClient::max_json_size / 2) {
-						sync["events"].erase(sync["events"].size() - 1);
-						break;
+			request = {{"schema_version", v3_ ? 3 : 2},
+					   {"session_id", session_id_},
+					   {"duel_id", duel_id_},
+					   {"prompt_id", prompt_id},
+					   {"database_sha256", database_sha256_},
+					   {"state_version", pending_->state_version},
+					   {"history_complete", true},
+					   {"deadline_unix_ms", pending_->deadline_unix_ms},
+					   {"observation", pending_->frozen_snapshot},
+					   {"prompt", std::move(prompt)}};
+			request["observation"]["events"] = nlohmann::json::array();
+			for(const auto &event : pending_->frozen_events)
+				if(event.at("event_id").get<std::uint64_t>() > acknowledged_event_id_)
+					request["observation"]["events"].push_back(event);
+			if(request.dump().size() > agent::HttpClient::max_json_size) {
+				if(request["observation"]["events"].empty()) {
+					failure = "snapshot_too_large";
+				} else {
+					path = v3_ ? "/v3/sync" : "/v2/sync";
+					nlohmann::json sync{{"schema_version", v3_ ? 3 : 2}, {"session_id", session_id_},
+										{"duel_id", duel_id_},			 {"database_sha256", database_sha256_},
+										{"history_complete", true},		 {"events", nlohmann::json::array()}};
+					for(const auto &event : request["observation"]["events"]) {
+						sync["events"].push_back(event);
+						if(sync.dump().size() > agent::HttpClient::max_json_size / 2) {
+							sync["events"].erase(sync["events"].size() - 1);
+							break;
+						}
 					}
+					if(sync["events"].empty())
+						failure = "event_too_large";
+					else
+						request = std::move(sync);
 				}
-				if(sync["events"].empty()) failure = "event_too_large";
-				else request = std::move(sync);
 			}
-		}
-		if(failure.empty()) {
-			in_flight_prompt_id_ = prompt_id;
-			in_flight_state_version_ = pending_->state_version;
-			in_flight_sync_ = path == "/v2/sync";
-			in_flight_status_ = false;
-			in_flight_background_ = false;
-			in_flight_terminal_ = false;
-			in_flight_duel_id_ = duel_id_;
-			const auto& outbound_events = in_flight_sync_ ? request["events"] : request["observation"]["events"];
-			in_flight_event_id_ = outbound_events.empty() ? acknowledged_event_id_ :
-				outbound_events.back().at("event_id").get<std::uint64_t>();
-			pending_->submitted = true;
-		}
+			if(failure.empty()) {
+				in_flight_prompt_id_ = prompt_id;
+				in_flight_state_version_ = pending_->state_version;
+				in_flight_sync_ = path == "/v2/sync" || path == "/v3/sync";
+				in_flight_status_ = false;
+				in_flight_background_ = false;
+				in_flight_terminal_ = false;
+				in_flight_duel_id_ = duel_id_;
+				const auto &outbound_events = in_flight_sync_ ? request["events"] : request["observation"]["events"];
+				in_flight_event_id_ = outbound_events.empty()
+										  ? acknowledged_event_id_
+										  : outbound_events.back().at("event_id").get<std::uint64_t>();
+				pending_->submitted = true;
+			}
 		}
 	}
 	if(!failure.empty()) {
 		FailCurrent(failure);
 		return;
 	}
-	Log({{"kind", path == "/v2/sync" ? "state_sync_request" : "decision_request"},
-		{"message", request}, {"timestamp_unix_ms", NowUnixMs()}});
-	if(!http_.Submit(request.dump(), path)) {
+	Log({{"kind", path == "/v2/sync" || path == "/v3/sync" ? "state_sync_request" : "decision_request"},
+		 {"message", request},
+		 {"timestamp_unix_ms", NowUnixMs()}});
+	const int remaining_ms = static_cast<int>(std::max<std::int64_t>(1, deadline_unix_ms - NowUnixMs()));
+	if(!http_.Submit(request.dump(), path, remaining_ms)) {
 		FailCurrent("transport_busy");
 		return;
 	}
 }
 
-void AgentController::OnHttpResult(agent::HttpResult result) {
-	std::lock_guard<std::mutex> lock(mutex_);
-	completed_.push_back(Completed{in_flight_prompt_id_, in_flight_state_version_,
-		in_flight_event_id_, in_flight_sync_, in_flight_status_, in_flight_background_,
-		in_flight_terminal_, in_flight_duel_id_, std::move(result)});
-	in_flight_prompt_id_ = 0;
+void AgentController::SubmitActionResult() {
+	nlohmann::json request;
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		if(!v3_ || !available_ || !action_receipt_ || in_flight_prompt_id_ || action_result_queued_)
+			return;
+		if(action_receipt_->attempts >= 3) {
+			controlling_ = false;
+			notices_.push_back("Agent 已交还人工操作：action_result_failed");
+			return;
+		}
+		request = {{"schema_version", 3},
+				   {"session_id", session_id_},
+				   {"duel_id", action_receipt_->duel_id},
+				   {"prompt_id", action_receipt_->prompt_id},
+				   {"state_version", action_receipt_->state_version},
+				   {"action_id", action_receipt_->action_id},
+				   {"status", action_receipt_->status}};
+		in_flight_prompt_id_ = action_receipt_->prompt_id;
+		in_flight_state_version_ = action_receipt_->state_version;
+		in_flight_event_id_ = acknowledged_event_id_;
+		in_flight_sync_ = false;
+		in_flight_status_ = false;
+		in_flight_background_ = false;
+		in_flight_terminal_ = false;
+		in_flight_action_result_ = true;
+		in_flight_duel_id_ = action_receipt_->duel_id;
+		++action_receipt_->attempts;
+	}
+	Log({{"kind", "action_result_request"}, {"message", request}, {"timestamp_unix_ms", NowUnixMs()}});
+	if(!http_.Submit(request.dump(), "/v3/action-result", 3000)) {
+		std::lock_guard<std::mutex> lock(mutex_);
+		in_flight_prompt_id_ = 0;
+		in_flight_action_result_ = false;
+	}
 }
 
-void AgentController::FailCurrent(const std::string& code) {
+void AgentController::HandleQuery(const nlohmann::json &reply, std::uint64_t prompt_id, std::uint64_t state_version) {
+	std::string duel_id;
+	nlohmann::json frozen;
+	std::int64_t deadline = 0;
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		if(!controlling_ || !pending_ || pending_->prompt_id != prompt_id || pending_->state_version != state_version ||
+		   !pending_->frozen)
+			return;
+		duel_id = duel_id_;
+		frozen = pending_->frozen_snapshot;
+		deadline = pending_->deadline_unix_ms;
+	}
+	const std::string query_id = reply.value("query_id", std::string{});
+	if(query_id.empty() || query_id.size() > 128 || !reply.contains("query") || !reply["query"].is_object()) {
+		FailCurrent("invalid_query_response");
+		return;
+	}
+	nlohmann::json request{{"schema_version", 3},	 {"session_id", session_id_},	   {"duel_id", duel_id},
+						   {"prompt_id", prompt_id}, {"state_version", state_version}, {"query_id", query_id}};
+	std::string error;
+	if(NowUnixMs() >= deadline)
+		error = "stale_prompt";
+	nlohmann::json current;
+	if(error.empty()) {
+		current = BuildObservation();
+		frozen.erase("phase");
+		frozen.erase("turn_player");
+		frozen.erase("test_role");
+		if(current != frozen)
+			error = "stale_prompt";
+	}
+	if(error.empty()) {
+		const auto &query = reply["query"];
+		const auto kind = query.value("kind", std::string{});
+		if(kind == "inspect_zone") {
+			if(!query.contains("player") || !query["player"].is_number_integer() || !query.contains("zone") ||
+			   !query["zone"].is_string()) {
+				error = "unavailable";
+			} else {
+				const int player = query["player"].get<int>();
+				const std::string zone = query["zone"].get<std::string>();
+				if(player < 0 || player > 1)
+					error = "unavailable";
+				else {
+					bool found = false;
+					for(const auto &entry : current["zones"]) {
+						if(entry.value("player", -1) == player && entry.value("name", std::string{}) == zone) {
+							request["result"] = {{"kind", "inspect_zone"}, {"zone", entry}};
+							found = true;
+							break;
+						}
+					}
+					if(!found)
+						error = "unavailable";
+				}
+			}
+		} else if(kind == "inspect_card") {
+			if(!query.contains("instance_id") || !query["instance_id"].is_string()) {
+				error = "unavailable";
+			} else {
+				const auto instance_id = query["instance_id"].get<std::string>();
+				bool found = false;
+				for(const auto &zone : current["zones"]) {
+					for(const auto &card : zone["cards"]) {
+						if(card.value("instance_id", std::string{}) == instance_id) {
+							request["result"] = {{"kind", "inspect_card"}, {"card", card}};
+							found = true;
+							break;
+						}
+					}
+					if(found)
+						break;
+				}
+				if(!found)
+					error = "not_visible";
+			}
+		} else
+			error = "unavailable";
+	}
+	if(!error.empty())
+		request["error"] = {{"code", error}, {"message", error}};
+	const int remaining_ms = static_cast<int>(std::max<std::int64_t>(1, deadline - NowUnixMs()));
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		if(!controlling_ || !pending_ || pending_->prompt_id != prompt_id || pending_->state_version != state_version)
+			return;
+		in_flight_prompt_id_ = prompt_id;
+		in_flight_state_version_ = state_version;
+		in_flight_event_id_ = acknowledged_event_id_;
+		in_flight_sync_ = false;
+		in_flight_status_ = false;
+		in_flight_background_ = false;
+		in_flight_terminal_ = false;
+		in_flight_query_result_ = true;
+		in_flight_duel_id_ = duel_id;
+	}
+	Log({{"kind", "client_query_result"}, {"message", request}, {"timestamp_unix_ms", NowUnixMs()}});
+	if(!http_.Submit(request.dump(), "/v3/query-result", remaining_ms)) {
+		FailCurrent("query_result_transport_busy");
+		return;
+	}
+	if(!error.empty())
+		FailCurrent(error);
+}
+
+void AgentController::OnHttpResult(agent::HttpResult result) {
+	std::lock_guard<std::mutex> lock(mutex_);
+	if(in_flight_action_result_)
+		action_result_queued_ = true;
+	completed_.push_back(Completed{in_flight_prompt_id_, in_flight_state_version_, in_flight_event_id_, in_flight_sync_,
+								   in_flight_status_, in_flight_background_, in_flight_terminal_, in_flight_ready_,
+								   in_flight_query_result_, in_flight_action_result_, in_flight_duel_id_,
+								   std::move(result)});
+	in_flight_prompt_id_ = 0;
+	in_flight_ready_ = false;
+	in_flight_query_result_ = false;
+	in_flight_action_result_ = false;
+}
+
+void AgentController::FailCurrent(const std::string &code) {
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 		controlling_ = false;
@@ -906,22 +1151,46 @@ void AgentController::FailCurrent(const std::string& code) {
 
 void AgentController::Toggle() {
 	Initialize();
+	bool restart_service = false;
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		restart_service = v3_ && !available_;
+	}
+	if(restart_service) {
+		http_.Stop();
+		process_.Stop();
+		boot_nonce_ = NewId();
+		token_ = NewId() + NewId();
+		if(!StartService()) {
+			ShowAgentMessage("Agent 服务重启失败，请检查 .agents 配置和端口");
+			return;
+		}
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			needs_status_ = !duel_id_.empty();
+		}
+		ShowAgentMessage("Agent 服务正在启动，准备恢复接管");
+		return;
+	}
 	bool next = false;
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
-		if(!available_)
-		{
+		if(!available_ || (v3_ && !ready_)) {
 			ShowAgentMessage("Agent 未就绪，请检查连接和卡片数据库配置");
 			return;
 		}
 		controlling_ = !controlling_;
 		next = controlling_;
-		if(next && !duel_id_.empty()) needs_status_ = true;
+		if(next && !duel_id_.empty())
+			needs_status_ = true;
 		if(!duel_id_.empty()) {
-			if(events_.size() >= max_pending_events) history_complete_ = false;
-			else events_.push_back({{"event_id", ++next_event_id_},
-				{"kind", "control_changed"}, {"source", "client_control"},
-				{"agent", next}});
+			if(events_.size() >= max_pending_events)
+				history_complete_ = false;
+			else
+				events_.push_back({{"event_id", ++next_event_id_},
+								   {"kind", "control_changed"},
+								   {"source", "client_control"},
+								   {"agent", next}});
 		}
 		if(pending_) {
 			pending_->prompt_id = ++next_prompt_id_;
@@ -948,6 +1217,20 @@ void AgentController::Toggle() {
 }
 
 void AgentController::Poll() {
+	if(v3_ && !process_.Running()) {
+		bool was_available = false;
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			was_available = available_;
+			available_ = false;
+			ready_ = false;
+			pending_.reset();
+		}
+		if(was_available) {
+			FailCurrent("agent_process_exited");
+			http_.Stop();
+		}
+	}
 	std::deque<Completed> completed;
 	std::deque<std::string> notices;
 	bool expired = false;
@@ -959,21 +1242,76 @@ void AgentController::Poll() {
 	}
 	if(expired)
 		FailCurrent("timeout");
-	for(const auto& notice : notices)
+	for(const auto &notice : notices)
 		ShowAgentMessage(notice);
-	for(auto& item : completed) {
+	for(auto &item : completed) {
+		if(item.ready) {
+			bool valid = item.result.status == 200 && item.result.error.empty();
+			if(valid) {
+				try {
+					const auto reply = nlohmann::json::parse(item.result.body);
+					valid = reply.is_object() && reply.value("schema_version", 0) == 3 &&
+							reply.value("nonce", std::string{}) == boot_nonce_ &&
+							reply.value("profile", std::string{}) == profile_ && reply.value("port", 0) == port_ &&
+							reply.value("decision_timeout_ms", 0) == timeout_ms_;
+				} catch(const nlohmann::json::exception &) {
+					valid = false;
+				}
+			}
+			if(!valid) {
+				FailCurrent("agent_ready_mismatch");
+				{
+					std::lock_guard<std::mutex> lock(mutex_);
+					available_ = false;
+				}
+				http_.Stop();
+				process_.Stop();
+				continue;
+			}
+			{
+				std::lock_guard<std::mutex> lock(mutex_);
+				ready_ = true;
+				controlling_ = true;
+			}
+			SubmitPending();
+			continue;
+		}
+		if(item.action_result) {
+			if(item.result.status != 200 || !item.result.error.empty()) {
+				{
+					std::lock_guard<std::mutex> lock(mutex_);
+					action_result_queued_ = false;
+				}
+				Log({{"kind", "action_result_error"},
+					 {"error", item.result.error},
+					 {"timestamp_unix_ms", NowUnixMs()}});
+				SubmitActionResult();
+				continue;
+			}
+			{
+				std::lock_guard<std::mutex> lock(mutex_);
+				action_result_queued_ = false;
+				if(action_receipt_ && action_receipt_->duel_id == item.duel_id &&
+				   action_receipt_->prompt_id == item.prompt_id)
+					action_receipt_.reset();
+			}
+			SubmitPending();
+			continue;
+		}
 		if(item.background) {
 			if(item.result.status != 200 || !item.result.error.empty()) {
-				Log({{"kind", "state_sync_error"}, {"duel_id", item.duel_id},
-					{"error", item.result.error}, {"timestamp_unix_ms", NowUnixMs()}});
+				Log({{"kind", "state_sync_error"},
+					 {"duel_id", item.duel_id},
+					 {"error", item.result.error},
+					 {"timestamp_unix_ms", NowUnixMs()}});
 				continue;
 			}
 			try {
 				const auto reply = nlohmann::json::parse(item.result.body);
-				if(!reply.is_object() || reply.value("schema_version", 0) != 2 ||
+				if(!reply.is_object() || reply.value("schema_version", 0) != (v3_ ? 3 : 2) ||
 				   reply.value("session_id", std::string{}) != session_id_ ||
-				   reply.value("duel_id", std::string{}) != item.duel_id ||
-				   !reply.contains("ack_event_id") || !reply["ack_event_id"].is_number_unsigned() ||
+				   reply.value("duel_id", std::string{}) != item.duel_id || !reply.contains("ack_event_id") ||
+				   !reply["ack_event_id"].is_number_unsigned() ||
 				   reply["ack_event_id"].get<std::uint64_t>() != item.event_id)
 					throw std::runtime_error("invalid sync acknowledgment");
 				std::lock_guard<std::mutex> lock(mutex_);
@@ -988,15 +1326,20 @@ void AgentController::Poll() {
 				} else if(duel_id_ == item.duel_id) {
 					acknowledged_event_id_ = item.event_id;
 					events_.erase(std::remove_if(events_.begin(), events_.end(),
-						[this](const auto& event) {
-							return event.at("event_id").template get<std::uint64_t>() <= acknowledged_event_id_;
-						}), events_.end());
+												 [this](const auto &event) {
+													 return event.at("event_id").template get<std::uint64_t>() <=
+															acknowledged_event_id_;
+												 }),
+								  events_.end());
 				}
-			} catch(const std::exception& error) {
+			} catch(const std::exception &error) {
 				std::lock_guard<std::mutex> lock(mutex_);
-				if(!item.terminal) history_complete_ = false;
-				Log({{"kind", "state_sync_error"}, {"duel_id", item.duel_id},
-					{"error", error.what()}, {"timestamp_unix_ms", NowUnixMs()}});
+				if(!item.terminal)
+					history_complete_ = false;
+				Log({{"kind", "state_sync_error"},
+					 {"duel_id", item.duel_id},
+					 {"error", error.what()},
+					 {"timestamp_unix_ms", NowUnixMs()}});
 			}
 			continue;
 		}
@@ -1018,11 +1361,11 @@ void AgentController::Poll() {
 		try {
 			const auto reply = nlohmann::json::parse(item.result.body);
 			if(item.status) {
-				if(!reply.is_object() || reply.value("schema_version", 0) != 2 ||
+				if(!reply.is_object() || reply.value("schema_version", 0) != (v3_ ? 3 : 2) ||
 				   reply.value("session_id", std::string{}) != session_id ||
-				   reply.value("duel_id", std::string{}) != duel_id ||
-				   !reply.contains("ack_event_id") || !reply["ack_event_id"].is_number_unsigned() ||
-				   !reply.contains("state_version") || !reply["state_version"].is_number_unsigned()) {
+				   reply.value("duel_id", std::string{}) != duel_id || !reply.contains("ack_event_id") ||
+				   !reply["ack_event_id"].is_number_unsigned() || !reply.contains("state_version") ||
+				   !reply["state_version"].is_number_unsigned()) {
 					FailCurrent("invalid_status_response");
 					continue;
 				}
@@ -1032,15 +1375,17 @@ void AgentController::Poll() {
 				{
 					std::lock_guard<std::mutex> lock(mutex_);
 					conflict = ack < acknowledged_event_id_ || ack > next_event_id_ ||
-						version < acknowledged_state_version_ || version > next_state_version_;
+							   version < acknowledged_state_version_ || version > next_state_version_;
 					if(!conflict) {
 						acknowledged_event_id_ = ack;
 						acknowledged_state_version_ = version;
 						next_state_version_ = version;
 						events_.erase(std::remove_if(events_.begin(), events_.end(),
-							[this](const auto& event) {
-								return event.at("event_id").template get<std::uint64_t>() <= acknowledged_event_id_;
-							}), events_.end());
+													 [this](const auto &event) {
+														 return event.at("event_id").template get<std::uint64_t>() <=
+																acknowledged_event_id_;
+													 }),
+									  events_.end());
 						needs_status_ = false;
 						if(pending_ && pending_->prompt_id == item.prompt_id) {
 							pending_->submitted = false;
@@ -1057,17 +1402,17 @@ void AgentController::Poll() {
 				SubmitPending();
 				continue;
 			}
-			if(!reply.is_object() || reply.value("schema_version", 0) != 2 ||
+			if(!reply.is_object() || reply.value("schema_version", 0) != (v3_ ? 3 : 2) ||
 			   reply.value("session_id", std::string{}) != session_id ||
-			   reply.value("duel_id", std::string{}) != duel_id ||
-			   !reply.contains("ack_event_id") || !reply["ack_event_id"].is_number_unsigned() ||
+			   reply.value("duel_id", std::string{}) != duel_id || !reply.contains("ack_event_id") ||
+			   !reply["ack_event_id"].is_number_unsigned() ||
 			   reply["ack_event_id"].get<std::uint64_t>() != item.event_id) {
 				FailCurrent("invalid_response_envelope");
 				continue;
 			}
 			if(!item.sync && (reply.value("prompt_id", std::uint64_t{0}) != item.prompt_id ||
-			   reply.value("state_version", std::uint64_t{0}) != item.state_version ||
-			   !reply.contains("action"))) {
+							  reply.value("state_version", std::uint64_t{0}) != item.state_version ||
+							  (v3_ ? !reply.contains("kind") : !reply.contains("action")))) {
 				FailCurrent("invalid_response_envelope");
 				continue;
 			}
@@ -1075,9 +1420,11 @@ void AgentController::Poll() {
 				std::lock_guard<std::mutex> lock(mutex_);
 				acknowledged_event_id_ = item.event_id;
 				events_.erase(std::remove_if(events_.begin(), events_.end(),
-					[this](const auto& event) {
-						return event.at("event_id").template get<std::uint64_t>() <= acknowledged_event_id_;
-					}), events_.end());
+											 [this](const auto &event) {
+												 return event.at("event_id").template get<std::uint64_t>() <=
+														acknowledged_event_id_;
+											 }),
+							  events_.end());
 			}
 			if(item.sync) {
 				{
@@ -1092,28 +1439,59 @@ void AgentController::Poll() {
 				std::lock_guard<std::mutex> lock(mutex_);
 				acknowledged_state_version_ = item.state_version;
 			}
+			if(v3_ && reply.value("kind", std::string{}) == "query") {
+				HandleQuery(reply, item.prompt_id, item.state_version);
+				continue;
+			}
+			if(v3_ && (reply.value("kind", std::string{}) != "action" || !reply.contains("action_id") ||
+					   !reply["action_id"].is_string() || reply["action_id"].get<std::string>().empty() ||
+					   reply["action_id"].get<std::string>().size() > 128 || !reply.contains("action"))) {
+				FailCurrent("invalid_action_response");
+				continue;
+			}
 			auto action = reply.at("action");
 			if(action.is_object() && action.value("kind", std::string{}) == "select_places" &&
 			   action.contains("places") && action["places"].is_array()) {
-				for(auto& place : action["places"])
+				for(auto &place : action["places"])
 					if(place.is_object() && place.contains("controller") && place["controller"].is_number_integer())
 						place["controller"] = mainGame->LocalPlayer(place["controller"].get<int>());
 			}
 			const auto encoded = EncodeDecision(*decision, action);
 			if(!encoded.response) {
+				if(v3_) {
+					{
+						std::lock_guard<std::mutex> lock(mutex_);
+						action_receipt_ = ActionReceipt{duel_id, item.prompt_id, item.state_version,
+														reply["action_id"].get<std::string>(), "rejected"};
+					}
+					SubmitActionResult();
+				}
 				FailCurrent(encoded.error.code);
 				continue;
 			}
+			bool stale = false;
 			{
 				std::lock_guard<std::mutex> lock(mutex_);
-				if(!controlling_ || !pending_ || pending_->prompt_id != item.prompt_id)
-					continue;
-				pending_.reset();
+				stale = !controlling_ || !pending_ || pending_->prompt_id != item.prompt_id ||
+						pending_->state_version != item.state_version || NowUnixMs() >= pending_->deadline_unix_ms;
+				if(!stale)
+					pending_.reset();
 			}
-			const auto& response = *encoded.response;
+			if(stale) {
+				if(v3_) {
+					{
+						std::lock_guard<std::mutex> lock(mutex_);
+						action_receipt_ = ActionReceipt{duel_id, item.prompt_id, item.state_version,
+														reply["action_id"].get<std::string>(), "stale_prompt"};
+					}
+					SubmitActionResult();
+				}
+				continue;
+			}
+			const auto &response = *encoded.response;
 			DismissPromptWindows();
 			if(response.packet_type == CTOS_RESPONSE) {
-				DuelClient::SetResponseB(const_cast<std::uint8_t*>(response.payload.data()), response.payload.size());
+				DuelClient::SetResponseB(const_cast<std::uint8_t *>(response.payload.data()), response.payload.size());
 				DuelClient::SendResponse();
 			} else if(response.packet_type == CTOS_HAND_RESULT && response.payload.size() == 1) {
 				CTOS_HandResult packet{};
@@ -1124,11 +1502,21 @@ void AgentController::Poll() {
 				packet.res = response.payload[0];
 				DuelClient::SendPacketToServer(CTOS_TP_RESULT, packet);
 			}
-			Log({{"kind", "decision_submitted"}, {"prompt_id", item.prompt_id},
-				{"reason", reply.value("reason", std::string{})}, {"timestamp_unix_ms", NowUnixMs()}});
+			if(v3_) {
+				{
+					std::lock_guard<std::mutex> lock(mutex_);
+					action_receipt_ = ActionReceipt{duel_id, item.prompt_id, item.state_version,
+													reply["action_id"].get<std::string>(), "submitted"};
+				}
+				SubmitActionResult();
+			}
+			Log({{"kind", "decision_submitted"},
+				 {"prompt_id", item.prompt_id},
+				 {"reason", reply.value("reason", std::string{})},
+				 {"timestamp_unix_ms", NowUnixMs()}});
 			if(reply.contains("reason") && reply["reason"].is_string())
 				ShowAgentMessage("Agent：" + reply["reason"].get<std::string>());
-		} catch(const nlohmann::json::exception&) {
+		} catch(const nlohmann::json::exception &) {
 			FailCurrent("invalid_json_response");
 		}
 	}

@@ -14,6 +14,9 @@ __pycache__/
 !/sound/files.txt
 /WindBot
 /cards.cdb
+/.agents/data/
+/.agents/*.toml
+!/.agents/config.example.toml
 /error.log
 /bot.conf
 /Bot.exe

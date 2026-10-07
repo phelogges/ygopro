@@ -1,0 +1,4 @@
+interface:
+  display_name: "OCG 规则书"
+  short_description: "游戏王OCG完整规则参考：卡片种类、召唤方式、效果处理、连锁规则、回合流程、场地区域、大会规则等"
+  default_prompt: "根据用户的具体问题，从对应的参考文件中查找准确的OCG规则并给出清晰的中文解答。"

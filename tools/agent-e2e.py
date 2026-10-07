@@ -8,6 +8,7 @@ import base64
 import json
 import math
 import os
+import shlex
 import socket
 import sqlite3
 import subprocess
@@ -553,6 +554,11 @@ def main() -> int:
     parser.add_argument("--guest-deck")
     parser.add_argument("--scenario", help="YAML scripted fixed-deck duel")
     parser.add_argument(
+        "--agent-v3-offline",
+        action="store_true",
+        help="exercise the v3 child service with deterministic local decisions",
+    )
+    parser.add_argument(
         "--gui",
         action="store_true",
         help="show both duel clients and retain their windows",
@@ -608,6 +614,8 @@ def main() -> int:
         parser.error("--record-output requires one scripted duel")
     if args.gui and not scenario:
         parser.error("--gui requires --scenario")
+    if args.agent_v3_offline and scenario:
+        parser.error("--agent-v3-offline currently supports the unscripted duel only")
     if args.step_delay is not None and not args.gui:
         parser.error("--step-delay requires --gui")
     step_delay = (
@@ -636,6 +644,32 @@ def main() -> int:
     environment["PYTHONPATH"] = str(root / "agent_sdk" / "src")
     work = root / "out" / "agent-e2e-runs" / f"{int(time.time())}-{os.getpid()}"
     work.mkdir(parents=True, exist_ok=False)
+    offline_profiles: dict[str, str] = {}
+    if args.agent_v3_offline:
+        template = (root / ".agents/config.example.toml").read_text(encoding="utf-8")
+        launcher = work / "agent-server-offline"
+        launcher.write_text(
+            "#!/bin/sh\nexec "
+            + shlex.quote(str(root / "agent_server/.venv/bin/python"))
+            + " -m agent_server --offline \"$@\"\n",
+            encoding="utf-8",
+        )
+        launcher.chmod(0o700)
+        environment["YGOPRO_AGENT_PROTOCOL"] = "v3"
+        environment["YGOPRO_AGENT_SERVER_EXECUTABLE"] = str(launcher)
+        for role in ("host", "guest"):
+            profile = f"e2e-{role}-local"
+            path = root / ".agents" / f"{profile}.toml"
+            if path.exists():
+                raise ValueError(f"temporary Agent profile already exists: {path}")
+        for role in ("host", "guest"):
+            profile = f"e2e-{role}-local"
+            path = root / ".agents" / f"{profile}.toml"
+            path.write_text(
+                template.replace("port = 8910", f"port = {free_port()}", 1),
+                encoding="utf-8",
+            )
+            offline_profiles[role] = profile
     record_dir = (root / args.record_output).resolve() if args.record_output else None
     record_id = uuid.uuid4().hex if record_dir else None
     if record_dir:
@@ -686,6 +720,8 @@ def main() -> int:
                     try:
                         for role in ("host", "guest"):
                             child_env = environment.copy()
+                            if args.agent_v3_offline:
+                                child_env["YGOPRO_AGENT_CONFIG"] = offline_profiles[role]
                             child_env.update(
                                 {
                                     "YGOPRO_AGENT_ENABLE": "1",
@@ -822,6 +858,8 @@ def main() -> int:
         failure = exc
         raise
     finally:
+        for profile in offline_profiles.values():
+            (root / ".agents" / f"{profile}.toml").unlink(missing_ok=True)
         if scenario:
             write_scenario_report(
                 work, scenario, decks, expected_opening, outcome, failure
