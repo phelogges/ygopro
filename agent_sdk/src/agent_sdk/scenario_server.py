@@ -33,7 +33,7 @@ class ScenarioDecisionServer(DecisionServer):
         self.decisions = 0
         self.last_action_unix_ms = 0
         self.failure: str | None = None
-        super().__init__("127.0.0.1", port, cards_db)
+        super().__init__("127.0.0.1", port, cards_db, state_dir=status_path.parent / "state")
         self.write_status()
 
     def write_status(self) -> None:
@@ -95,6 +95,17 @@ class ScenarioDecisionServer(DecisionServer):
             self.failure = str(exc)
             self.write_status()
             raise DecisionError("scenario_mismatch", self.failure, 422) from exc
+
+    def decide_v2(self, value: object) -> Object:
+        request = parse_request(value)
+        if request.data["schema_version"] != 2:
+            raise DecisionError("unsupported_version", "Expected v2 decision", 400)
+        if not hmac.compare_digest(cast(str, request.data["database_sha256"]), self.digest):
+            raise DecisionError("database_mismatch", "Client card database differs", 409)
+        delta = self.journal.apply_decision(request.data)
+        response = self.decide(request.data)
+        response["ack_event_id"] = delta.ack_event_id
+        return response
 
 
 def main() -> None:

@@ -58,6 +58,10 @@ public:
 	unsigned char sequence{ 0 };
 	unsigned char position{ 0 };
 	unsigned int status{ 0 };
+	// QUERY_* fields last observed while this card occupied its current zone.
+	// These are for the Agent view only; zero means the dynamic value is unknown.
+	unsigned int observed_query_flags{ 0 };
+	unsigned char observed_query_location{ 0 };
 	unsigned char cHint{ 0 };
 	unsigned int chValue{ 0 };
 	unsigned int opParam{ 0 };

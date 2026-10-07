@@ -25,6 +25,8 @@ from . import (
     translate_intent,
 )
 from .contract import JSON, Object
+from .state import StateError
+from .state_journal import StateJournal
 
 MAX_BODY = 1024 * 1024
 MAX_ATTEMPTS = 8192
@@ -183,9 +185,17 @@ def decide(value: object, digest: str) -> Object:
 class DecisionServer(HTTPServer):
     digest: str
     token: str
+    journal: StateJournal
 
     def __init__(
-        self, host: str, port: int, cards_db: Path, token: str = "", *, allow_lan: bool = False
+        self,
+        host: str,
+        port: int,
+        cards_db: Path,
+        token: str = "",
+        *,
+        allow_lan: bool = False,
+        state_dir: Path | None = None,
     ) -> None:
         if host != "localhost":
             try:
@@ -200,12 +210,74 @@ class DecisionServer(HTTPServer):
             raise ValueError("Invalid bearer token")
         self.digest = database_digest(cards_db)
         self.token = token
+        self.journal = StateJournal(state_dir or Path("out/agent-state"))
         if ":" in host:
             self.address_family = socket.AF_INET6
         super().__init__((host, port), DecisionHandler)
 
     def decide(self, value: object) -> Object:
         return decide(value, self.digest)
+
+    def decide_v2(self, value: object) -> Object:
+        request = parse_request(value)
+        if request.data["schema_version"] != 2:
+            raise DecisionError("unsupported_version", "Expected v2 decision", 400)
+        if not hmac.compare_digest(cast(str, request.data["database_sha256"]), self.digest):
+            raise DecisionError("database_mismatch", "Client and server card databases differ", 409)
+        _check_deadline(request)
+        delta = self.journal.apply_decision(request.data)
+        response = decide(request.data, self.digest)
+        response["ack_event_id"] = delta.ack_event_id
+        return response
+
+    def sync_v2(self, value: object) -> Object:
+        data = _strict_object(value)
+        if not hmac.compare_digest(str(data.get("database_sha256", "")), self.digest):
+            raise DecisionError("database_mismatch", "Client and server card databases differ", 409)
+        ack = self.journal.apply_sync(data)
+        return {
+            "schema_version": 2,
+            "session_id": data["session_id"],
+            "duel_id": data["duel_id"],
+            "ack_event_id": ack,
+        }
+
+    def status_v2(self, value: object) -> Object:
+        data = _strict_object(value)
+        if data.get("schema_version") != 2:
+            raise DecisionError("unsupported_version", "Expected v2 status", 400)
+        if not hmac.compare_digest(str(data.get("database_sha256", "")), self.digest):
+            raise DecisionError("database_mismatch", "Client and server card databases differ", 409)
+        session = data.get("session_id")
+        duel = data.get("duel_id")
+        if not isinstance(session, str) or not session or not isinstance(duel, str) or not duel:
+            raise DecisionError("invalid_request", "Missing session or duel ID", 400)
+        return {
+            "schema_version": 2,
+            "session_id": session,
+            "duel_id": duel,
+            **self.journal.get_status(session, duel),
+        }
+
+
+def _strict_object(value: object) -> Object:
+    if isinstance(value, bytes):
+
+        def pairs(items: list[tuple[str, JSON]]) -> Object:
+            result: Object = {}
+            for key, item in items:
+                if key in result:
+                    raise DecisionError("invalid_request", f"Duplicate JSON key: {key}", 400)
+                result[key] = item
+            return result
+
+        try:
+            value = json.loads(value, object_pairs_hook=pairs)
+        except (ValueError, UnicodeError) as exc:
+            raise DecisionError("invalid_request", "Invalid JSON", 400) from exc
+    if not isinstance(value, dict):
+        raise DecisionError("invalid_request", "Expected JSON object", 400)
+    return cast(Object, value)
 
 
 class DecisionHandler(BaseHTTPRequestHandler):
@@ -229,52 +301,68 @@ class DecisionHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
         self.close_connection = True
 
-    def _error(self, status: int, code: str, message: str) -> None:
-        self._send(status, {"schema_version": 1, "error": {"code": code, "message": message}})
+    def _error(self, status: int, code: str, message: str, version: int = 1) -> None:
+        self._send(status, {"schema_version": version, "error": {"code": code, "message": message}})
 
     def do_POST(self) -> None:
-        if self.path != "/v1/decision":
+        if self.path not in ("/v1/decision", "/v2/decision", "/v2/sync", "/v2/status"):
             self._error(404, "invalid_intent", "Unknown endpoint")
             return
+        version = 2 if self.path.startswith("/v2/") else 1
         server = cast(DecisionServer, self.server)
         if server.token and not hmac.compare_digest(
             self.headers.get("Authorization", "").encode("utf-8"),
             ("Bearer " + server.token).encode("utf-8"),
         ):
-            self._error(401, "unauthorized", "Bearer token required")
+            self._error(401, "unauthorized", "Bearer token required", version)
             return
         lengths = self.headers.get_all("Content-Length", [])
         if self.headers.get("Transfer-Encoding"):
-            self._error(400, "invalid_intent", "Transfer-Encoding is unsupported")
+            self._error(400, "invalid_intent", "Transfer-Encoding is unsupported", version)
             return
         if len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdigit():
-            self._error(411, "invalid_intent", "A single numeric Content-Length is required")
+            self._error(
+                411, "invalid_intent", "A single numeric Content-Length is required", version
+            )
             return
         if len(lengths[0]) > 7:
-            self._error(413, "invalid_intent", "Request exceeds 1 MiB")
+            self._error(413, "invalid_intent", "Request exceeds 1 MiB", version)
             return
         length = int(lengths[0])
         if length > MAX_BODY:
-            self._error(413, "invalid_intent", "Request exceeds 1 MiB")
+            self._error(413, "invalid_intent", "Request exceeds 1 MiB", version)
             return
         if self.headers.get_content_type() != "application/json":
-            self._error(415, "invalid_intent", "Content-Type must be application/json")
+            self._error(415, "invalid_intent", "Content-Type must be application/json", version)
             return
         try:
             body = self.rfile.read(length)
             if len(body) != length:
                 raise DecisionError("invalid_intent", "Incomplete request body", 400)
-            response = server.decide(body)
+            if self.path == "/v2/sync":
+                response = server.sync_v2(body)
+            elif self.path == "/v2/status":
+                response = server.status_v2(body)
+            elif self.path == "/v2/decision":
+                response = server.decide_v2(body)
+            else:
+                response = server.decide(body)
         except DecisionError as exc:
-            self._error(exc.status, exc.code, str(exc))
+            self._error(exc.status, exc.code, str(exc), version)
+        except StateError as exc:
+            self._error(
+                409 if exc.code.endswith(("gap", "conflict")) else 422, exc.code, str(exc), version
+            )
         except UnsupportedPrompt as exc:
-            self._error(422, exc.code, str(exc))
+            self._error(422, exc.code, str(exc), version)
         except (ContractError, RecursionError) as exc:
-            self._error(400, "invalid_intent", str(exc))
+            self._error(400, "invalid_intent", str(exc), version)
         except TimeoutError:
-            self._error(408, "timeout", "Request body read timed out")
+            self._error(408, "timeout", "Request body read timed out", version)
         except Exception:
-            self._error(500, "internal_error", "Test server could not process this request")
+            self._error(
+                500, "internal_error", "Test server could not process this request", version
+            )
         else:
             self._send(200, response)
 
@@ -286,6 +374,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8910)
     parser.add_argument("--allow-lan", action="store_true")
     parser.add_argument("--token-env", default="YGOPRO_AGENT_TOKEN")
+    parser.add_argument("--state-dir", type=Path, default=Path("out/agent-state"))
     args = parser.parse_args()
     try:
         server = DecisionServer(
@@ -294,6 +383,7 @@ def main() -> None:
             args.cards_db,
             os.environ.get(args.token_env, ""),
             allow_lan=args.allow_lan,
+            state_dir=args.state_dir,
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

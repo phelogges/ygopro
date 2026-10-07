@@ -42,6 +42,8 @@ void ClientCard::SetCode(unsigned int x) {
 		chain_code = code;
 	}
 	code = x;
+	observed_query_flags = 0;
+	observed_query_location = 0;
 	if (location == LOCATION_HAND) {
 		field_->MoveCard(this, 5);
 	}
@@ -51,6 +53,10 @@ void ClientCard::UpdateInfo(unsigned char* buf) {
 	if (flag == 0) {
 		ClearData();
 		return;
+	}
+	if(observed_query_location != location) {
+		observed_query_flags = 0;
+		observed_query_location = location;
 	}
 	if(flag & QUERY_CODE) {
 		int pdata = BufferIO::Read<int32_t>(buf);
@@ -187,6 +193,7 @@ void ClientCard::UpdateInfo(unsigned char* buf) {
 			link_marker = pdata;
 		}
 	}
+	observed_query_flags |= static_cast<unsigned int>(flag);
 }
 void ClientCard::ClearTarget() {
 	for (auto& pcard : cardTarget) {
@@ -201,6 +208,8 @@ void ClientCard::ClearTarget() {
 	ownerTarget.clear();
 }
 void ClientCard::ClearData() {
+	observed_query_flags = 0;
+	observed_query_location = 0;
 	alias = 0;
 	type = 0;
 	level = 0;

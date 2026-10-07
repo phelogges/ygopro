@@ -42,11 +42,29 @@ private:
 		DecisionPrompt decision;
 		std::uint64_t prompt_id;
 		std::int64_t deadline_unix_ms;
+		std::uint64_t state_version = 0;
+		nlohmann::json frozen_snapshot;
+		std::vector<nlohmann::json> frozen_events;
 		bool submitted = false;
+		bool frozen = false;
 	};
 	struct Completed {
 		std::uint64_t prompt_id;
+		std::uint64_t state_version;
+		std::uint64_t event_id;
+		bool sync;
+		bool status;
+		bool background;
+		bool terminal;
+		std::string duel_id;
 		agent::HttpResult result;
+	};
+	struct TerminalPending {
+		std::string duel_id;
+		std::vector<nlohmann::json> events;
+		std::uint64_t acknowledged_event_id;
+		bool history_complete;
+		int attempts = 0;
 	};
 
 	AgentController() = default;
@@ -56,6 +74,8 @@ private:
 
 	void OnDecision(DecisionPrompt decision);
 	void SubmitPending();
+	void SubmitBackgroundSync();
+	void SubmitTerminalSync();
 	bool RestartTransport();
 	void OnHttpResult(agent::HttpResult result);
 	void RecordEvent(const std::uint8_t* bytes, std::size_t length);
@@ -78,11 +98,24 @@ private:
 	std::string duel_id_;
 	std::uint64_t next_prompt_id_ = 0;
 	std::uint64_t next_event_id_ = 0;
+	std::uint64_t next_state_version_ = 0;
+	std::uint64_t acknowledged_state_version_ = 0;
+	std::uint64_t acknowledged_event_id_ = 0;
 	std::uint64_t in_flight_prompt_id_ = 0;
+	std::uint64_t in_flight_event_id_ = 0;
+	std::uint64_t in_flight_state_version_ = 0;
+	bool in_flight_sync_ = false;
+	bool in_flight_status_ = false;
+	bool in_flight_background_ = false;
+	bool in_flight_terminal_ = false;
+	std::string in_flight_duel_id_;
+	bool needs_status_ = false;
+	bool history_complete_ = true;
 	std::optional<Pending> pending_;
 	std::deque<Completed> completed_;
 	std::deque<std::string> notices_;
 	std::vector<nlohmann::json> events_;
+	std::optional<TerminalPending> terminal_;
 	std::string phase_ = "unknown";
 	int turn_player_ = -1;
 	std::ofstream log_file_;

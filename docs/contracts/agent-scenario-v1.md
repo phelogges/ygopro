@@ -60,7 +60,7 @@ uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario
 
 `goal.kind: checkpoint` 在双方步骤耗尽且两端目标断言成立后报告 `checkpoint_passed`，不要求对局终局。`goal.kind: duel_end` 必须指定 `winner: host|guest|draw|any`，并核对两客户端的权威 `MSG_WIN` 与 `STOC_DUEL_END`，报告 `duel_finished`。可选的 `goal.expect.{host,guest}` 检查终局后各自可见快照。两种目标都要求步骤耗尽。`duel_end` 可指定 `surrender: {role: host|guest, expect: {host: ..., guest: ...}}`：测试器在步骤耗尽且两端后置可见断言成立后发出一次本地信号，由指定一端使用既有投降协议；赢家必须是另一端。
 
-完整展开样例见 [`tests/scenarios/duel-001/scenario.yaml`](../../tests/scenarios/duel-001/scenario.yaml)。其 Host 卡组副本额外包含第二张 `53927851`，因为达维检索第一张后，米克拉需要从卡组特召另一张。其他结构和前五张起手与 `deck/test/host1.ydk` 一致。
+完整展开样例见 [`tests/scenarios/duel-001/scenario.yaml`](../../tests/scenarios/duel-001/scenario.yaml)。其 Host 卡组副本额外包含第二张 `53927851`，因为达维检索第一张后，米克拉需要从卡组特召另一张；Guest 也使用场景专用卡组副本固定剧本所需的前五张及下次抽牌。不要让共享的 `deck/test/guest1.ydk` 后续改动改变场景前置条件。人工录制转入回归集的完整对局见 [`tests/scenarios/duel-002/scenario.yaml`](../../tests/scenarios/duel-002/scenario.yaml)。
 
 ## 失败与诊断
 

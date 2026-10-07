@@ -1,5 +1,17 @@
 # 第一期验证状态
 
+## v2 状态协议当前实现
+
+客户端与确定性测试端已接入 `/v2/decision`、事件分批 `/v2/sync` 以及 F10 恢复用 `/v2/status`。决策携完整本方可见快照和未确认事件；测试端的 `StateJournal` 对每次请求保存一份原子完整检查点，提供状态版本、事件确认和确定性净差异。客户端现已按当前可查看权限过滤区域身份，并对当前区域未确认的动态数值省略字段。具体字段与失败语义见 [v2 契约](../contracts/agent-http-v2.md)。正式二期 Agent 服务、LLM 工具接线及追加事件日志尚未实现。
+
+本轮 v2 修改在 macOS 通过 CMake 构建、CTest 2/2、Python SDK 78 项测试、Ruff 和 Pyright。真实 LAN 回环下，两客户端连续三局无头对局均从赛前选择走到双方确认的终局；六端各自的决策请求与提交数相等，均无 `agent_error`，每局的终局事件均由 `/v2/sync` 返回 HTTP 200。记录在 `out/agent-e2e-runs/1791347108-24975/`。固定牌序 `summon-chain` 场景通过 8 次决策和最终检查点，记录在 `out/agent-e2e-runs/1791347429-30481/scenario-report.json`。
+
+同轮发现并修正两种公开卡位置校验问题：墓地卡片查询字段可与 `position: "unknown"` 同时出现；通用 `POS_FACEUP` 应序列化为 `face_up`，不能误写成 `unknown`。测试服务另已接受 `control_changed` 的 `source` 与布尔 `agent` 字段，并拒绝同名字段用于游戏消息。本轮三局对局发生在通用位置修复之前，修复后的真实固定牌序场景已通过。下列既有记录是此前 v1／场景功能的历史验证。
+
+`duel-001` 曾在 Host 步骤 48 因缺少 `53927851` 的反制候选停止，见 `out/agent-e2e-runs/1791347524-32101/scenario-report.json`。对比历史通过报告与当前起手，确定原因是共享 `deck/test/guest1.ydk` 的牌序后来改变：Guest 起手已没有 `12375297` 和 `27204311`，所以未能发动剧本要求的 `56651978`，Host 也就等不到反制时点。场景现使用自己的 `guest.ydk` 固定历史验证过的前五张及下次抽牌；重新运行所有步骤后双方终局一致，Guest 获胜，见 `out/agent-e2e-runs/1791348155-42920/scenario-report.json`。共享卡组与引擎均未修改。
+
+人工录制 `8ed56016e03248fd8e0f1807e025fab1` 已作为 `tests/scenarios/duel-002/` 入库。录制编译稿的 30 处魔陷 `position: unknown` 在当前 v2 客户端中按同一决策的可见快照恢复为 28 处 `face_up` 和 2 处 `face_down`；其余剧本步骤与两副 YDK 保持原样。先在不检查旧模糊表示的条件下完整复盘，再用恢复精确断言的最终文件复盘，两次均执行 Host 135 步、Guest 126 步并得到双方一致的 Host 自然获胜终局。最终报告在 `out/agent-e2e-runs/1791348511-48911/scenario-report.json`。该长剧本在当前完整检查点实现上耗时约 156 秒，运行命令使用 `--timeout 300`；120 秒总时限会在接近终局时超时，并非动作错误。
+
 ## 已验证
 
 - macOS `cmake --preset MacOS-Debug`、`cmake --build --preset MacOS-Debug` 成功。
@@ -19,4 +31,4 @@
 - GUI 模式下的人工 F10 接管、超时与断线后的救场需要桌面交互验收；当前无界面回归覆盖自动对局和数据过滤。
 - 固定牌序场景只控制起手及后续卡组牌序，不控制引擎全部随机事件。
 
-桌面自动化权限未获批准，因此 GUI 人工接管路径未用 Computer Use 测试。回归采用客户端内的非 UI 测试入口，经过真实本机服务端与 CTOS/STOC 网络，不需要窗口操作。诊断可通过 `YGOPRO_AGENT_LOG_PATH` 保留本机 JSONL 原始帧与决策记录。`MSG_WIN` 的权威胜负记入本地终局日志；第一期 HTTP 接口仅处理需要动作的决策，终局独立通知属于后续协议扩展。
+桌面自动化权限未获批准，因此此前 GUI 人工接管路径未用 Computer Use 测试。回归采用客户端内的非 UI 测试入口，经过真实本机服务端与 CTOS/STOC 网络，不需要窗口操作。诊断可通过 `YGOPRO_AGENT_LOG_PATH` 保留本机 JSONL 原始帧与决策记录。v2 的终局 `/v2/sync` 路径已在本轮六个客户端实例中验证；人工 F10 恢复仍待 GUI 交互验收。

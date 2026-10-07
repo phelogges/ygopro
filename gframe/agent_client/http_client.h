@@ -32,7 +32,7 @@ public:
 	bool Start(std::string host, std::uint16_t port, std::string token,
 	           int timeout_ms, Completion completion);
 	// Returns false while busy, stopped, or if the JSON exceeds the size limit.
-	bool Submit(std::string json);
+	bool Submit(std::string json, std::string path = "/v2/decision");
 	// Cancels pending work. Joins the worker except when called by its callback.
 	// Callbacks run on the worker; they must be short and must not throw.
 	void Stop();

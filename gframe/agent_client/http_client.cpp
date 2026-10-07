@@ -20,6 +20,7 @@ struct HttpClient::State {
 	bool stopping = false;
 	bool busy = false;
 	std::string pending;
+	std::string pending_path;
 	event_base* base = nullptr;
 	evdns_base* dns = nullptr;
 	event* wake_event = nullptr;
@@ -91,7 +92,7 @@ struct HttpClient::State {
 		self.Finish({0, {}, "HTTP request timed out"});
 	}
 
-	void Begin(std::string json) {
+	void Begin(std::string json, const std::string& path) {
 		if(connection) evhttp_connection_free(connection);
 		connection = evhttp_connection_base_new(base, dns, host.c_str(), port);
 		if(!connection) { Finish({0, {}, "Cannot create HTTP connection"}); return; }
@@ -119,7 +120,7 @@ struct HttpClient::State {
 			Finish({0, {}, "Cannot construct HTTP request"});
 			return;
 		}
-		if(evhttp_make_request(connection, request, EVHTTP_REQ_POST, "/v1/decision") != 0) {
+		if(evhttp_make_request(connection, request, EVHTTP_REQ_POST, path.c_str()) != 0) {
 			request = nullptr; // libevent frees the request on failure.
 			Finish({0, {}, "Cannot submit HTTP request"});
 			return;
@@ -132,6 +133,7 @@ struct HttpClient::State {
 		char bytes[64];
 		while(recv(socket, bytes, sizeof bytes, 0) > 0) {}
 		std::string json;
+		std::string path;
 		bool stopping;
 		bool busy;
 		{
@@ -139,6 +141,7 @@ struct HttpClient::State {
 			stopping = self.stopping;
 			busy = self.busy;
 			json.swap(self.pending);
+			path.swap(self.pending_path);
 		}
 		if(stopping) {
 			if(self.request) {
@@ -147,7 +150,7 @@ struct HttpClient::State {
 			}
 			if(busy) self.Finish({0, {}, "HTTP client stopped"});
 			event_base_loopbreak(self.base);
-		} else if(!json.empty()) self.Begin(std::move(json));
+		} else if(!json.empty()) self.Begin(std::move(json), path);
 	}
 };
 
@@ -182,13 +185,15 @@ bool HttpClient::Start(std::string host, std::uint16_t port, std::string token,
 	return true;
 }
 
-bool HttpClient::Submit(std::string json) {
-	if(json.empty() || json.size() > max_json_size) return false;
+bool HttpClient::Submit(std::string json, std::string path) {
+	if(json.empty() || json.size() > max_json_size ||
+	   (path != "/v2/decision" && path != "/v2/sync" && path != "/v2/status")) return false;
 	std::lock_guard<std::mutex> lock(mutex_);
 	if(!state_) return false;
 	std::lock_guard<std::mutex> state_lock(state_->mutex);
 	if(state_->busy || state_->stopping) return false;
 	state_->pending = std::move(json);
+	state_->pending_path = std::move(path);
 	state_->busy = true;
 	state_->Wake();
 	return true;

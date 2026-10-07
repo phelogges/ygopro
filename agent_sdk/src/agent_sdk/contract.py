@@ -1,4 +1,4 @@
-"""Strict validation of known v1 fields, with optional envelope extensions preserved.
+"""Strict validation of known decision fields in v1 and v2 envelopes.
 
 Composite constraint profile: min_count/max_count (or count), candidate mandatory; tribute uses
 candidate.weight and min_weight/max_weight; sum uses target and candidate.value_options
@@ -100,7 +100,10 @@ def _card(value: object) -> None:
     for key in ("instance_id", "location"):
         _string(card.get(key), f"card.{key}")
     _int(card.get("controller"), "card.controller", maximum=1)
-    _int(card.get("sequence"), "card.sequence")
+    if "sequence" in card:
+        _int(card["sequence"], "card.sequence")
+    elif card["location"] != "graveyard":
+        raise ContractError("card.sequence: required outside restricted graveyard selections")
     if "card_id" in card:
         _int(card["card_id"], "card.card_id", 1, 0xFFFFFFFF)
     if "public" in card:
@@ -158,8 +161,14 @@ def _decode(value: object) -> Object:
 def parse_request(value: object) -> DecisionRequest:
     """Validate a JSON string/bytes or mapping; additive envelope fields are allowed."""
     data = _decode(value)
-    if type(data.get("schema_version")) is not int or data["schema_version"] != 1:
+    if type(data.get("schema_version")) is not int or data["schema_version"] not in (1, 2):
         raise ContractError("unsupported schema_version")
+    if data["schema_version"] == 2:
+        _int(data.get("state_version"), "state_version", 1)
+        if type(data.get("history_complete")) is not bool:
+            raise ContractError("history_complete: expected boolean")
+        if data["history_complete"] is not True:
+            raise ContractError("history_incomplete")
     for key in ("session_id", "duel_id"):
         _string(data.get(key), key)
     _int(data.get("prompt_id"), "prompt_id", 1)
@@ -183,9 +192,12 @@ def parse_request(value: object) -> DecisionRequest:
     for key in ("zones", "events"):
         for item in _array(observation.get(key), key):
             obj = _object(item, key)
-            if "card" in obj:
+            if key == "events" and data["schema_version"] == 2:
+                _int(obj.get("event_id"), "event.event_id", 1)
+                _string(obj.get("kind"), "event.kind")
+            if "card" in obj and (key == "zones" or data["schema_version"] == 1):
                 _card(obj["card"])
-            if "cards" in obj:
+            if "cards" in obj and (key == "zones" or data["schema_version"] == 1):
                 for card in _array(obj["cards"], f"{key}.cards"):
                     _card(card)
     prompt = _object(data.get("prompt"), "prompt")
@@ -489,6 +501,10 @@ def build_response(request: DecisionRequest, intent: object, reason: str) -> Obj
     response = {
         key: request.data[key] for key in ("schema_version", "session_id", "duel_id", "prompt_id")
     }
+    if request.data["schema_version"] == 2:
+        response["state_version"] = request.data["state_version"]
+        events = cast(list[Object], cast(Object, request.data["observation"])["events"])
+        response["ack_event_id"] = events[-1]["event_id"] if events else 0
     response["reason"] = reason
     response["action"] = translate_intent(request, intent)
     return response
@@ -503,6 +519,13 @@ def validate_response(request: DecisionRequest, value: object) -> Object:
             or response.get(key) != request.data[key]
         ):
             raise ContractError(f"stale or invalid response {key}")
+    if request.data["schema_version"] == 2:
+        if response.get("state_version") != request.data["state_version"]:
+            raise ContractError("stale or invalid response state_version")
+        ack = _int(response.get("ack_event_id"), "ack_event_id")
+        events = cast(list[Object], cast(Object, request.data["observation"])["events"])
+        if events and ack < cast(int, events[-1]["event_id"]):
+            raise ContractError("response does not acknowledge request events")
     _string(response.get("reason"), "reason", empty=True)
     response["action"] = validate_action(request, response.get("action"))
     return response

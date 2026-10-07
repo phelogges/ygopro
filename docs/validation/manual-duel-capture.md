@@ -76,4 +76,6 @@ uv run --project agent_sdk --extra scenario python tools/compile-duel-recording.
 
 第二次人工录制 `8ed56016e03248fd8e0f1807e025fab1` 启用了“不洗牌”，并自然结束于 Host 获胜。旧录制器在空连锁响应时出现一次错配，已从每条决策入站帧和对应出站响应重建双端独立副本，原始日志保留；修复详情见该目录 `repaired/repair-report.json`。生成的场景含 Host 135 步、Guest 126 步，在无界面双客户端复盘中全部完成，双方权威胜者及终局可见状态均匹配。报告：`out/agent-e2e-runs/1791304956-47995/scenario-report.json`。录制器已修复该错配路径；带 GUI 的剧本播放和 Windows 仍未验证。
 
+用户选定该录制后，将已验证编译稿及双端 YDK 放入 `tests/scenarios/duel-002/`。v2 客户端把旧稿 30 处模糊的魔陷表示恢复为精确的 28 处正面、2 处里侧断言；最终入库文件再次经双客户端回放通过，见 `out/agent-e2e-runs/1791348511-48911/scenario-report.json`。该长剧本当前需 `--timeout 300`，命令见场景目录 README。
+
 修复录制器后对同一剧本再次完整无界面回归并同步录制；Host 136/136、Guest 128/128 个提示/响应配对，双方无录制器错误且均确认 Host 获胜。第二次报告：`out/agent-e2e-runs/1791305173-51638/scenario-report.json`。带 GUI 的剧本播放和 Windows 仍未验证。

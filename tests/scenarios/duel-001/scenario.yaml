@@ -1,7 +1,7 @@
 schema_version: 1
 decks:
   host: host.ydk
-  guest: ../../../deck/test/guest1.ydk
+  guest: guest.ydk
 defaults:
   optional: decline
 allowed_random_events: [hand_shuffle]

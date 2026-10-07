@@ -187,7 +187,9 @@ class HttpTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         path = Path(self.directory.name) / "cards.cdb"
         path.write_bytes(b"actual database fixture")
-        self.server = DecisionServer("127.0.0.1", 0, path, "secret")
+        self.server = DecisionServer(
+            "127.0.0.1", 0, path, "secret", state_dir=Path(self.directory.name) / "state"
+        )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
@@ -255,6 +257,33 @@ class HttpTests(unittest.TestCase):
         status, response = self.post(json.dumps(value))
         self.assertEqual(status, 422)
         self.assertNotIn("action", response)
+
+    def test_v2_decision_sync_and_status(self) -> None:
+        value = request(candidates=[candidate("e", "end_turn")])
+        value.update(schema_version=2, state_version=1, history_complete=True)
+        value["database_sha256"] = self.server.digest
+        observation = cast(Object, value["observation"])
+        observation["events"] = [{"event_id": 1, "kind": "turn_started", "message_type": 40}]
+        status, response = self.post(json.dumps(value), path="/v2/decision")
+        self.assertEqual(status, 200)
+        self.assertEqual(response["ack_event_id"], 1)
+        validate_response(parse_request(value), response)
+        status, replay = self.post(json.dumps(value), path="/v2/decision")
+        self.assertEqual(status, 200)
+        self.assertEqual(replay, response)
+        identity = {
+            key: value[key]
+            for key in ("schema_version", "session_id", "duel_id", "database_sha256")
+        }
+        status, state = self.post(json.dumps(identity), path="/v2/status")
+        self.assertEqual((status, state["state_version"], state["ack_event_id"]), (200, 1, 1))
+        sync = {
+            **identity,
+            "history_complete": True,
+            "events": [{"event_id": 2, "kind": "phase_changed", "message_type": 41}],
+        }
+        status, acknowledgment = self.post(json.dumps(sync), path="/v2/sync")
+        self.assertEqual((status, acknowledgment["ack_event_id"]), (200, 2))
 
 
 if __name__ == "__main__":
