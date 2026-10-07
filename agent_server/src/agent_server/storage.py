@@ -62,26 +62,38 @@ class StateDatabase:
     process. Call ``close`` before replacing or removing the file.
     """
 
-    def __init__(self, path: str | Path, *, checkpoint_interval: int = 32) -> None:
+    def __init__(
+        self, path: str | Path, *, checkpoint_interval: int = 32, read_only: bool = False
+    ) -> None:
         if type(checkpoint_interval) is not int or checkpoint_interval < 1:
             raise ValueError("checkpoint_interval must be a positive integer")
         self.path = Path(path)
         if self.path.is_symlink():
             raise StateError("invalid_storage", "database file must not be a symlink")
-        self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        self.read_only = read_only
+        if not read_only:
+            self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         if not self.path.parent.is_dir():
             raise StateError("invalid_storage", "database parent is not a directory")
         self._checkpoint_interval = checkpoint_interval
         self._lock = threading.RLock()
         self._stores: dict[tuple[str, str], StateStore] = {}
         try:
-            self._db = sqlite3.connect(self.path, isolation_level=None, check_same_thread=False)
+            source = self.path.resolve().as_uri() + "?mode=ro" if read_only else self.path
+            self._db = sqlite3.connect(
+                source, isolation_level=None, check_same_thread=False, uri=read_only
+            )
             self._db.row_factory = sqlite3.Row
-            self._db.execute("PRAGMA journal_mode=WAL")
-            self._db.execute("PRAGMA synchronous=FULL")
+            if not read_only:
+                self._db.execute("PRAGMA journal_mode=WAL")
+                self._db.execute("PRAGMA synchronous=FULL")
             self._db.execute("PRAGMA busy_timeout=5000")
-            self._initialize()
-            if os.name == "posix":
+            if read_only:
+                self._verify_schema()
+            else:
+                self._initialize()
+            self._data_version = cast(int, self._db.execute("PRAGMA data_version").fetchone()[0])
+            if not read_only and os.name == "posix":
                 os.chmod(self.path, 0o600)
         except (OSError, sqlite3.Error) as exc:
             raise StateError("storage_error", f"cannot open state database: {exc}") from exc
@@ -134,15 +146,52 @@ class StateDatabase:
             );
             CREATE INDEX IF NOT EXISTS records_duel
                 ON records(session_id, duel_id, id);
+            CREATE TABLE IF NOT EXISTS traces (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                duel_id TEXT NOT NULL,
+                turn_id TEXT NOT NULL,
+                response_id TEXT,
+                kind TEXT NOT NULL,
+                payload BLOB NOT NULL,
+                sha256 TEXT NOT NULL,
+                created_unix_ms INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS traces_duel
+                ON traces(session_id, duel_id, id);
+            CREATE INDEX IF NOT EXISTS traces_finished
+                ON traces(kind, created_unix_ms);
             """
         )
         version = self._db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             raise StateError("invalid_storage", "unsupported state database schema")
-        if version == 0:
-            self._db.execute("PRAGMA user_version=1")
+        if version < 2:
+            self._db.execute("PRAGMA user_version=2")
+
+    def _verify_schema(self) -> None:
+        version = self._db.execute("PRAGMA user_version").fetchone()[0]
+        if version not in (1, 2):
+            raise StateError("invalid_storage", "unsupported state database schema")
+        required = {"operations", "checkpoints", "records"}
+        if version == 2:
+            required.add("traces")
+        available = {
+            row[0] for row in self._db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if not required.issubset(available):
+            raise StateError("invalid_storage", "state database schema is incomplete")
+
+    def _ensure_writable(self) -> None:
+        if self.read_only:
+            raise StateError("read_only", "state database is read-only")
 
     def _load(self, key: tuple[str, str]) -> StateStore:
+        if self.read_only:
+            current_version = cast(int, self._db.execute("PRAGMA data_version").fetchone()[0])
+            if current_version != self._data_version:
+                self._stores.clear()
+                self._data_version = current_version
         cached = self._stores.get(key)
         if cached is not None:
             return cached
@@ -215,6 +264,7 @@ class StateDatabase:
         return store
 
     def _apply(self, kind: str, document: object) -> int | StateDelta:
+        self._ensure_writable()
         key = _identity(document)
         payload = _json_bytes(document)
         with self._lock:
@@ -291,6 +341,15 @@ class StateDatabase:
     def get_status(self, session_id: str, duel_id: str) -> dict[str, int]:
         with self._lock:
             return self._load((session_id, duel_id)).get_status(session_id, duel_id)
+
+    def last_observation_unix_ms(self, session_id: str, duel_id: str) -> int | None:
+        """Return when the latest authoritative observation was durably accepted."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT MAX(created_unix_ms) FROM operations WHERE session_id=? AND duel_id=?",
+                (session_id, duel_id),
+            ).fetchone()
+            return cast(int | None, row[0])
 
     def list_duels(self) -> tuple[JSONObject, ...]:
         """List observed duels, including duels with only synced events."""
@@ -379,6 +438,7 @@ class StateDatabase:
         The caller validates the shape and perspective of query results and
         action receipts before recording them here.
         """
+        self._ensure_writable()
         _identity({"session_id": session_id, "duel_id": duel_id})
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", kind):
             raise StateError("invalid_state", "record kind is invalid")
@@ -491,6 +551,173 @@ class StateDatabase:
                 "payload": _json_object(payload, source="record"),
                 "created_unix_ms": row["created_unix_ms"],
             }
+
+    def add_trace(
+        self,
+        session: str,
+        duel: str,
+        turn_id: str,
+        response_id: str | None,
+        kind: str,
+        payload: dict[str, object],
+    ) -> int:
+        """Append one observable step and return its monotonic event ID."""
+        self._ensure_writable()
+        _identity({"session_id": session, "duel_id": duel})
+        if not isinstance(cast(object, turn_id), str) or len(turn_id) > 256:
+            raise StateError("invalid_state", "trace turn ID is invalid")
+        if response_id is not None and (
+            not isinstance(cast(object, response_id), str) or not 0 < len(response_id) <= 256
+        ):
+            raise StateError("invalid_state", "trace response ID is invalid")
+        if not isinstance(cast(object, kind), str) or not re.fullmatch(
+            r"[a-z][a-z0-9_]{0,63}", kind
+        ):
+            raise StateError("invalid_state", "trace kind is invalid")
+        if not isinstance(cast(object, payload), dict) or any(
+            not isinstance(cast(object, key), str) for key in payload
+        ):
+            raise StateError("invalid_state", "trace payload must be a JSON object")
+        encoded = _json_bytes(payload)
+        with self._lock:
+            try:
+                cursor = self._db.execute(
+                    "INSERT INTO traces(session_id,duel_id,turn_id,response_id,kind,payload,"
+                    "sha256,created_unix_ms) VALUES(?,?,?,?,?,?,?,?)",
+                    (
+                        session,
+                        duel,
+                        turn_id,
+                        response_id,
+                        kind,
+                        encoded,
+                        hashlib.sha256(encoded).hexdigest(),
+                        int(time.time() * 1000),
+                    ),
+                )
+                return cast(int, cursor.lastrowid)
+            except sqlite3.Error as exc:
+                raise StateError("storage_error", f"cannot commit trace: {exc}") from exc
+
+    def get_traces(
+        self, session: str, duel: str, after_id: int = 0, limit: int = 100
+    ) -> tuple[JSONObject, ...]:
+        """Page through one perspective's trace, in insertion order."""
+        _identity({"session_id": session, "duel_id": duel})
+        if type(after_id) is not int or after_id < 0:
+            raise StateError("invalid_state", "after_id must be a nonnegative integer")
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise StateError("invalid_state", "limit must be between 1 and 1000")
+        if self.read_only and self._db.execute("PRAGMA user_version").fetchone()[0] == 1:
+            return ()
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id,turn_id,response_id,kind,payload,sha256,created_unix_ms "
+                "FROM traces WHERE session_id=? AND duel_id=? AND id>? ORDER BY id LIMIT ?",
+                (session, duel, after_id, limit),
+            )
+            result: list[JSONObject] = []
+            for row in rows:
+                encoded = cast(bytes, row["payload"])
+                if hashlib.sha256(encoded).hexdigest() != row["sha256"]:
+                    raise StateError("invalid_storage", "trace checksum mismatch")
+                result.append(
+                    {
+                        "id": row["id"],
+                        "turn_id": row["turn_id"],
+                        "response_id": row["response_id"],
+                        "kind": row["kind"],
+                        "payload": _json_object(encoded, source="trace"),
+                        "created_unix_ms": row["created_unix_ms"],
+                    }
+                )
+            return tuple(result)
+
+    def delete_duel(self, session: str, duel: str) -> bool:
+        """Delete one duel and its cached state atomically."""
+        self._ensure_writable()
+        _identity({"session_id": session, "duel_id": duel})
+        with self._lock:
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                removed = False
+                for table in ("operations", "checkpoints", "records", "traces"):
+                    cursor = self._db.execute(
+                        f"DELETE FROM {table} WHERE session_id=? AND duel_id=?", (session, duel)
+                    )
+                    removed |= cursor.rowcount > 0
+                self._db.execute("COMMIT")
+                self._stores.pop((session, duel), None)
+                return removed
+            except sqlite3.Error as exc:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise StateError("storage_error", f"cannot delete duel: {exc}") from exc
+
+    def prune_finished(self, retention_days: int, max_bytes: int) -> int:
+        """Prune old finished duels, then oldest finished duels above size limit.
+
+        Size is the logical payload byte count across all four tables. Active
+        duels are never deleted, even when they alone exceed the configured cap.
+        """
+        self._ensure_writable()
+        if type(retention_days) is not int or retention_days < 1:
+            raise ValueError("retention_days must be positive")
+        if type(max_bytes) is not int or max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
+        threshold = int(time.time() * 1000) - retention_days * 86_400_000
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT session_id, duel_id, MAX(created_unix_ms) AS finished_ms "
+                "FROM traces WHERE kind='duel_finished' GROUP BY session_id, duel_id "
+                "ORDER BY finished_ms, session_id, duel_id"
+            ).fetchall()
+            removed = 0
+            for row in rows:
+                if row["finished_ms"] < threshold:
+                    removed += int(self.delete_duel(row["session_id"], row["duel_id"]))
+            size = self._payload_bytes()
+            for row in rows:
+                if size <= max_bytes:
+                    break
+                if row["finished_ms"] >= threshold and self.delete_duel(
+                    row["session_id"], row["duel_id"]
+                ):
+                    removed += 1
+                    size = self._payload_bytes()
+            return removed
+
+    def mark_interrupted_turns(self) -> int:
+        """Close durable prompt traces left without a terminal decision stage."""
+        self._ensure_writable()
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT session_id,duel_id,turn_id FROM traces WHERE turn_id<>'' "
+                "GROUP BY session_id,duel_id,turn_id HAVING "
+                "SUM(CASE WHEN kind IN ('decision_failed','decision_interrupted',"
+                "'action_receipt') THEN 1 ELSE 0 END)=0"
+            ).fetchall()
+            for row in rows:
+                self.add_trace(
+                    row["session_id"],
+                    row["duel_id"],
+                    row["turn_id"],
+                    None,
+                    "decision_interrupted",
+                    {"code": "process_restarted"},
+                )
+            return len(rows)
+
+    def _payload_bytes(self) -> int:
+        total = 0
+        for table in ("operations", "checkpoints", "records", "traces"):
+            total += cast(
+                int,
+                self._db.execute(
+                    f"SELECT COALESCE(SUM(length(payload)),0) FROM {table}"
+                ).fetchone()[0],
+            )
+        return total
 
 
 def _delta_dict(delta: StateDelta) -> JSONObject:

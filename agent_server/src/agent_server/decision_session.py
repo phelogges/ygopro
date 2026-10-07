@@ -54,6 +54,22 @@ class DecisionSession:
     task: asyncio.Task[None] | None = None
     failed: DecisionFailure | None = None
 
+    @property
+    def turn_id(self) -> str:
+        data = self.request.data
+        return f"{data['prompt_id']}:{data['state_version']}"
+
+    def trace(self, kind: str, payload: dict[str, Any]) -> None:
+        data = self.request.data
+        self.store.add_trace(
+            cast(str, data["session_id"]),
+            cast(str, data["duel_id"]),
+            self.turn_id,
+            None,
+            kind,
+            payload,
+        )
+
     def identity(self) -> dict[str, Any]:
         data = self.request.data
         return {key: data[key] for key in ("session_id", "duel_id", "prompt_id", "state_version")}
@@ -87,19 +103,35 @@ class DecisionSession:
                 action_id,
                 {"prompt_id": self.request.data["prompt_id"], "action": action, "reason": reason},
             )
+            self.trace(
+                "action_issued", {"action_id": action_id, "action": action, "reason": reason}
+            )
             self._publish(
                 self._envelope("action", action_id=action_id, reason=reason, action=action)
             )
         except asyncio.CancelledError:
             if self.failed is None:
                 self.failed = DecisionFailure("stale_prompt", "decision cancelled")
+            self.trace(
+                "decision_interrupted", {"code": self.failed.code, "message": str(self.failed)}
+            )
             self.stage_event.set()
             raise
         except DecisionFailure as exc:
             self.failed = exc
+            self.trace("decision_failed", {"code": exc.code, "message": str(exc)})
             self.stage_event.set()
-        except Exception as exc:
-            self.failed = DecisionFailure("internal_error", str(exc))
+        except Exception:
+            self.failed = DecisionFailure(
+                "internal_error", "Agent service could not process the request"
+            )
+            self.trace(
+                "decision_failed",
+                {
+                    "code": "internal_error",
+                    "message": "Agent service could not process the request",
+                },
+            )
             self.stage_event.set()
 
     async def ask_client(self, query: dict[str, Any]) -> dict[str, Any]:
@@ -127,6 +159,7 @@ class DecisionSession:
         self.query_future = loop.create_future()
         self.query_payload = query
         self._publish(self._envelope("query", query_id=query_id, query=query))
+        self.trace("client_query_requested", {"query_id": query_id, "query": query})
         try:
             result = await self.query_future
         finally:
@@ -220,6 +253,7 @@ class DecisionSession:
             cast(str, self.stage["query_id"]),
             {"query": self.query_payload, "result": result},
         )
+        self.trace("client_query_result", {"query": self.query_payload, "result": result})
         self.completed_queries[cast(str, self.stage["query_id"])] = digest
         self.stage = None
         self.stage_event.clear()
@@ -247,6 +281,9 @@ class DecisionSession:
             "action_receipt",
             cast(str, self.stage["action_id"]),
             message,
+        )
+        self.trace(
+            "action_receipt", {"action_id": self.stage["action_id"], "status": message["status"]}
         )
         self.action_receipt_fingerprint = digest
 
@@ -283,8 +320,23 @@ class DecisionManager:
                         del self._sessions[old_key]
                 delta = self.store.apply_decision(request.data)
                 self.store.append_record(
-                    key[0], key[1], "decision_started", record_id,
+                    key[0],
+                    key[1],
+                    "decision_started",
+                    record_id,
                     {"fingerprint": fingerprint},
+                )
+                self.store.add_trace(
+                    key[0],
+                    key[1],
+                    record_id,
+                    None,
+                    "prompt_received",
+                    {
+                        "prompt": request.data["prompt"],
+                        "state_version": key[3],
+                        "ack_event_id": delta.ack_event_id,
+                    },
                 )
                 session = DecisionSession(request, delta, fingerprint, self.decide, self.store)
                 self._sessions[key] = session

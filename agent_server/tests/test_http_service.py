@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,7 +47,8 @@ class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 401)
         headers = {"Authorization": "Bearer client-secret"}
         response = await self.client.post(
-            "/v3/status", data='{"schema_version":3,"x":NaN}',
+            "/v3/status",
+            data='{"schema_version":3,"x":NaN}',
             headers={**headers, "Content-Type": "application/json"},
         )
         self.assertEqual(response.status, 400)
@@ -89,6 +92,94 @@ class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 400)
         response = await self.client.post("/v3/decision", json=body, headers=viewer)
         self.assertEqual(response.status, 401)
+
+    async def test_observation_page_timeline_export_and_sanitized_records(self) -> None:
+        viewer = {"Authorization": "Bearer viewer-secret"}
+        self.storage.apply_decision(request())
+        for path in ("/view", "/view/app.js", "/view/style.css"):
+            response = await self.client.get(path)
+            self.assertEqual(response.status, 200)
+        self.storage.add_trace(
+            "client-a",
+            "duel-1",
+            "4:2",
+            "4:2:r1",
+            "content_delta",
+            {"source": "provider_reasoning", "form": "summary", "text": "检查墓地"},
+        )
+        self.storage.append_record(
+            "client-a",
+            "duel-1",
+            "model_exchange",
+            "4:2",
+            {"new_messages": [{"signature": "encrypted-secret"}], "reason": "结束阶段"},
+        )
+        path = "/v3/view/timeline?session_id=client-a&duel_id=duel-1"
+        response = await self.client.get(path, headers=viewer)
+        data = await response.json()
+        self.assertEqual(data["traces"][0]["payload"]["text"], "检查墓地")
+        response = await self.client.get(path + "&after_id=" + str(data["next_id"]), headers=viewer)
+        self.assertEqual((await response.json())["traces"], [])
+        response = await self.client.get("/v3/view/cards?ids=89631139", headers=viewer)
+        self.assertEqual((await response.json())["cards"]["89631139"], "青眼白龙")
+        response = await self.client.get(
+            "/v3/view/export?session_id=client-a&duel_id=duel-1", headers=viewer
+        )
+        exported = await response.text()
+        self.assertIn("检查墓地", exported)
+        self.assertNotIn("encrypted-secret", exported)
+        missing = await self.client.get(
+            "/v3/view/export?session_id=client-a&duel_id=missing", headers=viewer
+        )
+        self.assertEqual(missing.status, 404)
+        response = await self.client.get(
+            "/v3/view/records?session_id=client-a&duel_id=duel-1", headers=viewer
+        )
+        self.assertNotIn("encrypted-secret", await response.text())
+
+    async def test_view_only_excludes_client_routes(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        service = HttpService(
+            load_settings(root, offline=True),
+            self.storage,
+            self.skills,
+            offline_decide,
+            profile="config",
+            nonce="",
+            client_token="",
+            viewer_token="viewer-secret",
+            view_only=True,
+        )
+        client = TestClient(TestServer(service.app()))
+        await client.start_server()
+        try:
+            self.assertEqual((await client.get("/v3/ready")).status, 404)
+            self.assertEqual((await client.post("/v3/decision")).status, 404)
+            self.assertEqual((await client.get("/v3/view/duels")).status, 401)
+        finally:
+            await client.close()
+
+    async def test_stream_replays_from_exclusive_cursor(self) -> None:
+        self.storage.apply_decision(request())
+        first = self.storage.add_trace("client-a", "duel-1", "1:1", None, "prompt_received", {})
+        second = self.storage.add_trace(
+            "client-a", "duel-1", "1:1", None, "model_request_started", {}
+        )
+        viewer = {"Authorization": "Bearer viewer-secret"}
+        response = await self.client.get(
+            f"/v3/view/stream?session_id=client-a&duel_id=duel-1&after_id={first}",
+            headers=viewer,
+        )
+        try:
+            self.assertEqual(response.status, 200)
+            event_id = await asyncio.wait_for(response.content.readline(), timeout=2)
+            event_type = await asyncio.wait_for(response.content.readline(), timeout=2)
+            body = await asyncio.wait_for(response.content.readline(), timeout=2)
+            self.assertEqual(event_id, f"id: {second}\n".encode())
+            self.assertEqual(event_type, b"event: trace\n")
+            self.assertEqual(json.loads(body.removeprefix(b"data: "))["id"], second)
+        finally:
+            response.close()
 
 
 if __name__ == "__main__":

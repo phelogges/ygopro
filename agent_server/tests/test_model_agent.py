@@ -9,7 +9,7 @@ from typing import Any
 
 from agent_sdk.contract import parse_request
 from pydantic_ai.messages import ModelResponse, ToolCallPart
-from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from test_decision_session import request
 
 from agent_server.config import load_settings
@@ -20,6 +20,38 @@ from agent_server.storage import StateDatabase
 
 
 class ModelAgentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_streamed_model_response_writes_timeline(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                parsed = parse_request(request())
+                delta = storage.apply_decision(parsed.data)
+
+                async def stream(_messages: object, _info: object):
+                    yield {
+                        0: DeltaToolCall(
+                            name="final_result",
+                            json_args='{"reason":"结束阶段","intent":{"kind":"choice","candidate_id":"c0"}}',
+                        )
+                    }
+
+                agent = DecisionAgent(
+                    load_settings(root, offline=True),
+                    storage,
+                    SkillResources(root),
+                    model=FunctionModel(stream_function=stream),
+                )
+
+                async def unused_query(_query: dict[str, object]) -> dict[str, object]:
+                    self.fail("test model should not query client")
+
+                action, _reason = await agent.decide(parsed, delta, unused_query)
+                self.assertEqual(action, {"kind": "choice", "candidate_id": "c0"})
+                traces = storage.get_traces("client-a", "duel-1")
+                self.assertIn("model_response_started", [item["kind"] for item in traces])
+                self.assertIn("model_response_finished", [item["kind"] for item in traces])
+                self.assertIn("model_decision", [item["kind"] for item in traces])
+
     async def test_live_startup_probe_requires_tool_and_output(self) -> None:
         root = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as directory:
@@ -30,15 +62,13 @@ class ModelAgentTests(unittest.IsolatedAsyncioTestCase):
                     nonlocal calls
                     calls += 1
                     if calls == 1:
-                        return ModelResponse([
-                            ToolCallPart("probe_echo", {"value": "ready"})
-                        ])
-                    return ModelResponse([
-                        ToolCallPart("final_result", {"ok": True})
-                    ])
+                        return ModelResponse([ToolCallPart("probe_echo", {"value": "ready"})])
+                    return ModelResponse([ToolCallPart("final_result", {"ok": True})])
 
                 agent = DecisionAgent(
-                    load_settings(root, offline=True), storage, SkillResources(root),
+                    load_settings(root, offline=True),
+                    storage,
+                    SkillResources(root),
                     model=FunctionModel(respond),
                 )
                 await agent.probe()

@@ -27,3 +27,5 @@ summary_timeout_seconds = 10
 [storage]
 directory = ".agents/data"
 checkpoint_interval = 32
+retention_days = 30
+max_bytes = 2147483648

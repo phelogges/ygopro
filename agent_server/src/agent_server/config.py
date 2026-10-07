@@ -65,6 +65,8 @@ class StorageSettings(BaseModel):
 
     directory: str = ".agents/data"
     checkpoint_interval: Annotated[int, Field(ge=1, le=10000)] = 32
+    retention_days: Annotated[int, Field(ge=1, le=3650)] = 30
+    max_bytes: Annotated[int, Field(ge=1)] = 2 * 1024 * 1024 * 1024
 
 
 class ServiceSettings(BaseModel):
@@ -104,3 +106,20 @@ def model_api_key(settings: ServiceSettings) -> str:
     if not secret:
         raise ValueError(f"missing model API key environment variable {settings.model.api_key_env}")
     return secret
+
+
+def profile_data_dir(release_root: Path, settings: ServiceSettings, profile: str) -> Path:
+    """Resolve one profile's private data directory under the configured base.
+
+    The legacy database at the base path is deliberately left untouched.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", profile):
+        raise ValueError("invalid agent configuration profile")
+    root = release_root.resolve()
+    base = release_root / settings.storage.directory
+    target = base / profile
+    if not base.resolve().is_relative_to(root) or not target.resolve().is_relative_to(root):
+        raise ValueError("storage.directory must remain inside the release root")
+    if target.is_symlink():
+        raise ValueError("profile data directory must not be a symlink")
+    return target

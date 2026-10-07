@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>YGOPro Agent 对局观察</title>
+  <link rel="stylesheet" href="/view/style.css">
+  <script src="/view/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">YGOPro Agent · 本机只读视图</p>
+      <h1>对局观察</h1>
+      <p class="intro">按游戏提示分轮查看模型响应、工具、动作与回执。内容仅来自当前服务的单方视角。</p>
+    </div>
+    <div class="connection" aria-live="polite"><span id="connection-dot" class="dot"></span><span id="connection-text">尚未连接</span></div>
+  </header>
+
+  <main>
+    <section class="toolbar" aria-label="连接与对局">
+      <label class="field token-field" for="token"><span>只读令牌</span><input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴 .agents/data/<配置档>/viewer-token"></label>
+      <button id="load" type="button">加载对局</button>
+      <label class="field duel-field" for="duels"><span>对局</span><select id="duels" disabled><option value="">请先加载</option></select></label>
+      <button id="refresh" type="button" disabled>刷新</button>
+      <button id="export" type="button" disabled>导出 JSON</button>
+    </section>
+
+    <p id="notice" class="notice" role="status" aria-live="polite"></p>
+
+    <nav class="tabs" aria-label="视图">
+      <button class="tab active" type="button" data-tab="timeline" aria-selected="true">对话时间线</button>
+      <button class="tab" type="button" data-tab="state" aria-selected="false">场面</button>
+      <button class="tab" type="button" data-tab="history" aria-selected="false">历史记录</button>
+    </nav>
+
+    <section id="tab-timeline" class="tab-panel" aria-label="对话时间线">
+      <div class="section-heading"><div><h2>决策对话</h2><p>一次游戏提示是一轮；每次模型响应可展开查看内部事件与原始记录。</p></div><span id="trace-count" class="count">0 条记录</span></div>
+      <div id="timeline" class="timeline"><p class="empty">选择对局后，时间线会在这里出现。</p></div>
+    </section>
+
+    <section id="tab-state" class="tab-panel" aria-label="场面" hidden>
+      <div class="section-heading"><div><h2>已确认场面</h2><p>客户端确认的本方可见快照。客户端提交动作不代表游戏服务端已经执行。</p></div><small id="state-meta"></small></div>
+      <pre id="state-json" class="json-panel">选择对局后加载。</pre>
+    </section>
+
+    <section id="tab-history" class="tab-panel" aria-label="历史记录" hidden>
+      <div class="section-heading"><div><h2>事件与决策记录</h2><p>可展开原始 JSON，便于检查场面变化、决策与客户端回执。</p></div></div>
+      <div class="history-grid"><div><h3>最早 100 条事件</h3><pre id="events-json" class="json-panel">选择对局后加载。</pre></div><div><h3>最早 100 条决策与回执</h3><pre id="records-json" class="json-panel">选择对局后加载。</pre></div></div>
+    </section>
+  </main>
+</body>
+</html>

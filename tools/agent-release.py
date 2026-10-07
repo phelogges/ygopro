@@ -95,6 +95,8 @@ def check_config(path: Path) -> None:
 def check_inputs(preset: str) -> None:
     require_file(ROOT / "out/build" / preset / "gframe/ygopro")
     require_file(SERVER_PROJECT / "src/agent_server/__main__.py")
+    for name in ("index.html", "app.js", "style.css"):
+        require_file(SERVER_PROJECT / "web" / name)
     require_file(SERVER_PROJECT / "uv.lock")
     require_file(ROOT / ".agents/config.example.toml")
     check_config(ROOT / ".agents/config.example.toml")
@@ -155,6 +157,8 @@ def build_server(work: Path) -> Path:
         str(SERVER_PROJECT / "src"),
         "--paths",
         str(ROOT / "agent_sdk/src"),
+        "--add-data",
+        f"{SERVER_PROJECT / 'web'}{os.pathsep}web",
         "--collect-all",
         "pydantic_monty",
         "--collect-all",

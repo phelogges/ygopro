@@ -18,8 +18,10 @@ from pydantic_ai.exceptions import (
     UsageLimitExceeded,
 )
 from pydantic_ai.models import Model
+from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai_harness import CodeMode
 from pydantic_ai_harness.compaction import (
@@ -34,6 +36,7 @@ from agent_server.budget_model import BudgetModel, ModelBudget, current_budget
 from agent_server.config import ServiceSettings, model_api_key
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
+from agent_server.trace import TraceWriter
 
 INSTRUCTIONS = """你是《游戏王》单局 1v1 决斗中的本方玩家。目标是在合法规则内争取获胜。
 每次只对当前 prompt 的合法候选作出一个语义决策；候选 id 仅在当前 prompt 有效。
@@ -124,6 +127,9 @@ class DecisionAgent:
         self.settings = settings
         self.store = store
         self.skills = skills
+        self._stream_capable = (
+            not isinstance(model, FunctionModel) or model.stream_function is not None
+        )
         if model is None:
             model = OpenAIResponsesModel(
                 settings.model.name,
@@ -197,6 +203,7 @@ class DecisionAgent:
         )
         self._register_tools()
         self._histories: dict[tuple[str, str], list[Any]] = {}
+        self._summary_enabled = True
 
     async def probe(self) -> None:
         """Verify Responses tool calls and structured output before serving a live client."""
@@ -218,10 +225,23 @@ class DecisionAgent:
 
         try:
             async with asyncio.timeout(self.settings.server.startup_timeout_seconds):
-                result = await probe_agent.run(
-                    "先调用 probe_echo，再返回 ok=true。",
-                    usage_limits=UsageLimits(request_limit=3),
-                )
+                try:
+                    result = await probe_agent.run(
+                        "先调用 probe_echo，再返回 ok=true。",
+                        model_settings=OpenAIResponsesModelSettings(
+                            openai_store=self.settings.model.store,
+                            openai_reasoning_summary="auto",
+                        ),
+                        usage_limits=UsageLimits(request_limit=3),
+                    )
+                except ModelAPIError:
+                    # Responses-compatible providers may omit reasoning-summary support.
+                    self._summary_enabled = False
+                    called = False
+                    result = await probe_agent.run(
+                        "先调用 probe_echo，再返回 ok=true。",
+                        usage_limits=UsageLimits(request_limit=3),
+                    )
         except TimeoutError as exc:
             raise DecisionFailure(
                 "provider_unavailable", "model capability probe timed out"
@@ -392,20 +412,60 @@ class DecisionAgent:
             separators=(",", ":"),
         )
         history = self._load_history(session, duel)
+        turn_id = f"{data['prompt_id']}:{data['state_version']}"
+        trace = TraceWriter(self.store, session, duel, turn_id)
+        trace.emit(
+            "model_request_started",
+            {
+                "prompt": json.loads(prompt),
+                "history_messages": len(history),
+                "reasoning_summary_requested": self._summary_enabled,
+            },
+        )
         token = current_budget.set(
             ModelBudget(self.settings.limits.model_requests, time.monotonic() + remaining)
         )
         try:
             async with asyncio.timeout(remaining):
-                result = await self.agent.run(
-                    prompt,
-                    deps=deps,
-                    message_history=history,
-                    usage_limits=UsageLimits(
-                        request_limit=self.settings.limits.model_requests,
-                        tool_calls_limit=self.settings.limits.host_tool_attempts,
-                    ),
+                result = None
+                if self._summary_enabled:
+                    model_settings = OpenAIResponsesModelSettings(
+                        openai_store=self.settings.model.store,
+                        openai_reasoning_summary="auto",
+                    )
+                else:
+                    model_settings = OpenAIResponsesModelSettings(
+                        openai_store=self.settings.model.store,
+                    )
+                limits = UsageLimits(
+                    request_limit=self.settings.limits.model_requests,
+                    tool_calls_limit=self.settings.limits.host_tool_attempts,
                 )
+                if self._stream_capable:
+                    async with self.agent.run_stream_events(
+                        prompt,
+                        deps=deps,
+                        message_history=history,
+                        model_settings=model_settings,
+                        usage_limits=limits,
+                    ) as events:
+                        async for event in events:
+                            if isinstance(event, AgentRunResultEvent):
+                                result = event.result
+                            else:
+                                trace.accept(event)
+                else:
+                    trace.start_response()
+                    result = await self.agent.run(
+                        prompt,
+                        deps=deps,
+                        message_history=history,
+                        model_settings=model_settings,
+                        usage_limits=limits,
+                    )
+                if result is None:
+                    raise DecisionFailure("internal_error", "model stream ended without a result")
+                trace.finish_response()
         except TimeoutError as exc:
             raise DecisionFailure("timeout", "decision deadline expired") from exc
         except UsageLimitExceeded as exc:
@@ -419,6 +479,7 @@ class DecisionAgent:
                 raise DecisionFailure("budget_exhausted", str(exc)) from exc
             raise
         finally:
+            trace.flush()
             current_budget.reset(token)
         if deps.validated_action is None:
             raise DecisionFailure("invalid_intent", "model returned no validated action")
@@ -440,5 +501,14 @@ class DecisionAgent:
         )
         compacted = ModelMessagesTypeAdapter.dump_python(result.all_messages(), mode="json")
         self.store.append_record(session, duel, "model_context", record_id, {"messages": compacted})
+        trace.emit(
+            "model_decision",
+            {
+                "reason": result.output.reason,
+                "intent": result.output.intent,
+                "action": deps.validated_action,
+                "tool_attempts": deps.tool_records,
+            },
+        )
         self._histories[(session, duel)] = result.all_messages()
         return deps.validated_action, result.output.reason
