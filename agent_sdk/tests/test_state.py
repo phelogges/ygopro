@@ -59,6 +59,57 @@ def sync(events: list[dict[str, object]]) -> dict[str, object]:
 
 
 class StateTests(unittest.TestCase):
+    def test_known_card_hint_snapshot_and_hidden_rejection(self) -> None:
+        request = decision(1)
+        observation = cast(dict[str, object], request["observation"])
+        zones = cast(list[dict[str, object]], observation["zones"])
+        own_hand = cast(list[dict[str, object]], zones[0]["cards"])
+        own_hand[0]["hint_type"] = 2
+        own_hand[0]["hint_value"] = 89631139
+        own_hand[0]["description_hints"] = [{"description_id": 1581278257, "count": 1}]
+        StateStore().apply_decision(request)
+
+        hidden = decision(1)
+        hidden_observation = cast(dict[str, object], hidden["observation"])
+        hidden_zones = cast(list[dict[str, object]], hidden_observation["zones"])
+        hidden_zones[1]["cards"] = [
+            {
+                "controller": 1,
+                "location": "hand",
+                "sequence": 0,
+                "known": False,
+                "hint_value": 89631139,
+            }
+        ]
+        with self.assertRaises(StateError) as error:
+            StateStore().apply_decision(hidden)
+        self.assertEqual(error.exception.code, "hidden_identity")
+
+    def test_visible_card_and_player_hints_are_persisted(self) -> None:
+        hints: list[dict[str, object]] = [
+            {
+                "event_id": 1,
+                "kind": "card_hint_observed",
+                "message_type": 160,
+                "player": 1,
+                "location": 4,
+                "sequence": 2,
+                "hint_type": 6,
+                "value": 1581278257,
+            },
+            {
+                "event_id": 2,
+                "kind": "player_hint_observed",
+                "message_type": 165,
+                "player": 0,
+                "hint_type": 6,
+                "value": 12345678,
+            },
+        ]
+        store = StateStore()
+        self.assertEqual(store.apply_sync(sync(hints)), 2)
+        self.assertEqual(store.get_events("client-a", "duel-1"), tuple(hints))
+
     def test_control_change_event(self) -> None:
         control: dict[str, object] = {
             "event_id": 1,

@@ -16,6 +16,8 @@ uv sync --group dev --locked
 
 配置模板位于项目根目录 `.agents/config.example.toml`。复制为 `.agents/config.toml`，填入 OpenAI Responses 风格端点和模型名；密钥只从 `api_key_env` 指定的环境变量读取。两客户端并行时，创建 `.agents/host.toml` 与 `.agents/guest.toml`，设置不同端口，并分别用 `YGOPRO_AGENT_CONFIG=host`、`guest` 启动。端口占用会报错，不会自动换端口。
 
+部分兼容端点的 thinking 模式拒绝强制工具选择。此时可在该配置档的 `[model]` 下设置 `supports_forced_tool_choice = false`，让 Pydantic AI 发送自动工具选择；服务启动时仍会验证工具调用和结构化输出。默认值为 `true`。
+
 开发时可用 `YGOPRO_AGENT_SERVER_EXECUTABLE` 指定服务可执行入口；发布后客户端默认从当前发布根目录运行 `./agent-server`。服务启动先验证 Responses 工具调用和结构化输出，失败则不会报告就绪。`--check-resources` 可单独检查发布根的两个 skill 和 `cards.cdb`；`--offline` 只供本地确定性协议测试。
 
 客户端通过随机启动令牌与 nonce 验证独占子进程。人类只读页面在 `http://127.0.0.1:<port>/view`，令牌由服务首次启动生成在 `.agents/data/<profile>/viewer-token`，在页面输入后仅保存在该浏览器标签页的会话存储中。页面和 API 只显示当前配置档的单方视角；令牌不能调用决策 API。场面、事件、净差异和模型/工具轨迹持续保存在 `.agents/data/<profile>/state.sqlite3`，使用 SQLite WAL 和周期检查点；模型摘要不取代权威观察记录。页面展示供应商实际提供的推理摘要或文本；若端点未提供，会明确标注。

@@ -14,12 +14,26 @@ from test_decision_session import request
 
 from agent_server.config import load_settings
 from agent_server.decision_session import DecisionManager
-from agent_server.model_agent import DecisionAgent
+from agent_server.model_agent import DecisionAgent, intent_format
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
 
 
 class ModelAgentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_intent_format_uses_action_kind_for_guessing_prompt(self) -> None:
+        body = request()
+        body["prompt"] = {
+            "kind": "rock_paper_scissors",
+            "description": "请选择石头、剪刀或布",
+            "constraints": {},
+            "candidates": [
+                {"id": "c0", "kind": "rock", "description": "石头"},
+                {"id": "c1", "kind": "scissors", "description": "剪刀"},
+            ],
+        }
+        guidance = intent_format(parse_request(body))
+        self.assertEqual(guidance["formats"], [{"kind": "choice", "candidate_id": "<所选候选 id>"}])
+
     async def test_streamed_model_response_writes_timeline(self) -> None:
         root = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as directory:

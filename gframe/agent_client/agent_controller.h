@@ -94,7 +94,7 @@ class AgentController final {
 	bool StartService();
 	bool RestartTransport();
 	void OnHttpResult(agent::HttpResult result);
-	void RecordEvent(const std::uint8_t *bytes, std::size_t length);
+	void RecordEvent(const std::uint8_t *bytes, std::size_t length, bool card_hint_visible);
 	void Log(const nlohmann::json &record);
 	void FailCurrent(const std::string &code);
 	std::string NewId();

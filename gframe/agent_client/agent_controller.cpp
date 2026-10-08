@@ -150,6 +150,14 @@ nlohmann::json SerializeCard(const ClientCard& card, int player,
 	};
 	if(CardKnown(card, player, location)) {
 		data["card_id"] = card.code;
+		if(card.cHint || card.chValue) {
+			data["hint_type"] = card.cHint;
+			data["hint_value"] = card.chValue;
+		}
+		for(const auto& [description_id, count] : card.desc_hints) {
+			if(count > 0)
+				data["description_hints"].push_back({{"description_id", description_id}, {"count", count}});
+		}
 		if(card.position & POS_FACEUP) {
 			if(Observed(card, QUERY_ATTACK)) data["attack"] = card.attack >= 0 ? nlohmann::json(card.attack) : nlohmann::json(nullptr);
 			if(Observed(card, QUERY_DEFENSE)) data["defense"] = card.defense >= 0 ? nlohmann::json(card.defense) : nlohmann::json(nullptr);
@@ -445,11 +453,15 @@ void AgentController::OnDuelEnd() {
 	SubmitTerminalSync();
 }
 
-void AgentController::RecordEvent(const std::uint8_t* bytes, std::size_t length) {
+void AgentController::RecordEvent(const std::uint8_t* bytes, std::size_t length, bool card_hint_visible) {
 	if(!bytes || length == 0)
 		return;
 	const std::uint8_t type = bytes[0];
 	if(NonessentialMessage(type))
+		return;
+	// A card hint can refer to a hidden card. Only retain its value when the
+	// referenced card is currently known from this client's perspective.
+	if(type == MSG_CARD_HINT && length >= 10 && !card_hint_visible)
 		return;
 	nlohmann::json event{{"event_id", ++next_event_id_}, {"kind", "game_message"},
 		{"message_type", type}};
@@ -488,6 +500,18 @@ void AgentController::RecordEvent(const std::uint8_t* bytes, std::size_t length)
 		event["kind"] = "hint_observed";
 		event["hint_type"] = bytes[1];
 		event["player"] = mainGame->LocalPlayer(bytes[2]);
+		event["value"] = ReadU32(bytes + 3);
+	} else if(type == MSG_CARD_HINT && length >= 10) {
+		event["kind"] = "card_hint_observed";
+		event["player"] = mainGame->LocalPlayer(bytes[1]);
+		event["location"] = bytes[2] & 0x7f;
+		event["sequence"] = bytes[3];
+		event["hint_type"] = bytes[5];
+		event["value"] = ReadU32(bytes + 6);
+	} else if(type == MSG_PLAYER_HINT && length >= 7) {
+		event["kind"] = "player_hint_observed";
+		event["player"] = mainGame->LocalPlayer(bytes[1]);
+		event["hint_type"] = bytes[2];
 		event["value"] = ReadU32(bytes + 3);
 	} else if(type == MSG_CONFIRM_CARDS && length >= 4 &&
 	          length >= 4 + std::size_t(bytes[3]) * 7) {
@@ -595,9 +619,15 @@ void AgentController::RecordEvent(const std::uint8_t* bytes, std::size_t length)
 		parsed = false;
 		event["kind"] = "unparsed_game_message";
 	}
-	if(!parsed) history_complete_ = false;
+	if(!parsed) {
+		history_complete_ = false;
+		Log({{"kind", "event_decode_incomplete"}, {"message_type", type},
+			 {"message_length", length}, {"timestamp_unix_ms", NowUnixMs()}});
+	}
 	if(events_.size() >= max_pending_events) {
 		history_complete_ = false;
+		Log({{"kind", "event_queue_overflow"}, {"message_type", type},
+			 {"event_limit", max_pending_events}, {"timestamp_unix_ms", NowUnixMs()}});
 		return;
 	}
 	events_.push_back(std::move(event));
@@ -631,6 +661,15 @@ void AgentController::OnGameMessage(const std::uint8_t* bytes, std::size_t lengt
 	int turn_player = -1;
 	bool automatic_empty_chain = false;
 	bool background_sync = false;
+	bool card_hint_visible = false;
+	if(bytes && length >= 10 && bytes[0] == MSG_CARD_HINT) {
+		std::lock_guard<std::mutex> field_lock(mainGame->gMutex);
+		const int player = mainGame->LocalPlayer(bytes[1]);
+		const auto location = static_cast<std::uint8_t>(bytes[2] & 0x7f);
+		const auto* card = mainGame->dField.GetCard(player, bytes[2], bytes[3]);
+		card_hint_visible = card && PositionInspectable(player, location, !mainGame->dField.cant_check_grave)
+			&& CardKnown(*card, player, location);
+	}
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 		if(!initialized_ || (!available_ && !v3_) || mainGame->dInfo.isReplay || mainGame->dInfo.isSingleMode)
@@ -638,7 +677,7 @@ void AgentController::OnGameMessage(const std::uint8_t* bytes, std::size_t lengt
 		automatic_empty_chain = controlling_ && already_answered && bytes && length >= 3
 			&& bytes[0] == MSG_SELECT_CHAIN && bytes[2] == 0;
 		if(!automatic_empty_chain)
-			RecordEvent(bytes, length);
+			RecordEvent(bytes, length, card_hint_visible);
 		background_sync = events_.size() >= max_pending_events / 2 &&
 			!pending_ && !in_flight_prompt_id_ && history_complete_;
 		phase = phase_;

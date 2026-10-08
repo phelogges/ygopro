@@ -524,5 +524,12 @@ byId("refresh").addEventListener("click", () => {
 });
 byId("export").addEventListener("click", () => void exportDuel());
 tokenInput.addEventListener("keydown", (event) => { if (event.key === "Enter") void loadDuels(); });
+let tokenLoadTimer = null;
+tokenInput.addEventListener("input", () => {
+  if (tokenLoadTimer !== null) clearTimeout(tokenLoadTimer);
+  if (tokenInput.value.trim().length >= 32) {
+    tokenLoadTimer = setTimeout(() => { tokenLoadTimer = null; void loadDuels(); }, 250);
+  }
+});
 
 if (tokenInput.value) void loadDuels();

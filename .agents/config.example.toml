@@ -11,12 +11,13 @@ name = "set-model-name"
 api_key_env = "YGOPRO_AGENT_API_KEY"
 context_window_tokens = 128000
 store = false
+supports_forced_tool_choice = true
 
 [limits]
 decision_seconds = 60
 invalid_intent_attempts = 3
 model_requests = 8
-host_tool_attempts = 24
+host_tool_attempts = 64
 client_queries = 4
 
 [compaction]

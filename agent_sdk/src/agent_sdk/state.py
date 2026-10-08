@@ -58,6 +58,9 @@ _CARD_FIELDS = {
     "overlay_cards",
     "equipped_to",
     "targets",
+    "hint_type",
+    "hint_value",
+    "description_hints",
 }
 _CARD_DYNAMIC = _CARD_FIELDS - {
     "instance_id",
@@ -68,6 +71,9 @@ _CARD_DYNAMIC = _CARD_FIELDS - {
     "known",
     "card_id",
     "owner",
+    "hint_type",
+    "hint_value",
+    "description_hints",
 }
 _EVENT_FIELDS = {
     "event_id",
@@ -128,6 +134,8 @@ _CARD_NUMERIC_FIELDS = {
     "left_scale",
     "right_scale",
     "overlay_count",
+    "hint_type",
+    "hint_value",
 }
 _CARD_SIGNED_FIELDS = {"attack", "defense", "base_attack", "base_defense"}
 _EVENT_SIGNED_FIELDS = {
@@ -400,6 +408,21 @@ def _validate_snapshot(value: object) -> JSONObject:
                     if not counter_type.isdecimal():
                         raise StateError("invalid_state", "counter type must be numeric")
                     _integer(amount, "card.counter amount")
+            if "description_hints" in card:
+                descriptions = card["description_hints"]
+                if not isinstance(descriptions, list):
+                    raise StateError("invalid_state", "description_hints must be an array")
+                seen_descriptions: set[int] = set()
+                for item_hint in cast(list[object], descriptions):
+                    hint = _object(item_hint, "card.description_hints item")
+                    _only_fields(hint, {"description_id", "count"}, "card.description_hints item")
+                    description_id = _signed_integer(
+                        hint.get("description_id"), "card.description_hints.description_id"
+                    )
+                    _integer(hint.get("count"), "card.description_hints.count", 1)
+                    if description_id in seen_descriptions:
+                        raise StateError("invalid_state", "duplicate description hint")
+                    seen_descriptions.add(description_id)
             if player == 1 and name in ("extra", "banished"):
                 if not known or not position.startswith("face_up") or "card_id" not in card:
                     raise StateError("hidden_identity", f"opponent {name} card is not public")

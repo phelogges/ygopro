@@ -42,9 +42,78 @@ INSTRUCTIONS = """你是《游戏王》单局 1v1 决斗中的本方玩家。目
 每次只对当前 prompt 的合法候选作出一个语义决策；候选 id 仅在当前 prompt 有效。
 客户端发送的事件和场面是本方可见事实；不要把未知牌、卡片移动原因、效果使用情况或你的推测写成已知事实。
 需要规则时查询规则书，需要卡片效果时按 id 查询卡库；必要时查询完整场面和历史。
+优先分析当前可执行候选及直接相关的卡片；不要在一次决策里穷举查询整副卡组。
+工具与模型请求有预算，预留至少一次模型响应来提交最终 intent。
 可以使用受限的本地 Python 计算基本分、攻击力等数值。
 可读信息不足时可以请求客户端只读查询。不得修改卡组、房间、游戏协议，不得要求隐藏信息，不得编造底层协议字节。
-返回简短中文 reason 和恰好一个符合当前候选约束的 intent。"""
+返回简短中文 reason 和恰好一个符合当前候选约束的 intent。
+intent.kind 是动作类型，绝不能照抄 prompt.kind 或候选 kind。
+候选 id 必须从当前 prompt.candidates 的 id 中选取。
+例如猜拳 prompt.kind=rock_paper_scissors 时，输出
+intent={"kind":"choice","candidate_id":"c0"}，其中 c0 须替换为真实候选 id。
+不要返回 prompt_id、底层协议字节或未经请求的额外字段。"""
+
+
+def intent_format(request: DecisionRequest) -> dict[str, Any]:
+    """Describe the action shapes accepted by the deterministic SDK translator."""
+    kind = request.prompt["kind"]
+    constraints = request.prompt["constraints"]
+    formats: list[dict[str, Any]] = []
+    if kind in {
+        "idle_command",
+        "battle_command",
+        "yes_no",
+        "effect_yes_no",
+        "option",
+        "chain",
+        "position",
+        "announce_number",
+        "rock_paper_scissors",
+        "first_player",
+        "effect_yesno",
+        "yesno",
+    }:
+        formats.append({"kind": "choice", "candidate_id": "<所选候选 id>"})
+    if kind in {
+        "select_card",
+        "select_cards",
+        "tribute",
+        "sum",
+        "sort",
+        "announce_race",
+        "announce_attribute",
+    }:
+        formats.append({"kind": "select_cards", "candidate_ids": ["<所选候选 id>"]})
+        if any(candidate["kind"] in {"cancel", "default"} for candidate in request.candidates):
+            formats.append({"kind": "choice", "candidate_id": "<取消或默认候选 id>"})
+    if kind in {"unselect_card", "select_unselect_card"}:
+        formats.append({"kind": "select_step", "candidate_id": "<所选候选 id>"})
+        if any(candidate["kind"] in {"cancel", "finish"} for candidate in request.candidates):
+            formats.append({"kind": "choice", "candidate_id": "<取消或完成候选 id>"})
+    if kind in {"place", "select_place", "disfield"}:
+        formats.append(
+            {
+                "kind": "select_places",
+                "places": [{"controller": 0, "location": "monster", "sequence": 0}],
+            }
+        )
+    if kind in {"counter", "select_counter"}:
+        formats.append(
+            {
+                "kind": "distribute_counters",
+                "allocations": [{"candidate_id": "<候选 id>", "count": 1}],
+            }
+        )
+    if kind == "announce_card":
+        formats.append({"kind": "announce_card", "card_id": 12345678})
+    return {
+        "instruction": (
+            "只输出以下适用于当前 prompt 的 intent 形状；"
+            "尖括号是占位符，必须替换为实际值。严格满足 constraints。"
+        ),
+        "formats": formats,
+        "constraints": constraints,
+    }
 
 
 class DecisionOutput(BaseModel):
@@ -137,6 +206,7 @@ class DecisionAgent:
                     base_url=settings.model.base_url,
                     api_key=model_api_key(settings),
                 ),
+                profile={"supports_forced_tool_choice": settings.model.supports_forced_tool_choice},
             )
         budgeted_model = BudgetModel(model)
         self.model = budgeted_model
@@ -401,6 +471,7 @@ class DecisionAgent:
                 "new_events": delta.events,
                 "net_changes": delta.changes,
                 "prompt": data["prompt"],
+                "intent_format": intent_format(request),
                 "budget": {
                     "model_requests": self.settings.limits.model_requests,
                     "host_tool_attempts": self.settings.limits.host_tool_attempts,

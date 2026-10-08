@@ -82,9 +82,10 @@
 | 卡片定位 | `instance_id`, `controller`, `location`, `sequence`, `position`, `known` | `instance_id` 是区域位置键，换区会变且可复用；不能当跨区稳定实体 ID。未知位置或表示不得凭内部缓存补全。 |
 | 卡片身份 | `card_id`, `owner` | `card_id` 只在本方此刻有权查看且客户端确实知道身份时发送；`known=false` 时不得有 `card_id`。`owner` 还需当前区域内有效的对应查询。 |
 | 当前公开数值 | `attack`, `defense`, `level`, `rank`, `link`, `link_marker`, `type`, `attribute`, `race`, `base_attack`, `base_defense`, `left_scale`, `right_scale`, `counters` | 正面且已知的卡，仅发送在当前区域经对应 `QUERY_*` 观察过的动态字段；未观察到就省略。攻击力或守备力为负的未知值输出 `null`。指示物只在有观察到的非空集合时给出。 |
+| 当前卡片提示 | `hint_type`, `hint_value`, `description_hints` | 仅对本方当前已知身份的卡片发送。来自客户端当前 `cHint`、`chValue` 和正计数的 `desc_hints`；`description_hints` 项含原始 `description_id` 与 `count`。隐藏卡不得带这些字段；历史上隐藏期间的提示若后来变得可见，以当前快照反映。 |
 | 可见关系 | `overlay_count`, `overlay_cards`, `equipped_to`, `targets` | 正面卡的素材数及已知素材身份、装备对象和指定对象。素材对象使用宿主位置键派生的局部键；关系目标均为位置键，目标离位后不可当成持久实体引用。 |
 
-本轮尚未纳入玩家／卡片描述提示、链上详细对象、攻击者与攻击目标、额外区细分等字段；这些须逐项确认来源、可见性、有效期和测试后扩充。不能因为字段存在于 `ClientField` / `ClientCard` 就直接输出。`reason`、`status`、UI 选择标记及内部命令标记不属于快照事实。
+本轮尚未纳入玩家提示的当前状态、链上详细对象、攻击者与攻击目标、额外区细分等字段；这些须逐项确认来源、可见性、有效期和测试后扩充。不能因为字段存在于 `ClientField` / `ClientCard` 就直接输出。`reason`、`status`、UI 选择标记及内部命令标记不属于快照事实。
 
 `position` 可取 `face_up_attack`、`face_up_defense`、`face_down_attack`、`face_down_defense`、`face_up`、`face_down` 或 `unknown`。`face_up`／`face_down` 只表示通用正反面位掩码，不推断攻守表示。场上里侧卡不得附带动态数值；墓地等公开区域的通用正面表示可附当前确实观察到的查询字段。
 
@@ -92,7 +93,7 @@
 
 ### 观测事件
 
-每个事件含 `event_id` 和 `kind`。来自游戏消息的事件还含 `message_type`；本地人工／Agent 控制切换事件使用 `source: "client_control"`。事件只附协议或客户端 GUI 确实观察到的字段。首版已解析回合／阶段、抽卡、移动、终局、提示、展示、连锁发动与结算、LP 变化、攻击／战斗、表示形式、盖放、指定对象、召唤及洗牌等消息。洗牌消息只记录 `shuffle_message_observed`，不凭消息推断未知牌序。移动消息给出收到的原始 `reason_flags`，但不能补写未观测到的战斗破坏、素材用途、效果已使用等因果。已确认对历史不产生必要事实的更新包和决策提示不入事件日志。其余消息或已知消息的截断内容记录 `unparsed_game_message` 并把 `history_complete` 置为 `false`；服务端拒绝自动决策。绝不把未知消息的原始包、隐藏卡 ID 或服务端私有字段传给 Agent。
+每个事件含 `event_id` 和 `kind`。来自游戏消息的事件还含 `message_type`；本地人工／Agent 控制切换事件使用 `source: "client_control"`。事件只附协议或客户端 GUI 确实观察到的字段。首版已解析回合／阶段、抽卡、移动、终局、提示、展示、连锁发动与结算、LP 变化、攻击／战斗、表示形式、盖放、指定对象、召唤、洗牌，以及卡片与玩家提示等消息。`MSG_CARD_HINT` 在关联卡片当前可见且身份已知时记录 `card_hint_observed`，包含本方视角的 `player`、去除叠放标记的 `location`、`sequence`、`hint_type`、`value`；关联卡片不可见时不生成事件，避免泄露隐藏信息。`MSG_PLAYER_HINT` 记录 `player_hint_observed`，包含 `player`、`hint_type`、`value`。提示值仅作为观察到的原始值，不推断具体规则含义。洗牌消息只记录 `shuffle_message_observed`，不凭消息推断未知牌序。移动消息给出收到的原始 `reason_flags`，但不能补写未观测到的战斗破坏、素材用途、效果已使用等因果。已确认对历史不产生必要事实的更新包和决策提示不入事件日志。其余消息或已知消息的截断内容记录 `unparsed_game_message` 并把 `history_complete` 置为 `false`；服务端拒绝自动决策。绝不把未知消息的原始包、隐藏卡 ID 或服务端私有字段传给 Agent。
 
 快照比较生成的是**净状态差异**，与上述有序观测事件分开。相同卡片 ID 的多份副本、手牌重排及隐藏区进出不能凭快照推断为同一实体移动；只有已观测事件明确关联时才表达移动关系。
 

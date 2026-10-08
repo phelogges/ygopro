@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from typing import cast
 
-from pydantic_ai.messages import PartStartEvent, ThinkingPart
+from pydantic_ai.messages import PartDeltaEvent, PartStartEvent, ThinkingPart, ThinkingPartDelta
 
 from agent_server.storage import StateDatabase
 from agent_server.trace import TraceWriter, safe_value
@@ -42,6 +42,25 @@ class TraceTests(unittest.TestCase):
     def test_nested_sensitive_fields_are_removed(self) -> None:
         projected = safe_value({"tool": [{"token": "secret", "result": 7}], "signature": "secret"})
         self.assertEqual(projected, {"tool": [{"result": 7}]})
+
+    def test_thinking_delta_provider_details_callback_is_not_serialized(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                writer = TraceWriter(storage, "session", "duel", "1:1")
+                writer.accept(PartStartEvent(index=0, part=ThinkingPart(content="先看手牌")))
+                writer.accept(
+                    PartDeltaEvent(
+                        index=0,
+                        delta=ThinkingPartDelta(
+                            content_delta="再判断",
+                            provider_details=lambda _previous: {"raw_content": "private"},
+                        ),
+                    )
+                )
+                writer.flush()
+                traces = storage.get_traces("session", "duel")
+                self.assertIn("再判断", str(traces))
+                self.assertNotIn("private", str(traces))
 
     def test_bounded_projection_marks_truncation(self) -> None:
         self.assertEqual(safe_value("abcdef", max_length=3), "abc[truncated]")

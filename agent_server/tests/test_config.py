@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_server.config import load_settings, profile_data_dir
+from agent_server.config import ModelSettings, load_settings, profile_data_dir
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -36,6 +36,22 @@ class ProfileDataTests(unittest.TestCase):
         settings = load_settings(ROOT, offline=True)
         self.assertEqual(settings.storage.retention_days, 30)
         self.assertEqual(settings.storage.max_bytes, 2 * 1024 * 1024 * 1024)
+
+    def test_forced_tool_choice_default_and_override(self) -> None:
+        model = ModelSettings.model_validate(
+            {
+                "base_url": "https://example.test/v1",
+                "name": "test-model",
+                "api_key_env": "TEST_KEY",
+                "context_window_tokens": 4096,
+            }
+        )
+        self.assertTrue(model.supports_forced_tool_choice)
+        self.assertFalse(
+            model.model_copy(
+                update={"supports_forced_tool_choice": False}
+            ).supports_forced_tool_choice
+        )
 
 
 if __name__ == "__main__":

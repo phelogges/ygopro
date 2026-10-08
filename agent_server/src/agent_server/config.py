@@ -24,6 +24,7 @@ class ModelSettings(BaseModel):
     api_key_env: str
     context_window_tokens: Annotated[int, Field(ge=4096)]
     store: bool = False
+    supports_forced_tool_choice: bool = True
 
     @model_validator(mode="after")
     def valid_provider(self) -> "ModelSettings":
@@ -42,7 +43,7 @@ class LimitSettings(BaseModel):
     decision_seconds: Annotated[int, Field(ge=1, le=120)] = 60
     invalid_intent_attempts: Annotated[int, Field(ge=1, le=10)] = 3
     model_requests: Annotated[int, Field(ge=1, le=100)] = 8
-    host_tool_attempts: Annotated[int, Field(ge=1, le=1000)] = 24
+    host_tool_attempts: Annotated[int, Field(ge=1, le=1000)] = 64
     client_queries: Annotated[int, Field(ge=0, le=100)] = 4
 
 

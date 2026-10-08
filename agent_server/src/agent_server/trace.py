@@ -148,7 +148,12 @@ class TraceWriter:
         elif isinstance(event, PartDeltaEvent):
             delta = event.delta
             if isinstance(delta, ThinkingPartDelta):
-                details = cast(dict[str, object], delta.provider_details or {})
+                provider_details = cast(object, delta.provider_details)
+                details = (
+                    cast(dict[str, object], provider_details)
+                    if isinstance(provider_details, dict)
+                    else {}
+                )
                 raw = "raw_content" in details
                 self.text(
                     "provider_reasoning",

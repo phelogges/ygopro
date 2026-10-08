@@ -55,7 +55,9 @@ async def serve(profile: str, *, offline: bool = False) -> None:
     data_dir = profile_data_dir(root, settings, profile)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        # A client may restart its child service while connections to the old
+        # process remain in TIME_WAIT. This still rejects an active listener.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", settings.server.port))
         sock.listen(128)
         sock.setblocking(False)
