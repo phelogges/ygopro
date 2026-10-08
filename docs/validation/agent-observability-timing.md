@@ -4,7 +4,7 @@
 
 ## 已验证
 
-- Agent 服务端测试：35 项通过；新增测试覆盖推理强度 `none` 时摘要实际关闭，以及模型请求耗时事件。
+- Agent 服务端测试：36 项通过；新增测试覆盖推理强度 `none` 时摘要实际关闭、模型请求耗时事件，以及首次模型输入包含已确认完整快照、后续输入回到增量。
 - 发布布局测试：4 项通过；配置模板仍可用于生成发布目录。
 - Ruff 检查与格式、Pyright、网页 JavaScript 语法检查通过。
 - `python3.12 tools/agent-e2e.py --games 1 --deck deck/test/test.ydk --agent-v3-offline`：双方均以 `finished` 结束，均收到胜负结果；临时 SQLite 和查看令牌位于 `out/agent-e2e-runs/<run>/agent-data/`。

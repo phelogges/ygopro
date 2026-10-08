@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
 
 from agent_sdk.contract import parse_request
-from pydantic_ai.messages import ModelResponse, ToolCallPart
+from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from test_decision_session import request
 
@@ -20,6 +21,155 @@ from agent_server.storage import StateDatabase
 
 
 class ModelAgentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_model_writes_hand_note_and_next_turn_receives_it(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                prompts: list[dict[str, Any]] = []
+                calls = 0
+
+                async def respond(messages: list[Any], _info: object) -> ModelResponse:
+                    nonlocal calls
+                    calls += 1
+                    user_parts = [
+                        part.content
+                        for message in messages
+                        if isinstance(message, ModelRequest)
+                        for part in message.parts
+                        if isinstance(part, UserPromptPart)
+                    ]
+                    assert isinstance(user_parts[-1], str)
+                    prompts.append(json.loads(user_parts[-1]))
+                    if calls == 1:
+                        return ModelResponse(
+                            [
+                                ToolCallPart(
+                                    "write_zone_note",
+                                    {
+                                        "player": 1,
+                                        "zone": "hand",
+                                        "note": "对手展示了旋风；手牌中曾有此卡，当前位置未知。",
+                                        "evidence_event_ids": [1],
+                                    },
+                                )
+                            ]
+                        )
+                    return ModelResponse(
+                        [
+                            ToolCallPart(
+                                "final_result",
+                                {
+                                    "reason": "结束阶段",
+                                    "intent": {"kind": "choice", "candidate_id": "c0"},
+                                },
+                            )
+                        ]
+                    )
+
+                agent = DecisionAgent(
+                    load_settings(root, offline=True),
+                    storage,
+                    SkillResources(root),
+                    model=FunctionModel(respond),
+                )
+
+                async def unused_query(_query: dict[str, object]) -> dict[str, object]:
+                    self.fail("test model should not query client")
+
+                first_body = request()
+                first_body["observation"]["events"] = [
+                    {
+                        "event_id": 1,
+                        "kind": "cards_revealed",
+                        "message_type": 31,
+                        "cards": [{"player": 1, "location": 2, "card_id": 5318639}],
+                    }
+                ]
+                first = parse_request(first_body)
+                await agent.decide(first, storage.apply_decision(first.data), unused_query)
+                self.assertEqual(prompts[0]["opponent_hand_note"]["status"], "unwritten")
+                self.assertEqual(
+                    len(storage.get_records("client-a", "duel-1", kind="hand_note_revision")), 1
+                )
+
+                second_body = request()
+                second_body["prompt_id"] = 2
+                second_body["state_version"] = 2
+                second_body["observation"]["events"] = [
+                    {
+                        "event_id": 2,
+                        "kind": "shuffle_message_observed",
+                        "message_type": 33,
+                        "player": 1,
+                        "zone": "hand",
+                    }
+                ]
+                second = parse_request(second_body)
+                await agent.decide(second, storage.apply_decision(second.data), unused_query)
+                self.assertEqual(
+                    prompts[-1]["opponent_hand_note"]["note"],
+                    "对手展示了旋风；手牌中曾有此卡，当前位置未知。",
+                )
+                self.assertTrue(prompts[-1]["opponent_hand_note"]["newer_events_exist"])
+                self.assertEqual(prompts[-1]["new_events"][0]["event_id"], 2)
+
+    async def test_first_model_turn_receives_confirmed_state_then_deltas(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                prompts: list[dict[str, Any]] = []
+
+                async def respond(messages: list[Any], _info: object) -> ModelResponse:
+                    user_parts = [
+                        part.content
+                        for message in messages
+                        if isinstance(message, ModelRequest)
+                        for part in message.parts
+                        if isinstance(part, UserPromptPart)
+                    ]
+                    last_prompt = user_parts[-1]
+                    assert isinstance(last_prompt, str)
+                    prompts.append(json.loads(last_prompt))
+                    return ModelResponse(
+                        [
+                            ToolCallPart(
+                                "final_result",
+                                {
+                                    "reason": "结束阶段",
+                                    "intent": {"kind": "choice", "candidate_id": "c0"},
+                                },
+                            )
+                        ]
+                    )
+
+                agent = DecisionAgent(
+                    load_settings(root, offline=True),
+                    storage,
+                    SkillResources(root),
+                    model=FunctionModel(respond),
+                )
+
+                async def unused_query(_query: dict[str, object]) -> dict[str, object]:
+                    self.fail("test model should not query client")
+
+                first = parse_request(request())
+                first_delta = storage.apply_decision(first.data)
+                await agent.decide(first, first_delta, unused_query)
+                self.assertEqual(
+                    prompts[0]["initial_state"], storage.get_state("client-a", "duel-1", 1)
+                )
+                self.assertEqual(prompts[0]["net_changes"], [{"kind": "initial_snapshot"}])
+
+                second_body = request()
+                second_body["state_version"] = 2
+                second_body["prompt_id"] = 2
+                second_body["observation"]["life_points"] = [7500, 8000]
+                second = parse_request(second_body)
+                second_delta = storage.apply_decision(second.data)
+                await agent.decide(second, second_delta, unused_query)
+                self.assertNotIn("initial_state", prompts[1])
+                self.assertEqual(prompts[1]["net_changes"], list(second_delta.changes))
+
     async def test_intent_format_uses_action_kind_for_guessing_prompt(self) -> None:
         body = request()
         body["prompt"] = {

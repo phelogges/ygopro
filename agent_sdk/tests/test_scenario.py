@@ -438,6 +438,48 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(scenario.goal["winner"], "guest")
         self.assertEqual(scenario.allowed_random_messages, {33})
 
+    def test_ordered_event_assertions_validate_reveals_and_shuffle(self) -> None:
+        data = scene()
+        data["event_assertions"] = {
+            "host": [
+                {
+                    "kind": "cards_revealed",
+                    "cards": [
+                        {"card_id": "05318639", "player": "opponent", "location": 2},
+                        {"card_id": "27755794", "player": "opponent", "location": 2},
+                    ],
+                },
+                {"kind": "shuffle_message_observed", "player": "opponent", "zone": "hand"},
+            ]
+        }
+        scenario = Scenario(data)
+        events = [
+            {
+                "event_id": 2,
+                "kind": "cards_revealed",
+                "cards": [
+                    {"card_id": 27755794, "player": 1, "location": 2},
+                    {"card_id": 5318639, "player": 1, "location": 2},
+                ],
+            },
+            {"event_id": 3, "kind": "phase_changed"},
+            {"event_id": 4, "kind": "shuffle_message_observed", "player": 1, "zone": "hand"},
+        ]
+        scenario.assert_events("host", events)
+        with self.assertRaisesRegex(ScenarioError, "event_assertions\\[1\\]"):
+            scenario.assert_events("host", events[:2])
+        with self.assertRaisesRegex(ScenarioError, "event_assertions\\[0\\]"):
+            scenario.assert_events("host", events[1:])
+        cast(dict[str, Any], data["event_assertions"])["host"][0]["cards"][0]["card_id"] = 5318639
+        with self.assertRaisesRegex(ScenarioError, "quoted decimal"):
+            Scenario(data)
+
+    def test_duel_002_event_assertions_parse(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        scenario = Scenario.load(root / "tests/scenarios/duel-002/scenario.yaml")
+        self.assertEqual(len(scenario.event_assertions["host"]), 2)
+        self.assertEqual(scenario.event_assertions["host"][0]["cards"][0]["card_id"], 5318639)
+
     def test_gui_pacing_skips_automatic_optional_decline(self) -> None:
         data = scene()
         data["defaults"] = {"optional": "decline"}

@@ -9,6 +9,9 @@ const timeline = byId("timeline");
 const stateJson = byId("state-json");
 const eventsJson = byId("events-json");
 const recordsJson = byId("records-json");
+const handNoteText = byId("hand-note-text");
+const handNoteMeta = byId("hand-note-meta");
+const handNoteHistory = byId("hand-note-history");
 const tokenKey = "ygopro-agent-view-token";
 const pageSize = 200;
 
@@ -21,7 +24,10 @@ let streamController = null;
 let cursor = 0;
 let traceCount = 0;
 let refreshTimer = null;
+let handNoteCursor = 0;
+let confirmedEventId = null;
 const turns = new Map();
+const handNoteRevisions = new Map();
 const cardNames = new Map();
 const cardIdsPending = new Set();
 
@@ -105,6 +111,67 @@ function dateTimeLabel(unixMs) {
   const value = Number(unixMs);
   if (!Number.isFinite(value) || value <= 0) return "时间未知";
   return new Date(value).toLocaleString("zh-CN", {hour12: false});
+}
+
+function noteEvidence(record) {
+  const ids = record.payload?.evidence_event_ids;
+  return Array.isArray(ids) && ids.length
+    ? `依据事件 ${ids.map((id) => `#${id}`).join("、")}`
+    : "未引用具体事件";
+}
+
+function noteMetadata(record) {
+  const observed = Number(record.payload?.observed_ack_event_id);
+  const parts = [dateTimeLabel(record.created_unix_ms), noteEvidence(record)];
+  if (Number.isSafeInteger(observed) && observed >= 0) {
+    parts.push(`写入时已观察至事件 #${observed}`);
+    if (confirmedEventId !== null && confirmedEventId > observed) {
+      parts.push("此说明之后已有新事件，可能需要复核");
+    }
+  }
+  return parts.join(" · ");
+}
+
+function renderHandNotes() {
+  const revisions = [...handNoteRevisions.values()].sort((a, b) => Number(b.id) - Number(a.id));
+  const latest = revisions[0];
+  handNoteText.textContent = latest ? String(latest.payload?.text ?? "") : "尚未建立对手手牌认知说明。";
+  handNoteMeta.textContent = latest ? noteMetadata(latest) : "无修订记录；这不表示对手手牌为空。";
+  handNoteHistory.replaceChildren();
+  if (!latest) {
+    handNoteHistory.append(node("p", "empty", "Agent 尚未写入说明。"));
+    return;
+  }
+  for (const record of revisions) {
+    const details = node("details", "note-revision");
+    const revision = record.record_id || record.id;
+    details.append(node("summary", "", `修订 ${revision} · ${dateTimeLabel(record.created_unix_ms)}`));
+    const body = node("div", "note-revision-body");
+    body.append(node("p", "note-text", String(record.payload?.text ?? "")));
+    body.append(node("p", "note-meta", noteMetadata(record)));
+    details.append(body);
+    handNoteHistory.append(details);
+  }
+}
+
+async function loadHandNotes(epoch) {
+  while (selected && epoch === generation) {
+    const params = query();
+    params.set("kind", "hand_note_revision");
+    params.set("after_id", String(handNoteCursor));
+    params.set("limit", String(pageSize));
+    const result = await json(`/v3/view/records?${params}`);
+    if (epoch !== generation) return;
+    const records = result.records || [];
+    for (const record of records) {
+      const id = Number(record.id);
+      if (!Number.isSafeInteger(id) || id <= 0) continue;
+      handNoteRevisions.set(id, record);
+      handNoteCursor = Math.max(handNoteCursor, id);
+    }
+    renderHandNotes();
+    if (records.length < pageSize) break;
+  }
 }
 
 function renderDuelOptions() {
@@ -496,21 +563,29 @@ async function refreshSecondary() {
   if (!selected) return;
   const epoch = generation;
   const params = query();
-  const [state, events, records] = await Promise.allSettled([
+  const [state, events, records, notes] = await Promise.allSettled([
     json(`/v3/view/state?${params}`),
     json(`/v3/view/events?${params}&limit=100`),
     json(`/v3/view/records?${params}&limit=100`),
+    loadHandNotes(epoch),
   ]);
   if (epoch !== generation) return;
   if (state.status === "fulfilled") {
+    confirmedEventId = Number(state.value.ack_event_id);
     stateJson.textContent = pretty(state.value.observation);
     const updated = state.value.updated_unix_ms ? ` · 更新于 ${timeLabel(state.value.updated_unix_ms)}` : "";
     byId("state-meta").textContent = `快照版本 ${state.value.state_version} · 已确认事件 ${state.value.ack_event_id}${updated}`;
   } else {
+    confirmedEventId = null;
     stateJson.textContent = `暂无已确认快照：${state.reason.message}`;
   }
   eventsJson.textContent = events.status === "fulfilled" ? pretty(events.value.events) : `加载失败：${events.reason.message}`;
   recordsJson.textContent = records.status === "fulfilled" ? pretty(records.value.records) : `加载失败：${records.reason.message}`;
+  if (notes.status === "rejected") {
+    handNoteMeta.textContent = `说明加载失败：${notes.reason.message}`;
+  } else {
+    renderHandNotes();
+  }
 }
 
 function stopStream() {
@@ -530,6 +605,9 @@ async function chooseDuel() {
   stateJson.textContent = "正在加载…";
   eventsJson.textContent = "正在加载…";
   recordsJson.textContent = "正在加载…";
+  handNoteText.textContent = "正在加载…";
+  handNoteMeta.textContent = "";
+  handNoteHistory.replaceChildren(node("p", "empty", "正在加载修订历史…"));
   byId("state-meta").textContent = "";
   byId("trace-count").textContent = "0 条记录";
   turns.clear();
@@ -537,6 +615,9 @@ async function chooseDuel() {
   cardIdsPending.clear();
   cursor = 0;
   traceCount = 0;
+  handNoteCursor = 0;
+  confirmedEventId = null;
+  handNoteRevisions.clear();
   if (!hasDuel) { setConnection("尚未选择对局"); return; }
   setConnection("加载历史中", "wait");
   const epoch = generation;

@@ -34,6 +34,7 @@
     <nav class="tabs" aria-label="视图">
       <button class="tab active" type="button" data-tab="timeline" aria-selected="true">对话时间线</button>
       <button class="tab" type="button" data-tab="state" aria-selected="false">场面</button>
+      <button class="tab" type="button" data-tab="hand-note" aria-selected="false">Agent 推断</button>
       <button class="tab" type="button" data-tab="history" aria-selected="false">历史记录</button>
     </nav>
 
@@ -45,6 +46,17 @@
     <section id="tab-state" class="tab-panel" aria-label="场面" hidden>
       <div class="section-heading"><div><h2>已确认场面</h2><p>客户端确认的本方可见快照。客户端提交动作不代表游戏服务端已经执行。</p></div><small id="state-meta"></small></div>
       <pre id="state-json" class="json-panel">选择对局后加载。</pre>
+    </section>
+
+    <section id="tab-hand-note" class="tab-panel" aria-label="Agent 推断" hidden>
+      <div class="section-heading"><div><h2>对手手牌认知说明</h2><p>由 Agent 根据本方观察自行维护的推断；不属于客户端确认的当前场面。手牌中的卡片位置与后续持有情况可能无法确定。</p></div></div>
+      <article class="note-current" aria-live="polite">
+        <h3>当前说明 <span class="inference-label">Agent 推断</span></h3>
+        <p id="hand-note-text" class="note-text">选择对局后加载。</p>
+        <p id="hand-note-meta" class="note-meta"></p>
+      </article>
+      <div class="section-heading note-history-heading"><div><h3>修订历史</h3><p>逐次保留 Agent 写入的完整说明及依据事件；按最新到最早排列。</p></div></div>
+      <div id="hand-note-history" class="note-history"><p class="empty">选择对局后加载。</p></div>
     </section>
 
     <section id="tab-history" class="tab-panel" aria-label="历史记录" hidden>

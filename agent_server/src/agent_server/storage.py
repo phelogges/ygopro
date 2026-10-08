@@ -589,6 +589,27 @@ class StateDatabase:
                 "created_unix_ms": row["created_unix_ms"],
             }
 
+    def get_latest_record(self, session_id: str, duel_id: str, kind: str) -> JSONObject | None:
+        """Read the most recent auxiliary record of one kind in this duel."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT id,kind,record_id,payload,sha256,created_unix_ms FROM records "
+                "WHERE session_id=? AND duel_id=? AND kind=? ORDER BY id DESC LIMIT 1",
+                (session_id, duel_id, kind),
+            ).fetchone()
+            if row is None:
+                return None
+            payload = cast(bytes, row["payload"])
+            if hashlib.sha256(payload).hexdigest() != row["sha256"]:
+                raise StateError("invalid_storage", "record checksum mismatch")
+            return {
+                "id": row["id"],
+                "kind": row["kind"],
+                "record_id": row["record_id"],
+                "payload": _json_object(payload, source="record"),
+                "created_unix_ms": row["created_unix_ms"],
+            }
+
     def add_trace(
         self,
         session: str,

@@ -287,6 +287,59 @@ def _card_match(value: Any, predicate: dict[str, Any]) -> bool:
     )
 
 
+def _event_assertion(value: object, path: str) -> dict[str, Any]:
+    event = _dict(value, path, {"kind"}, {"kind", "player", "zone", "cards"})
+    _string(event["kind"], f"{path}.kind")
+    if "player" in event:
+        if event["player"] in ("self", "opponent"):
+            event["player"] = 0 if event["player"] == "self" else 1
+        if type(event["player"]) is not int or event["player"] not in (0, 1):
+            raise ScenarioError(f"{path}.player: expected self, opponent, 0, or 1")
+    if "zone" in event:
+        _string(event["zone"], f"{path}.zone")
+    if "cards" in event:
+        if event["kind"] != "cards_revealed":
+            raise ScenarioError(f"{path}.cards: only cards_revealed supports cards")
+        cards = _list(event["cards"], f"{path}.cards")
+        if not cards:
+            raise ScenarioError(f"{path}.cards: expected at least one card")
+        for index, card in enumerate(cards):
+            card_path = f"{path}.cards[{index}]"
+            item = _dict(card, card_path, {"card_id"}, {"card_id", "player", "location"})
+            _normalize_card_id(item, card_path)
+            if "player" in item:
+                if item["player"] in ("self", "opponent"):
+                    item["player"] = 0 if item["player"] == "self" else 1
+                if type(item["player"]) is not int or item["player"] not in (0, 1):
+                    raise ScenarioError(f"{card_path}.player: expected self, opponent, 0, or 1")
+            if "location" in item:
+                _integer(item["location"], f"{card_path}.location")
+    return event
+
+
+def _event_match(actual: object, expected: dict[str, Any]) -> bool:
+    if not isinstance(actual, dict):
+        return False
+    event = cast(dict[str, Any], actual)
+    if any(event.get(key) != value for key, value in expected.items() if key != "cards"):
+        return False
+    if "cards" not in expected:
+        return True
+    cards_value = event.get("cards")
+    if not isinstance(cards_value, list):
+        return False
+    cards = cast(list[Any], cards_value)
+    if len(cards) != len(expected["cards"]):
+        return False
+    remaining = list(cards)
+    for wanted in expected["cards"]:
+        found = next((i for i, card in enumerate(remaining) if _card_match(card, wanted)), None)
+        if found is None:
+            return False
+        remaining.pop(found)
+    return True
+
+
 class Scenario:
     """One in-memory, fail-fast duel fixture with separate role cursors."""
 
@@ -303,6 +356,7 @@ class Scenario:
                 "goal",
                 "defaults",
                 "allowed_random_events",
+                "event_assertions",
             },
         )
         if type(root["schema_version"]) is not int or root["schema_version"] != 1:
@@ -320,6 +374,16 @@ class Scenario:
         self.allowed_random_messages: set[int] = (
             {33} if "hand_shuffle" in allowed_random_events else set()
         )
+        self.event_assertions = _dict(
+            root.get("event_assertions", {}), "event_assertions", set(), set(ROLES)
+        )
+        for role in ROLES:
+            self.event_assertions[role] = [
+                _event_assertion(item, f"event_assertions.{role}[{i}]")
+                for i, item in enumerate(
+                    _list(self.event_assertions.get(role, []), f"event_assertions.{role}")
+                )
+            ]
         self.ignored_decisions: list[dict[str, Any]] = []
         self.decks = _dict(root["decks"], "decks", set(ROLES), set(ROLES))
         for role in ROLES:
@@ -566,6 +630,23 @@ class Scenario:
                     raise ScenarioError(
                         f"{zone_label}: exact assertion has {len(cards) - len(used)} extra cards"
                     )
+
+    def assert_events(self, role: str, events: object) -> None:
+        if role not in ROLES or not isinstance(events, list):
+            raise ScenarioError(f"{role}: expected accepted event list")
+        accepted = cast(list[Any], events)
+        cursor = 0
+        for index, expected in enumerate(self.event_assertions[role]):
+            match = next(
+                (i for i in range(cursor, len(accepted)) if _event_match(accepted[i], expected)),
+                None,
+            )
+            if match is None:
+                raise ScenarioError(
+                    f"{role} event_assertions[{index}]: expected {expected}, "
+                    f"after accepted event offset {cursor}"
+                )
+            cursor = match + 1
 
     def _resolve(self, request: DecisionRequest, selector: dict[str, Any], context: str) -> str:
         matches = [c for c in request.candidates if _candidate_match(c, selector)]

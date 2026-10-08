@@ -185,6 +185,45 @@ def checkpoint_failure(
     return "; ".join(differences)
 
 
+def assert_recorded_events(scenario: Any, work: Path) -> None:
+    """Check the test service's accepted event journal, including /v2/sync batches."""
+    if not any(scenario.event_assertions.values()):
+        return
+    from agent_sdk.state_journal import StateJournal
+
+    journal_root = work / "state"
+    journal = StateJournal(journal_root)
+    accepted: dict[str, list[dict[str, Any]]] = {}
+    for path in journal_root.glob("*.json"):
+        wrapper = json.loads(path.read_text(encoding="utf-8"))
+        state = wrapper["state"]
+        session, duel = state["session_id"], state["duel_id"]
+        version = journal.get_status(session, duel)["state_version"]
+        if not version:
+            continue
+        role = journal.get_state(session, duel, 1).get("test_role")
+        if role not in ("host", "guest"):
+            continue
+        if role in accepted:
+            raise RuntimeError(
+                f"{role}: multiple accepted event journals in one scenario"
+            )
+        events: list[dict[str, Any]] = []
+        after = 0
+        while batch := journal.get_events(
+            session, duel, after_event_id=after, limit=1000
+        ):
+            events.extend(batch)
+            after = batch[-1]["event_id"]
+        accepted[role] = events
+    for role, expected in scenario.event_assertions.items():
+        if not expected:
+            continue
+        if role not in accepted:
+            raise RuntimeError(f"{role}: accepted event journal missing")
+        scenario.assert_events(role, accepted[role])
+
+
 def run_scripted_duel(
     scenario: Any,
     work: Path,
@@ -311,6 +350,7 @@ def run_scripted_duel(
                 for role in roles
             )
         ):
+            assert_recorded_events(scenario, work)
             for role in roles:
                 audit_decisions(tails[role].path, require_hand=False)
             if gui:
@@ -387,6 +427,7 @@ def run_scripted_duel(
                 or not results[roles.index(surrender_role)].get("surrender_sent")
             ):
                 raise RuntimeError(f"scripted {surrender_role} surrender was not sent")
+            assert_recorded_events(scenario, work)
             for role in roles:
                 audit_decisions(tails[role].path, require_hand=False)
             return {"status": "duel_finished", "winner": winner, "results": results}

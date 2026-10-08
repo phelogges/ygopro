@@ -397,13 +397,16 @@ class HttpService:
             session, duel = self._view_identity(request)
             after = self._page_int(request, "after_id", 0, 2**63 - 1)
             limit = self._page_int(request, "limit", 100, 1000)
+            kind = request.query.get("kind")
+            if kind is not None and kind != "hand_note_revision":
+                raise DecisionFailure("invalid_request", "unsupported record kind filter")
             return self._response(
                 {
                     "schema_version": 3,
                     "records": [
                         self._public_record(item)
                         for item in self.store.get_records(
-                            session, duel, after_id=after, limit=limit
+                            session, duel, after_id=after, limit=limit, kind=kind
                         )
                         if item["kind"] != "model_context"
                     ],

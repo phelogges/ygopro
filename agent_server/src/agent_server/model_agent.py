@@ -39,6 +39,7 @@ from agent_server.budget_model import (
     current_telemetry,
 )
 from agent_server.config import ServiceSettings, model_api_key
+from agent_server.hand_notes import HandNotes
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
 from agent_server.trace import TraceWriter
@@ -46,6 +47,9 @@ from agent_server.trace import TraceWriter
 INSTRUCTIONS = """你是《游戏王》单局 1v1 决斗中的本方玩家。目标是在合法规则内争取获胜。
 每次只对当前 prompt 的合法候选作出一个语义决策；候选 id 仅在当前 prompt 有效。
 客户端发送的事件和场面是本方可见事实；不要把未知牌、卡片移动原因、效果使用情况或你的推测写成已知事实。
+历史展示事件可能让你知道对手曾将哪些卡加入手牌，即使当前手牌快照隐藏身份。结合洗手、移动及同名卡的不确定性自行推理；不要把打算执行的动作写成已发生事实。
+每次检查随决策提供的对手手牌认知说明及其后新事件。
+必要时用 write_zone_note 修订这段 Agent 推断，引用本视角真实事件 ID。说明并非权威快照。
 需要规则时查询规则书，需要卡片效果时按 id 查询卡库；必要时查询完整场面和历史。
 优先分析当前可执行候选及直接相关的卡片；不要在一次决策里穷举查询整副卡组。
 工具与模型请求有预算，预留至少一次模型响应来提交最终 intent。
@@ -200,6 +204,7 @@ class DecisionAgent:
     ) -> None:
         self.settings = settings
         self.store = store
+        self.hand_notes = HandNotes(store)
         self.skills = skills
         self._stream_capable = (
             not isinstance(model, FunctionModel) or model.stream_function is not None
@@ -267,6 +272,7 @@ class DecisionAgent:
                         "zone_state",
                         "card_state",
                         "event_history",
+                        "read_zone_note",
                         "client_inspect_zone",
                         "client_inspect_card",
                     ],
@@ -401,6 +407,47 @@ class DecisionAgent:
             return {"state_version": version, "after_event_id": after_event_id, "events": events}
 
         @agent.tool
+        def read_zone_note(
+            ctx: RunContext[DecisionDeps], player: int = 1, zone: str = "hand"
+        ) -> dict[str, Any]:
+            """Read this Agent's current inference about the opponent hand."""
+            ctx.deps.tool("read_zone_note", {"player": player, "zone": zone})
+            if type(player) is not int or player != 1 or zone != "hand":
+                return {"ok": False, "error": "only the opponent hand is supported"}
+            session, duel, _ = ctx.deps.identity
+            note = self.hand_notes.current(session, duel, ctx.deps.delta.ack_event_id)
+            return {"ok": True, **note}
+
+        @agent.tool
+        def write_zone_note(
+            ctx: RunContext[DecisionDeps],
+            player: int,
+            zone: str,
+            note: str,
+            evidence_event_ids: list[int],
+        ) -> dict[str, Any]:
+            """Replace the current opponent-hand inference and retain its old revision."""
+            ctx.deps.tool(
+                "write_zone_note",
+                {"player": player, "zone": zone, "evidence_event_ids": evidence_event_ids},
+            )
+            session, duel, version = ctx.deps.identity
+            try:
+                value = self.hand_notes.write(
+                    session,
+                    duel,
+                    version,
+                    ctx.deps.delta.ack_event_id,
+                    player,
+                    zone,
+                    note,
+                    evidence_event_ids,
+                )
+            except StateError as exc:
+                return {"ok": False, "error": exc.code, "message": str(exc)}
+            return {"ok": True, **value}
+
+        @agent.tool
         async def client_inspect_zone(
             ctx: RunContext[DecisionDeps], player: int, zone: str
         ) -> dict[str, Any]:
@@ -483,25 +530,33 @@ class DecisionAgent:
             query_client,
             time.monotonic() + remaining,
         )
-        prompt = json.dumps(
-            {
-                "state_version": data["state_version"],
-                "ack_event_id": delta.ack_event_id,
-                "new_events": delta.events,
-                "net_changes": delta.changes,
-                "prompt": data["prompt"],
-                "intent_format": intent_format(request),
-                "budget": {
-                    "model_requests": self.settings.limits.model_requests,
-                    "host_tool_attempts": self.settings.limits.host_tool_attempts,
-                    "client_queries": self.settings.limits.client_queries,
-                    "deadline_unix_ms": deadline_ms,
-                },
+        history = self._load_history(session, duel)
+        prompt_payload: dict[str, Any] = {
+            "state_version": data["state_version"],
+            "ack_event_id": delta.ack_event_id,
+            "new_events": delta.events,
+            "net_changes": delta.changes,
+            "opponent_hand_note": self.hand_notes.current(session, duel, delta.ack_event_id),
+            "prompt": data["prompt"],
+            "intent_format": intent_format(request),
+            "budget": {
+                "model_requests": self.settings.limits.model_requests,
+                "host_tool_attempts": self.settings.limits.host_tool_attempts,
+                "client_queries": self.settings.limits.client_queries,
+                "deadline_unix_ms": deadline_ms,
             },
+        }
+        if not history:
+            # The first model turn has no prior field context. Supply the exact
+            # confirmed, perspective-scoped snapshot once; later turns use deltas.
+            prompt_payload["initial_state"] = self.store.get_state(
+                session, duel, cast(int, data["state_version"])
+            )
+        prompt = json.dumps(
+            prompt_payload,
             ensure_ascii=False,
             separators=(",", ":"),
         )
-        history = self._load_history(session, duel)
         turn_id = f"{data['prompt_id']}:{data['state_version']}"
         trace = TraceWriter(self.store, session, duel, turn_id)
         started = time.perf_counter()

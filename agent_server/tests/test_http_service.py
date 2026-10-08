@@ -117,6 +117,20 @@ class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
             "4:2",
             {"new_messages": [{"signature": "encrypted-secret"}], "reason": "结束阶段"},
         )
+        self.storage.append_record(
+            "client-a",
+            "duel-1",
+            "hand_note_revision",
+            "revision-1",
+            {
+                "player": 1,
+                "zone": "hand",
+                "text": "对手曾展示旋风，当前是否仍在手牌待核对。",
+                "evidence_event_ids": [1],
+                "observed_ack_event_id": 1,
+                "state_version": 1,
+            },
+        )
         path = "/v3/view/timeline?session_id=client-a&duel_id=duel-1"
         response = await self.client.get(path, headers=viewer)
         data = await response.json()
@@ -139,6 +153,19 @@ class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
             "/v3/view/records?session_id=client-a&duel_id=duel-1", headers=viewer
         )
         self.assertNotIn("encrypted-secret", await response.text())
+        response = await self.client.get(
+            "/v3/view/records?session_id=client-a&duel_id=duel-1&kind=hand_note_revision",
+            headers=viewer,
+        )
+        self.assertEqual(response.status, 200)
+        notes = (await response.json())["records"]
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0]["payload"]["evidence_event_ids"], [1])
+        response = await self.client.get(
+            "/v3/view/records?session_id=client-a&duel_id=duel-1&kind=model_context",
+            headers=viewer,
+        )
+        self.assertEqual(response.status, 400)
 
     async def test_view_only_excludes_client_routes(self) -> None:
         root = Path(__file__).resolve().parents[2]

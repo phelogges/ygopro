@@ -6246,3 +6246,12 @@ goal:
         count: 14
 allowed_random_events:
 - hand_shuffle
+event_assertions:
+  host:
+  - kind: cards_revealed
+    cards:
+    - {card_id: "05318639", player: opponent, location: 2}
+    - {card_id: "27755794", player: opponent, location: 2}
+  - kind: shuffle_message_observed
+    player: opponent
+    zone: hand

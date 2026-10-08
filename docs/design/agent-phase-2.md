@@ -42,6 +42,7 @@ gframe AgentController ── HTTP v3 ── agent_server
 - 规则工具只读取发布主目录 `.agents/skills/ocg-rulebook` 的 `SKILL.md` 与白名单参考文件，按主题加载。
 - 卡片工具只读取 `.agents/skills/ygo-card-db` 的实现和发布主目录 `cards.cdb`，支持 ID 精确查询和有数量上限的关键词检索；服务核对与客户端的数据库哈希。
 - 状态工具读取本视角指定版本的场面、区域、卡片和分页事件历史，返回版本与事件范围。
+- 对手手牌的历史展示与后续不确定性由 Agent 撰写认知说明，按本视角和单局持久保存；每次决策附当前简短说明，后续事件只提示重审，不由程序自动推断持有卡。工具与存储契约见 [Agent 对手手牌认知说明 v1](../contracts/agent-hand-note-v1.md)。
 - 客户端查询工具仅有 `inspect_zone`、`inspect_card`，使用 v3 多轮 HTTP，请求绑定当前提示与版本；不能请求任意内部字段或另一视角。
 - CodeMode/Monty 只在本机执行受限 Python 子集，不配置远程 worker、文件挂载、OS 访问、Shell 或网络。仅明确列出的只读工具可在沙盒代码中调用；宿主工具再次核验会话、可见性、预算和结果大小。
 

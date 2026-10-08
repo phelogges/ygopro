@@ -50,6 +50,22 @@ uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario
 
 `allowed_random_events` 默认空列表，目前只允许唯一值 `hand_shuffle`。手牌洗切不会改变按卡片 ID 匹配的脚本动作，但它仍是可观测随机事件；场景须显式声明该例外。掷骰、抛币及随机选卡不受此例外覆盖。
 
+`event_assertions` 是可选的本地测试断言，按 `host`、`guest` 分别给出有序事件子序列。断言读取测试 Agent 服务已经接受并持久化的本视角事件，包括通过 `/v2/sync` 在决策之间送达的事件；它不是 CTOS/STOC 或客户端与 Agent 服务协议的新字段。每个事件须指定 `kind`，可按 `player`（`self`／`opponent`／`0`／`1`）和 `zone` 匹配。`cards_revealed` 还可指定非空 `cards`：每张须有带引号的 `card_id`，可附 `player` 和数字 `location`；卡片列表与实际展示数量相等，忽略列表顺序及未指定的字段。断言按事件先后匹配，不固定一次运行产生的 `event_id`，允许中间存在其他事件。例如：
+
+```yaml
+event_assertions:
+  host:
+    - kind: cards_revealed
+      cards:
+        - {card_id: "05318639", player: opponent, location: 2}
+        - {card_id: "27755794", player: opponent, location: 2}
+    - kind: shuffle_message_observed
+      player: opponent
+      zone: hand
+```
+
+这验证 Host 接收到两张卡的展示，之后接收到对手洗手消息；不推断对手当前仍持有哪张卡，也不让当前隐藏手牌快照带出卡片 ID。
+
 `chain` 是客户端对 `MSG_SELECT_CHAIN` 响应窗口的协议名称，不表示已有卡片效果组成了连锁。服务端可能询问一个没有可发动效果的响应窗口；此时客户端自动回复“放弃”，不向 Agent 服务发送决策请求，也不把该窗口记入后续 Agent 观测的事件流，场景同样不写这一步。诊断 JSONL 保留 `automatic_pass` 及原始网络帧供核查。只有存在可发动候选时，Agent 才看到 `chain` 提示。例如召唤通常怪兽「圣精灵」后有四次空响应窗口，均由客户端自动处理；真正的效果连锁发生在随后「强欲之壶」发动、「灰流丽」响应时。
 
 ## 动作与断言

@@ -67,4 +67,15 @@ h3{font-size:1rem;color:#b9cbe3}
 .raw pre,.json-panel{white-space:pre-wrap;overflow-wrap:anywhere;max-height:44rem;overflow:auto;border:1px solid #354961;border-radius:.55rem;background:#111d2d;color:#dce8f5;padding:1rem;line-height:1.5;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
 .raw pre{max-height:24rem;margin:.5rem 0 0}
 .history-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.note-current,.note-revision{border:1px solid #486076;border-radius:.8rem;background:#1a293b}
+.note-current{padding:1.1rem 1.2rem}
+.note-current h3{color:#eff6ff;margin-bottom:.75rem}
+.inference-label{display:inline-block;margin-left:.4rem;padding:.15rem .45rem;border:1px solid #9677b4;border-radius:.4rem;color:#e3c8ff;font-size:.72rem;vertical-align:middle}
+.note-text{color:#e5edf7;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;margin-bottom:.75rem}
+.note-meta{color:#a8bbd2;font-size:.8rem;line-height:1.5;overflow-wrap:anywhere;margin:0}
+.note-history-heading{margin:1.6rem 0 .8rem}
+.note-history{display:flex;flex-direction:column;gap:.6rem}
+.note-revision>summary{cursor:pointer;color:#d9e8fb;padding:.85rem 1rem}
+.note-revision[open]>summary{border-bottom:1px solid #3b5069}
+.note-revision-body{padding:1rem}
 @media(max-width:800px){.site-header{display:block}.connection{margin-top:1rem}.section-heading{display:block}.history-grid{grid-template-columns:1fr}.toolbar>button{flex:1 1 auto}.turn-header{display:block}.turn-header small{display:block;margin-top:.4rem}}
