@@ -21,6 +21,7 @@ from pydantic_ai.messages import (
     ToolCallPart,
 )
 
+from agent_server.budget_model import current_telemetry
 from agent_server.storage import StateDatabase
 
 MAX_TEXT = 32_768
@@ -74,14 +75,19 @@ class TraceWriter:
         self._text_form: str | None = None
         self._text_parts: list[str] = []
         self._last_flush = time.monotonic()
+        self._tool_starts: dict[str, float] = {}
+        self.reasoning_forms: set[str] = set()
 
     def emit(self, kind: str, payload: dict[str, Any], *, response_id: str | None = None) -> None:
         self.flush()
+        target_response = (
+            None if response_id == "" else self.response_id if response_id is None else response_id
+        )
         self.store.add_trace(
             self.session,
             self.duel,
             self.turn_id,
-            response_id if response_id is not None else self.response_id,
+            target_response,
             kind,
             cast(dict[str, object], safe_value(payload)),
         )
@@ -107,6 +113,11 @@ class TraceWriter:
     def text(self, source: str, content: str, *, form: str | None = None) -> None:
         if not content:
             return
+        if source == "provider_reasoning" and form is not None:
+            self.reasoning_forms.add(form)
+        telemetry = current_telemetry.get()
+        if telemetry is not None:
+            telemetry.mark_text(source)
         if self._text_source != source or self._text_form != form:
             self.flush()
             self._text_source = source
@@ -175,6 +186,7 @@ class TraceWriter:
                     },
                 )
         elif isinstance(event, FunctionToolCallEvent | OutputToolCallEvent):
+            self._tool_starts[event.part.tool_call_id] = time.perf_counter()
             self.emit(
                 "tool_started",
                 {
@@ -184,19 +196,27 @@ class TraceWriter:
                 },
             )
         elif isinstance(event, FunctionToolResultEvent):
+            started = self._tool_starts.pop(event.part.tool_call_id or "", None)
             self.emit(
                 "tool_finished",
                 {
                     "tool_name": event.part.tool_name,
                     "tool_call_id": event.part.tool_call_id,
                     "result": safe_value(event.content),
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 2)
+                    if started is not None
+                    else None,
                 },
             )
         elif isinstance(event, OutputToolResultEvent):
+            started = self._tool_starts.pop(event.part.tool_call_id or "", None)
             self.emit(
                 "output_validated",
                 {
                     "tool_name": event.part.tool_name,
                     "tool_call_id": event.part.tool_call_id,
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 2)
+                    if started is not None
+                    else None,
                 },
             )

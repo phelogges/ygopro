@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ProfileDataTests(unittest.TestCase):
-    def test_profiles_isolate_data_and_leave_legacy_root_untouched(self) -> None:
+    def test_profiles_isolate_data(self) -> None:
         settings = load_settings(ROOT, offline=True)
         base = ROOT / settings.storage.directory
         self.assertEqual(profile_data_dir(ROOT, settings, "host"), base / "host")
@@ -52,6 +52,23 @@ class ProfileDataTests(unittest.TestCase):
                 update={"supports_forced_tool_choice": False}
             ).supports_forced_tool_choice
         )
+
+    def test_reasoning_configuration_and_none_summary(self) -> None:
+        base = {
+            "base_url": "https://example.test/v1",
+            "name": "test-model",
+            "api_key_env": "TEST_KEY",
+            "context_window_tokens": 4096,
+        }
+        default = ModelSettings.model_validate(base)
+        self.assertEqual(default.reasoning_effort, "auto")
+        self.assertEqual(default.effective_reasoning_summary, "auto")
+        disabled = ModelSettings.model_validate({**base, "reasoning_effort": "none"})
+        self.assertEqual(disabled.effective_reasoning_summary, "off")
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            ModelSettings.model_validate(
+                {**base, "reasoning_effort": "none", "reasoning_summary": "detailed"}
+            )
 
 
 if __name__ == "__main__":

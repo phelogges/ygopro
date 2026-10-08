@@ -33,4 +33,4 @@
 - 新增按配置档隔离的 SQLite 轨迹、只读查看令牌、静态对话页面、分页与 SSE 实时流、卡名补充、单局 JSON 导出、只读历史模式、已结束对局保留与本地手动删除。接口与信息边界见[契约](../contracts/agent-observability-v1.md)。
 - 服务端 30 项测试通过，覆盖流式模型响应、推理字段过滤、页面授权、SSE 游标、导出、外部写入后的只读视图刷新、保留与中断标记；Ruff、Pyright 均通过，`node --check` 页面脚本通过。服务端测试中的 HTTP 端口需要本机回环绑定权限。
 - 一局 v3 离线双客户端对战正常结束，主方 71 次、客方 31 次提示均记录动作签发与客户端回执，双方各记录一条 `duel_finished`；诊断目录为 `out/agent-e2e-runs/1791384050-50629/`。这是离线确定性策略，因此没有供应商推理文本，不能验证真实模型的推理摘要粒度或战术表现。
-- macOS 最终发布目录和 zip 位于 `out/release-observability-v1/`；发行脚本的布局与哈希验证通过，独立 `agent-server --check-resources` 成功读取页面、技能与卡库。开发服务的 `--view-only --legacy --config config --port 7951` 实际启动后，`/view` 返回 200、决策就绪接口返回 404、无令牌的数据请求返回 401，随后正常停止。Windows 与真实模型端点仍待后续验证。
+- macOS 最终发布目录和 zip 位于 `out/release-observability-v1/`；发行脚本的布局与哈希验证通过，独立 `agent-server --check-resources` 成功读取页面、技能与卡库。开发服务当时的 `--view-only --legacy --config config --port 7951` 实际启动后，`/view` 返回 200、决策就绪接口返回 404、无令牌的数据请求返回 401，随后正常停止；`--legacy` 是当时的历史入口，现已随旧根数据库删除。Windows 与真实模型端点仍待后续验证。

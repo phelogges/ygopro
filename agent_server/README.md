@@ -28,7 +28,7 @@ uv sync --group dev --locked
 agent-server --view-only --config host --port 7951
 ```
 
-随后打开输出的 `/view` 地址，并读取 `.agents/data/host/viewer-token` 输入页面。客方使用 `guest` 配置档、另一个端口和自己的令牌。旧版根数据库 `.agents/data/state.sqlite3` 可用 `--legacy --view-only --config host --port 7952` 显式只读查看；旧目录必须已有 `viewer-token`。每档只保留最近 30 天已结束对局，并以默认 2 GiB 的逻辑记录字节数为上限；进行中的对局不自动删除。手动删除已结束对局：
+随后打开输出的 `/view` 地址，并读取 `.agents/data/host/viewer-token` 输入页面。客方使用 `guest` 配置档、另一个端口和自己的令牌。每档只保留最近 30 天已结束对局，并以默认 2 GiB 的逻辑记录字节数为上限；进行中的对局不自动删除。手动删除已结束对局：
 
 ```bash
 agent-server --delete-duel --config host --session-id <session_id> --duel-id <duel_id>

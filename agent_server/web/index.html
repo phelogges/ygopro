@@ -23,6 +23,8 @@
       <label class="field token-field" for="token"><span>只读令牌</span><input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴 .agents/data/<配置档>/viewer-token"></label>
       <button id="load" type="button">加载对局</button>
       <label class="field duel-field" for="duels"><span>对局</span><select id="duels" disabled><option value="">请先加载</option></select></label>
+      <label class="field duel-search-field" for="duel-search"><span>搜索对局 ID</span><input id="duel-search" type="search" placeholder="对局或会话 ID" disabled></label>
+      <label class="field duel-sort-field" for="duel-sort"><span>排序</span><select id="duel-sort" disabled><option value="recent">最近活动优先</option><option value="started">最近开始优先</option><option value="oldest">最早开始优先</option></select></label>
       <button id="refresh" type="button" disabled>刷新</button>
       <button id="export" type="button" disabled>导出 JSON</button>
     </section>

@@ -651,7 +651,7 @@ def main() -> int:
         launcher.write_text(
             "#!/bin/sh\nexec "
             + shlex.quote(str(root / "agent_server/.venv/bin/python"))
-            + " -m agent_server --offline \"$@\"\n",
+            + ' -m agent_server --offline "$@"\n',
             encoding="utf-8",
         )
         launcher.chmod(0o700)
@@ -666,7 +666,11 @@ def main() -> int:
             profile = f"e2e-{role}-local"
             path = root / ".agents" / f"{profile}.toml"
             path.write_text(
-                template.replace("port = 8910", f"port = {free_port()}", 1),
+                template.replace("port = 8910", f"port = {free_port()}", 1).replace(
+                    'directory = ".agents/data"',
+                    f'directory = "{(work / "agent-data").relative_to(root)}"',
+                    1,
+                ),
                 encoding="utf-8",
             )
             offline_profiles[role] = profile
@@ -721,7 +725,9 @@ def main() -> int:
                         for role in ("host", "guest"):
                             child_env = environment.copy()
                             if args.agent_v3_offline:
-                                child_env["YGOPRO_AGENT_CONFIG"] = offline_profiles[role]
+                                child_env["YGOPRO_AGENT_CONFIG"] = offline_profiles[
+                                    role
+                                ]
                             child_env.update(
                                 {
                                     "YGOPRO_AGENT_ENABLE": "1",

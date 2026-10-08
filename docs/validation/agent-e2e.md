@@ -8,7 +8,7 @@
 python3.12 tools/agent-e2e.py --games 3 --deck deck/test/test.ydk
 ```
 
-脚本启动 Python 确定性测试端及两个客户端进程，每局独立建房并保留 `out/agent-e2e-runs/` 下的结果、客户端诊断 JSONL 和进程日志。默认单局上限 300 秒，可用 `--timeout` 调整。若某一局没有双方的 `finished` 结果，脚本返回错误。Windows 构建可通过 `--client` 指向对应 exe；Python 3.12 是测试脚本所需，游戏运行时不依赖 Python。
+脚本启动 Python 确定性测试端及两个客户端进程，每局独立建房并保留 `out/agent-e2e-runs/` 下的结果、客户端诊断 JSONL 和进程日志。启用 `--agent-v3-offline` 时，两个临时 Agent 服务的 SQLite 与查看令牌写在本次运行的 `agent-data/e2e-host-local/` 和 `agent-data/e2e-guest-local/`，不写入 `.agents/data/`。默认单局上限 300 秒，可用 `--timeout` 调整。若某一局没有双方的 `finished` 结果，脚本返回错误。Windows 构建可通过 `--client` 指向对应 exe；Python 3.12 是测试脚本所需，游戏运行时不依赖 Python。
 
 固定起手和脚本动作使用 YAML 场景：
 

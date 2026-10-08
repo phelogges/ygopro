@@ -1,32 +1,57 @@
-# Copy this profile to host.toml / guest.toml when running two Agent clients.
-# Select a profile with YGOPRO_AGENT_CONFIG=host (or guest).
+# 将此模板复制为 config.toml。双 Agent 客户端可分别复制为 host.toml / guest.toml。
+# 用 YGOPRO_AGENT_CONFIG=host（或 guest）选择配置档；不同配置档使用不同端口。
 
 [server]
+# 本机 Agent HTTP 监听端口；端口占用直接报错。
 port = 8910
+# 启动时模型能力探测的最长等待秒数。
 startup_timeout_seconds = 60
 
 [model]
+# OpenAI Responses 风格端点根地址；密钥不要写在此文件。
 base_url = "https://api.openai.com/v1"
+# 实际模型名称，启动真实 Agent 前必须填写。
 name = "set-model-name"
+# 保存 API 密钥的环境变量名。
 api_key_env = "YGOPRO_AGENT_API_KEY"
+# 上下文窗口大小，用于判断何时压缩历史。
 context_window_tokens = 128000
+# 是否要求供应商保存会话响应；默认关闭。
 store = false
+# 供应商是否支持强制工具选择；不支持时设置为 false。
 supports_forced_tool_choice = true
+# 推理强度：auto 表示不传该参数，由模型决定；none 需模型支持。
+reasoning_effort = "auto"
+# 请求供应商提供可读推理摘要；off 不请求，auto 由供应商选择粒度。
+# reasoning_effort=none 时 auto 的实际请求值为 off。
+reasoning_summary = "auto"
 
 [limits]
+# 一次游戏提示从接收到决策的最长秒数。
 decision_seconds = 60
+# 语义动作不合法时最多让模型重试的次数。
 invalid_intent_attempts = 3
+# 一次决策内模型请求上限，包含历史压缩请求。
 model_requests = 8
+# 一次决策内宿主工具调用上限。
 host_tool_attempts = 64
+# 一次决策内向客户端发起只读查询的上限。
 client_queries = 4
 
 [compaction]
+# 历史占上下文窗口的比例达到此值时触发压缩。
 trigger_fraction = 0.75
+# 压缩后目标历史占比，必须小于触发比例。
 target_fraction = 0.60
+# 历史摘要模型请求的最长秒数。
 summary_timeout_seconds = 10
 
 [storage]
+# 每个配置档的数据分别保存在此目录的 <配置档名称>/ 下。
 directory = ".agents/data"
+# 每隔多少次状态操作保存检查点。
 checkpoint_interval = 32
+# 已确认结束对局的默认保留天数。
 retention_days = 30
+# 数据库四类记录 payload 的逻辑字节上限；进行中的对局不因超限删除。
 max_bytes = 2147483648

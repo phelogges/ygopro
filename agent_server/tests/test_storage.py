@@ -239,21 +239,36 @@ class StateDatabaseTests(unittest.TestCase):
             with StateDatabase(path) as storage:
                 storage.apply_decision(_decision(1, session="client-a"))
                 storage.apply_sync(_sync(1, session="client-b"))
+                storage.add_trace("client-a", "duel-1", "", None, "duel_finished", {})
+            with sqlite3.connect(path) as database:
+                database.execute(
+                    "UPDATE operations SET created_unix_ms=1000 WHERE session_id='client-a'"
+                )
+                database.execute(
+                    "UPDATE operations SET created_unix_ms=2000 WHERE session_id='client-b'"
+                )
+                database.execute("UPDATE traces SET created_unix_ms=3000")
             with StateDatabase(path) as recovered:
                 self.assertEqual(
                     recovered.list_duels(),
                     (
                         {
-                            "session_id": "client-b",
-                            "duel_id": "duel-1",
-                            "state_version": 0,
-                            "ack_event_id": 1,
-                        },
-                        {
                             "session_id": "client-a",
                             "duel_id": "duel-1",
                             "state_version": 1,
                             "ack_event_id": 0,
+                            "started_unix_ms": 1000,
+                            "last_activity_unix_ms": 3000,
+                            "status": "finished",
+                        },
+                        {
+                            "session_id": "client-b",
+                            "duel_id": "duel-1",
+                            "state_version": 0,
+                            "ack_event_id": 1,
+                            "started_unix_ms": 2000,
+                            "last_activity_unix_ms": 2000,
+                            "status": "unconfirmed",
                         },
                     ),
                 )

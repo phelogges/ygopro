@@ -3,6 +3,8 @@
 const byId = (id) => document.getElementById(id);
 const tokenInput = byId("token");
 const duelSelect = byId("duels");
+const duelSearch = byId("duel-search");
+const duelSort = byId("duel-sort");
 const timeline = byId("timeline");
 const stateJson = byId("state-json");
 const eventsJson = byId("events-json");
@@ -13,6 +15,7 @@ const pageSize = 200;
 tokenInput.value = sessionStorage.getItem(tokenKey) || "";
 
 let selected = null;
+let allDuels = [];
 let generation = 0;
 let streamController = null;
 let cursor = 0;
@@ -98,6 +101,54 @@ function timeLabel(unixMs) {
   return new Date(value).toLocaleTimeString("zh-CN", {hour12: false});
 }
 
+function dateTimeLabel(unixMs) {
+  const value = Number(unixMs);
+  if (!Number.isFinite(value) || value <= 0) return "时间未知";
+  return new Date(value).toLocaleString("zh-CN", {hour12: false});
+}
+
+function renderDuelOptions() {
+  const previous = duelSelect.value;
+  const term = duelSearch.value.trim().toLocaleLowerCase();
+  const duels = allDuels.filter((duel) =>
+    `${duel.session_id} ${duel.duel_id}`.toLocaleLowerCase().includes(term));
+  const sort = duelSort.value;
+  duels.sort((a, b) => {
+    const field = sort === "recent" ? "last_activity_unix_ms" : "started_unix_ms";
+    const direction = sort === "oldest" ? 1 : -1;
+    const delta = (Number(a[field]) - Number(b[field])) * direction;
+    return delta || String(a.duel_id).localeCompare(String(b.duel_id));
+  });
+  duelSelect.replaceChildren();
+  for (const duel of duels) {
+    const status = duel.status === "finished" ? "已结束" : "结束未确认";
+    const label = `始 ${dateTimeLabel(duel.started_unix_ms)} · 近 ${dateTimeLabel(duel.last_activity_unix_ms)} · ${status} · ${String(duel.duel_id).slice(0, 8)}`;
+    const option = node("option", "", label);
+    option.value = JSON.stringify([duel.session_id, duel.duel_id]);
+    option.title = `对局 ${duel.duel_id}\n会话 ${duel.session_id}\n最近活动 ${dateTimeLabel(duel.last_activity_unix_ms)}`;
+    duelSelect.append(option);
+  }
+  if (duels.length === 0) {
+    const option = node("option", "", allDuels.length ? "没有匹配的对局" : "暂无对局");
+    option.value = "";
+    duelSelect.append(option);
+  }
+  duelSelect.disabled = duels.length === 0;
+  if (duels.some((duel) => JSON.stringify([duel.session_id, duel.duel_id]) === previous)) {
+    duelSelect.value = previous;
+  }
+  return duels.length;
+}
+
+function updateDuelOptions() {
+  const shown = renderDuelOptions();
+  const next = selectedIdentity();
+  if (next?.session_id !== selected?.session_id || next?.duel_id !== selected?.duel_id) {
+    void chooseDuel();
+  }
+  return shown;
+}
+
 function isProviderReasoning(kind, payload) {
   const lower = String(kind).toLowerCase();
   const source = String(payload?.source || payload?.reasoning_source || "").toLowerCase();
@@ -115,6 +166,13 @@ function labelForKind(kind, payload) {
   const known = {
     prompt_received: "游戏提示",
     model_request_started: "模型请求",
+    provider_request_started: "供应商请求开始",
+    provider_request_finished: "供应商请求结束",
+    provider_first_text: "首段可读内容",
+    model_run_timing: "模型运行耗时",
+    intent_validation_timing: "动作校验耗时",
+    client_query_timing: "客户端查询耗时",
+    decision_timing: "决策耗时",
     model_response_started: "模型响应开始",
     model_response_finished: "模型响应结束",
     content_delta: "模型输出片段",
@@ -156,6 +214,22 @@ function textPreview(value) {
 function payloadPreview(kind, payload) {
   if (typeof payload !== "object" || payload === null) return textPreview(payload);
   const lower = String(kind).toLowerCase();
+  if (lower === "model_request_started") {
+    const effort = payload.reasoning_effort_requested ?? "由模型决定";
+    const summary = payload.reasoning_summary_requested;
+    return `思考强度 ${effort} · 推理摘要 ${summary ?? "未知"} · 历史消息 ${payload.history_messages ?? "未知"}`;
+  }
+  if (lower === "provider_request_finished") {
+    const usage = payload.usage || {};
+    const parts = [`耗时 ${payload.duration_ms ?? "未知"} ms`, `状态 ${payload.status || "未知"}`];
+    if (payload.first_event_ms != null) parts.push(`首个事件 ${payload.first_event_ms} ms`);
+    if (usage.input_count != null) parts.push(`输入 ${usage.input_count} tokens`);
+    if (usage.output_count != null) parts.push(`输出 ${usage.output_count} tokens`);
+    if (usage.reasoning_count != null) parts.push(`推理 ${usage.reasoning_count} tokens`);
+    return parts.join(" · ");
+  }
+  if (lower === "provider_first_text") return `${payload.source || "内容"} · ${payload.elapsed_ms} ms`;
+  if (lower.endsWith("_timing")) return `耗时 ${payload.duration_ms ?? "未知"} ms`;
   const keys = isProviderReasoning(kind, payload)
     ? ["text", "summary", "reasoning", "content"]
     : lower.includes("error") || lower.includes("fail")
@@ -222,12 +296,13 @@ function ensureTurn(trace) {
   const titleBox = node("div");
   titleBox.append(node("h3", "", trace.turn_id ? `游戏提示 · ${id}` : "未分组事件"));
   const status = node("p", "turn-status", "等待端点推理内容");
-  titleBox.append(status);
+  const metrics = node("p", "turn-metrics", "");
+  titleBox.append(status, metrics);
   header.append(titleBox, node("small", "", timeLabel(trace.created_unix_ms)));
   const body = node("div", "turn-body");
   root.append(header, body);
   timeline.append(root);
-  turn = {root, body, status, responses: new Map(), hasReasoning: false, complete: false};
+  turn = {root, body, status, metrics, requests: [], responses: new Map(), hasReasoning: false, complete: false, summaryRequested: true};
   turns.set(id, turn);
   return turn;
 }
@@ -255,6 +330,23 @@ function renderTrace(trace) {
   const kind = String(trace.kind || "event");
   const lower = kind.toLowerCase();
   const payload = trace.payload ?? {};
+  if (lower === "model_request_started" && payload.reasoning_summary_requested === "off") {
+    turn.summaryRequested = false;
+  }
+  if (lower === "provider_request_finished") {
+    turn.requests.push(Number(payload.duration_ms) || 0);
+  }
+  if (["action_issued", "decision_failed", "decision_interrupted"].includes(lower)) {
+    const total = Number(payload.duration_ms);
+    const slowest = turn.requests.length ? Math.max(...turn.requests) : null;
+    const parts = [];
+    if (typeof payload.duration_ms === "number" && Number.isFinite(total)) {
+      parts.push(`总耗时 ${total.toFixed(0)} ms`);
+    }
+    if (slowest !== null) parts.push(`最慢模型请求 ${slowest.toFixed(0)} ms`);
+    if (turn.requests.length) parts.push(`请求 ${turn.requests.length} 次`);
+    turn.metrics.textContent = parts.join(" · ");
+  }
   const response = trace.response_id == null || trace.response_id === ""
     ? null : ensureResponse(turn, trace.response_id);
   const target = response?.body || turn.body;
@@ -289,14 +381,17 @@ function renderTrace(trace) {
   }
   if (lower === "model_response_finished" && response) {
     response.complete = true;
-    if (!response.hasReasoning) response.status.textContent = "该端点未提供推理内容";
+    if (!response.hasReasoning) response.status.textContent = turn.summaryRequested
+      ? "该端点未提供推理内容" : "未请求推理摘要，且未收到推理文本";
   }
   if (["model_decision", "action_issued", "action_receipt", "decision_failed", "decision_interrupted", "duel_finished"].includes(lower)) {
     turn.complete = true;
-    if (!turn.hasReasoning) turn.status.textContent = "该端点未提供推理内容";
+    if (!turn.hasReasoning) turn.status.textContent = turn.summaryRequested
+      ? "该端点未提供推理内容" : "未请求推理摘要，且未收到推理文本";
     if (response) {
       response.complete = true;
-      if (!response.hasReasoning) response.status.textContent = "该端点未提供推理内容";
+      if (!response.hasReasoning) response.status.textContent = turn.summaryRequested
+        ? "该端点未提供推理内容" : "未请求推理摘要，且未收到推理文本";
       if ((lower === "model_decision" || lower === "action_issued") &&
           !response.summary.textContent.includes("已输出动作")) {
         response.summary.textContent += " · 已输出动作";
@@ -463,25 +558,14 @@ async function loadDuels() {
   tokenInput.value = tokenInput.value.trim();
   if (!tokenInput.value) { setNotice("请先填写只读令牌。", true); return; }
   sessionStorage.setItem(tokenKey, tokenInput.value);
-  const previous = duelSelect.value;
   setConnection("正在加载", "wait");
   try {
     const list = await json("/v3/view/duels");
-    duelSelect.replaceChildren();
-    for (const duel of list.duels || []) {
-      const option = node("option", "", `${duel.duel_id} · 状态 ${duel.state_version ?? "未知"}`);
-      option.value = JSON.stringify([duel.session_id, duel.duel_id]);
-      duelSelect.append(option);
-    }
-    duelSelect.disabled = duelSelect.options.length === 0;
-    if (duelSelect.options.length === 0) {
-      const option = node("option", "", "暂无对局");
-      option.value = "";
-      duelSelect.append(option);
-    } else if ([...duelSelect.options].some((option) => option.value === previous)) {
-      duelSelect.value = previous;
-    }
-    setNotice(`${list.duels?.length || 0} 场对局已加载。`);
+    allDuels = list.duels || [];
+    duelSearch.disabled = allDuels.length === 0;
+    duelSort.disabled = allDuels.length === 0;
+    const shown = renderDuelOptions();
+    setNotice(`${allDuels.length} 场对局已加载，当前显示 ${shown} 场。`);
     await chooseDuel();
   } catch (error) {
     setConnection("连接失败", "error");
@@ -517,6 +601,13 @@ for (const tab of document.querySelectorAll(".tab")) {
 
 byId("load").addEventListener("click", () => void loadDuels());
 duelSelect.addEventListener("change", () => void chooseDuel());
+duelSearch.addEventListener("input", () => {
+  const shown = updateDuelOptions();
+  setNotice(`当前显示 ${shown} / ${allDuels.length} 场对局。`);
+});
+duelSort.addEventListener("change", () => {
+  updateDuelOptions();
+});
 byId("refresh").addEventListener("click", () => {
   const epoch = generation;
   void Promise.all([backfill(epoch), refreshSecondary()]).then(() => setNotice("已刷新。"))

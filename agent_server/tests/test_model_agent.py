@@ -65,6 +65,14 @@ class ModelAgentTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("model_response_started", [item["kind"] for item in traces])
                 self.assertIn("model_response_finished", [item["kind"] for item in traces])
                 self.assertIn("model_decision", [item["kind"] for item in traces])
+                self.assertIn("provider_request_started", [item["kind"] for item in traces])
+                self.assertIn("provider_request_finished", [item["kind"] for item in traces])
+                self.assertIn("decision_timing", [item["kind"] for item in traces])
+                request_end = next(
+                    item for item in traces if item["kind"] == "provider_request_finished"
+                )
+                self.assertGreaterEqual(request_end["payload"]["duration_ms"], 0)
+                self.assertIn("usage", request_end["payload"])
 
     async def test_live_startup_probe_requires_tool_and_output(self) -> None:
         root = Path(__file__).resolve().parents[2]
@@ -87,6 +95,22 @@ class ModelAgentTests(unittest.IsolatedAsyncioTestCase):
                 )
                 await agent.probe()
                 self.assertEqual(calls, 2)
+
+    async def test_none_effort_does_not_request_reasoning_summary(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                settings = load_settings(root, offline=True)
+                settings.model.reasoning_effort = "none"
+                agent = DecisionAgent(
+                    settings,
+                    storage,
+                    SkillResources(root),
+                    model=FunctionModel(lambda _messages, _info: ModelResponse([])),
+                )
+                request_settings = agent._request_settings()  # pyright: ignore[reportPrivateUsage]
+                self.assertEqual(request_settings.get("openai_reasoning_effort"), "none")
+                self.assertNotIn("openai_reasoning_summary", request_settings)
 
     async def test_testmodel_runs_through_pydantic_agent(self) -> None:
         root = Path(__file__).resolve().parents[2]

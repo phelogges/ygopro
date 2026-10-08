@@ -27,6 +27,8 @@ h3{font-size:1rem;color:#b9cbe3}
 .field{display:flex;flex-direction:column;gap:.35rem;color:#becde2;font-size:.82rem}
 .token-field{flex:1 1 260px}
 .duel-field{flex:2 1 280px}
+.duel-search-field{flex:1 1 180px}
+.duel-sort-field{flex:0 1 170px}
 .notice{min-height:1.6rem;margin:1rem 0;color:#a9cfff}
 .notice.error{color:#ffabb2}
 .tabs{display:flex;gap:.4rem;border-bottom:1px solid #34465e;margin-top:.3rem}
@@ -43,6 +45,7 @@ h3{font-size:1rem;color:#b9cbe3}
 .turn-header h3{margin:0;color:#f0f6ff;font-size:1.02rem}
 .turn-header small{color:#9db4cf;white-space:nowrap}
 .turn-status{font-size:.8rem;color:#a8bfdb;margin:.45rem 0 0}
+.turn-metrics{font-size:.8rem;color:#93d3c1;margin:.3rem 0 0}
 .turn-body{padding:.9rem 1.1rem;display:flex;flex-direction:column;gap:.65rem}
 .trace,.response{border:1px solid #354a64;border-radius:.6rem;background:#172235;overflow:hidden}
 .trace{padding:.65rem .8rem}

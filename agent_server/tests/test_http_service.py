@@ -83,7 +83,10 @@ class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
         response = await self.client.get("/v3/view/duels", headers=headers)
         self.assertEqual(response.status, 401)
         response = await self.client.get("/v3/view/duels", headers=viewer)
-        self.assertEqual(len((await response.json())["duels"]), 1)
+        duels = (await response.json())["duels"]
+        self.assertEqual(len(duels), 1)
+        self.assertEqual(duels[0]["status"], "unconfirmed")
+        self.assertLessEqual(duels[0]["started_unix_ms"], duels[0]["last_activity_unix_ms"])
         view_path = "/v3/view/deltas?session_id=client-a&duel_id=duel-1"
         response = await self.client.get(view_path, headers=viewer)
         self.assertEqual(response.status, 200)

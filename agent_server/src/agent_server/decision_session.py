@@ -53,6 +53,7 @@ class DecisionSession:
     action_receipt_fingerprint: str | None = None
     task: asyncio.Task[None] | None = None
     failed: DecisionFailure | None = None
+    started_monotonic: float = field(default_factory=time.perf_counter)
 
     @property
     def turn_id(self) -> str:
@@ -104,7 +105,13 @@ class DecisionSession:
                 {"prompt_id": self.request.data["prompt_id"], "action": action, "reason": reason},
             )
             self.trace(
-                "action_issued", {"action_id": action_id, "action": action, "reason": reason}
+                "action_issued",
+                {
+                    "action_id": action_id,
+                    "action": action,
+                    "reason": reason,
+                    "duration_ms": round((time.perf_counter() - self.started_monotonic) * 1000, 2),
+                },
             )
             self._publish(
                 self._envelope("action", action_id=action_id, reason=reason, action=action)
@@ -113,13 +120,25 @@ class DecisionSession:
             if self.failed is None:
                 self.failed = DecisionFailure("stale_prompt", "decision cancelled")
             self.trace(
-                "decision_interrupted", {"code": self.failed.code, "message": str(self.failed)}
+                "decision_interrupted",
+                {
+                    "code": self.failed.code,
+                    "message": str(self.failed),
+                    "duration_ms": round((time.perf_counter() - self.started_monotonic) * 1000, 2),
+                },
             )
             self.stage_event.set()
             raise
         except DecisionFailure as exc:
             self.failed = exc
-            self.trace("decision_failed", {"code": exc.code, "message": str(exc)})
+            self.trace(
+                "decision_failed",
+                {
+                    "code": exc.code,
+                    "message": str(exc),
+                    "duration_ms": round((time.perf_counter() - self.started_monotonic) * 1000, 2),
+                },
+            )
             self.stage_event.set()
         except Exception:
             self.failed = DecisionFailure(
@@ -130,6 +149,7 @@ class DecisionSession:
                 {
                     "code": "internal_error",
                     "message": "Agent service could not process the request",
+                    "duration_ms": round((time.perf_counter() - self.started_monotonic) * 1000, 2),
                 },
             )
             self.stage_event.set()
@@ -160,9 +180,22 @@ class DecisionSession:
         self.query_payload = query
         self._publish(self._envelope("query", query_id=query_id, query=query))
         self.trace("client_query_requested", {"query_id": query_id, "query": query})
+        query_started = time.perf_counter()
         try:
             result = await self.query_future
         finally:
+            self.trace(
+                "client_query_timing",
+                {
+                    "query_id": query_id,
+                    "duration_ms": round((time.perf_counter() - query_started) * 1000, 2),
+                    "status": (
+                        "completed"
+                        if self.query_future.done() and not self.query_future.cancelled()
+                        else "interrupted"
+                    ),
+                },
+            )
             self.query_future = None
             self.query_payload = None
         return result

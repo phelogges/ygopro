@@ -22,7 +22,6 @@ from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.run import AgentRunResultEvent
-from pydantic_ai.settings import ModelSettings
 from pydantic_ai_harness import CodeMode
 from pydantic_ai_harness.compaction import (
     ClearToolResults,
@@ -32,7 +31,13 @@ from pydantic_ai_harness.compaction import (
     TieredCompaction,
 )
 
-from agent_server.budget_model import BudgetModel, ModelBudget, current_budget
+from agent_server.budget_model import (
+    BudgetModel,
+    ModelBudget,
+    ModelTelemetry,
+    current_budget,
+    current_telemetry,
+)
 from agent_server.config import ServiceSettings, model_api_key
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
@@ -210,6 +215,8 @@ class DecisionAgent:
             )
         budgeted_model = BudgetModel(model)
         self.model = budgeted_model
+        compaction_model_settings = self._request_settings()
+        compaction_model_settings["timeout"] = settings.compaction.summary_timeout_seconds
         compaction = TieredCompaction(
             tiers=[
                 ClearToolResults(max_tokens=1, keep_pairs=3),
@@ -226,9 +233,7 @@ class DecisionAgent:
                                 "概括较早的决斗计划和未知点。不要把推测写成事实；"
                                 "精确保留决策相关标识，注明权威场面与历史需由工具重新查询。"
                             ),
-                            model_settings=ModelSettings(
-                                timeout=settings.compaction.summary_timeout_seconds
-                            ),
+                            model_settings=compaction_model_settings,
                         ),
                         SlidingWindowCompaction(
                             max_messages=1,
@@ -273,7 +278,15 @@ class DecisionAgent:
         )
         self._register_tools()
         self._histories: dict[tuple[str, str], list[Any]] = {}
-        self._summary_enabled = True
+
+    def _request_settings(self) -> OpenAIResponsesModelSettings:
+        model = self.settings.model
+        options: dict[str, Any] = {"openai_store": model.store}
+        if model.reasoning_effort != "auto":
+            options["openai_reasoning_effort"] = model.reasoning_effort
+        if model.effective_reasoning_summary != "off":
+            options["openai_reasoning_summary"] = model.effective_reasoning_summary
+        return OpenAIResponsesModelSettings(**options)
 
     async def probe(self) -> None:
         """Verify Responses tool calls and structured output before serving a live client."""
@@ -281,7 +294,7 @@ class DecisionAgent:
             self.model,
             instructions="调用 probe_echo(value='ready') 一次，然后以结构化输出返回 ok=true。",
             output_type=ToolOutput(ProbeOutput),
-            model_settings=OpenAIResponsesModelSettings(openai_store=self.settings.model.store),
+            model_settings=self._request_settings(),
             retries=0,
         )
         called = False
@@ -295,26 +308,19 @@ class DecisionAgent:
 
         try:
             async with asyncio.timeout(self.settings.server.startup_timeout_seconds):
-                try:
-                    result = await probe_agent.run(
-                        "先调用 probe_echo，再返回 ok=true。",
-                        model_settings=OpenAIResponsesModelSettings(
-                            openai_store=self.settings.model.store,
-                            openai_reasoning_summary="auto",
-                        ),
-                        usage_limits=UsageLimits(request_limit=3),
-                    )
-                except ModelAPIError:
-                    # Responses-compatible providers may omit reasoning-summary support.
-                    self._summary_enabled = False
-                    called = False
-                    result = await probe_agent.run(
-                        "先调用 probe_echo，再返回 ok=true。",
-                        usage_limits=UsageLimits(request_limit=3),
-                    )
+                result = await probe_agent.run(
+                    "先调用 probe_echo，再返回 ok=true。",
+                    usage_limits=UsageLimits(request_limit=3),
+                )
         except TimeoutError as exc:
             raise DecisionFailure(
                 "provider_unavailable", "model capability probe timed out"
+            ) from exc
+        except ModelAPIError as exc:
+            raise DecisionFailure(
+                "provider_unavailable",
+                "model capability probe was rejected; check reasoning settings "
+                "and provider support",
             ) from exc
         except Exception as exc:
             raise DecisionFailure("provider_unavailable", "model capability probe failed") from exc
@@ -416,11 +422,24 @@ class DecisionAgent:
         def validate_output(
             ctx: RunContext[DecisionDeps], output: DecisionOutput
         ) -> DecisionOutput:
+            started = time.perf_counter()
+            valid = False
             try:
                 ctx.deps.validated_action = translate_intent(ctx.deps.request, output.intent)
+                valid = True
             except ContractError as exc:
                 ctx.deps.invalid_intents += 1
                 raise ModelRetry(f"非法语义动作：{exc}。请只从当前合法候选选择。") from exc
+            finally:
+                telemetry = current_telemetry.get()
+                if telemetry is not None:
+                    telemetry.emit(
+                        "intent_validation_timing",
+                        {
+                            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                            "valid": valid,
+                        },
+                    )
             return output
 
     def _load_history(self, session: str, duel: str) -> list[Any]:
@@ -485,29 +504,31 @@ class DecisionAgent:
         history = self._load_history(session, duel)
         turn_id = f"{data['prompt_id']}:{data['state_version']}"
         trace = TraceWriter(self.store, session, duel, turn_id)
+        started = time.perf_counter()
         trace.emit(
             "model_request_started",
             {
                 "prompt": json.loads(prompt),
                 "history_messages": len(history),
-                "reasoning_summary_requested": self._summary_enabled,
+                "reasoning_effort_configured": self.settings.model.reasoning_effort,
+                "reasoning_effort_requested": (
+                    None
+                    if self.settings.model.reasoning_effort == "auto"
+                    else self.settings.model.reasoning_effort
+                ),
+                "reasoning_summary_configured": self.settings.model.reasoning_summary,
+                "reasoning_summary_requested": self.settings.model.effective_reasoning_summary,
             },
         )
         token = current_budget.set(
             ModelBudget(self.settings.limits.model_requests, time.monotonic() + remaining)
         )
+        telemetry = ModelTelemetry(lambda kind, payload: trace.emit(kind, payload, response_id=""))
+        telemetry_token = current_telemetry.set(telemetry)
         try:
             async with asyncio.timeout(remaining):
                 result = None
-                if self._summary_enabled:
-                    model_settings = OpenAIResponsesModelSettings(
-                        openai_store=self.settings.model.store,
-                        openai_reasoning_summary="auto",
-                    )
-                else:
-                    model_settings = OpenAIResponsesModelSettings(
-                        openai_store=self.settings.model.store,
-                    )
+                model_settings = self._request_settings()
                 limits = UsageLimits(
                     request_limit=self.settings.limits.model_requests,
                     tool_calls_limit=self.settings.limits.host_tool_attempts,
@@ -551,10 +572,16 @@ class DecisionAgent:
             raise
         finally:
             trace.flush()
+            trace.emit(
+                "model_run_timing",
+                {"duration_ms": round((time.perf_counter() - started) * 1000, 2)},
+            )
+            current_telemetry.reset(telemetry_token)
             current_budget.reset(token)
         if deps.validated_action is None:
             raise DecisionFailure("invalid_intent", "model returned no validated action")
         record_id = f"{data['prompt_id']}:{data['state_version']}"
+        persistence_started = time.perf_counter()
         self.store.append_record(
             session,
             duel,
@@ -582,4 +609,17 @@ class DecisionAgent:
             },
         )
         self._histories[(session, duel)] = result.all_messages()
+        trace.emit(
+            "decision_timing",
+            {
+                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                "persistence_ms": round((time.perf_counter() - persistence_started) * 1000, 2),
+                "status": "completed",
+                "reasoning_forms_returned": sorted(trace.reasoning_forms),
+                "provider_request_count": telemetry.next_index,
+                "invalid_intent_attempts": deps.invalid_intents,
+                "host_tool_attempts": deps.host_tool_attempts,
+                "client_queries": deps.client_queries,
+            },
+        )
         return deps.validated_action, result.output.reason

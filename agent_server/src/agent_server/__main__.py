@@ -9,6 +9,7 @@ import os
 import signal
 import socket
 import sys
+import time
 from contextlib import closing
 from pathlib import Path
 from typing import Any, cast
@@ -77,7 +78,23 @@ async def serve(profile: str, *, offline: bool = False) -> None:
             decide = offline_decide
         else:
             decision_agent = DecisionAgent(settings, storage, skills)
-            await decision_agent.probe()
+            probe_started = time.perf_counter()
+            probe_ok = False
+            try:
+                await decision_agent.probe()
+                probe_ok = True
+            finally:
+                print(
+                    json.dumps(
+                        {
+                            "event": "model_probe_timing",
+                            "duration_ms": round((time.perf_counter() - probe_started) * 1000, 2),
+                            "status": "completed" if probe_ok else "failed",
+                        }
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
             decide = decision_agent.decide
         service = HttpService(
             settings,
@@ -118,12 +135,10 @@ async def serve(profile: str, *, offline: bool = False) -> None:
             await runner.cleanup()
 
 
-async def view_only(profile: str, port: int, *, legacy: bool = False) -> None:
+async def view_only(profile: str, port: int) -> None:
     root = release_root()
     settings = load_settings(root, profile, offline=True)
-    data_dir = (
-        root / settings.storage.directory if legacy else profile_data_dir(root, settings, profile)
-    )
+    data_dir = profile_data_dir(root, settings, profile)
     token_path = data_dir / "viewer-token"
     if not token_path.is_file():
         raise ValueError(f"viewer token does not exist: {token_path}")
@@ -198,9 +213,6 @@ def main() -> None:
     )
     parser.add_argument("--port", type=int, help="explicit port for --view-only")
     parser.add_argument(
-        "--legacy", action="store_true", help="view the pre-profile database read-only"
-    )
-    parser.add_argument(
         "--delete-duel", action="store_true", help="delete one finished duel locally"
     )
     parser.add_argument("--session-id", help="session ID for --delete-duel")
@@ -221,17 +233,17 @@ def main() -> None:
             print(json.dumps({"status": "ok", "database_sha256": skills.database_sha256}))
             return
         if args.delete_duel:
-            if not args.session_id or not args.duel_id or args.view_only or args.legacy:
+            if not args.session_id or not args.duel_id or args.view_only:
                 parser.error("--delete-duel requires --session-id and --duel-id")
             delete_duel(args.config, args.session_id, args.duel_id)
             return
         if args.view_only:
             if args.port is None:
                 parser.error("--view-only requires --port")
-            asyncio.run(view_only(args.config, args.port, legacy=args.legacy))
+            asyncio.run(view_only(args.config, args.port))
             return
-        if args.port is not None or args.legacy:
-            parser.error("--port and --legacy require --view-only")
+        if args.port is not None:
+            parser.error("--port requires --view-only")
         asyncio.run(serve(args.config, offline=args.offline))
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"agent-server: {exc}", file=sys.stderr)

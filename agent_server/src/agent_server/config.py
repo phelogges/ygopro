@@ -4,7 +4,7 @@ import os
 import re
 import tomllib
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -25,6 +25,10 @@ class ModelSettings(BaseModel):
     context_window_tokens: Annotated[int, Field(ge=4096)]
     store: bool = False
     supports_forced_tool_choice: bool = True
+    reasoning_effort: Literal[
+        "auto", "none", "minimal", "low", "medium", "high", "xhigh", "max"
+    ] = "auto"
+    reasoning_summary: Literal["off", "auto", "concise", "detailed"] = "auto"
 
     @model_validator(mode="after")
     def valid_provider(self) -> "ModelSettings":
@@ -34,7 +38,15 @@ class ModelSettings(BaseModel):
             raise ValueError("model.api_key_env must be an environment variable name")
         if not self.name or self.name == "set-model-name":
             raise ValueError("model.name must be configured before live use")
+        if self.reasoning_effort == "none" and self.reasoning_summary in ("concise", "detailed"):
+            raise ValueError("model.reasoning_summary conflicts with reasoning_effort=none")
         return self
+
+    @property
+    def effective_reasoning_summary(self) -> Literal["off", "auto", "concise", "detailed"]:
+        if self.reasoning_effort == "none":
+            return "off"
+        return self.reasoning_summary
 
 
 class LimitSettings(BaseModel):
@@ -110,10 +122,7 @@ def model_api_key(settings: ServiceSettings) -> str:
 
 
 def profile_data_dir(release_root: Path, settings: ServiceSettings, profile: str) -> Path:
-    """Resolve one profile's private data directory under the configured base.
-
-    The legacy database at the base path is deliberately left untouched.
-    """
+    """Resolve one profile's private data directory under the configured base."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", profile):
         raise ValueError("invalid agent configuration profile")
     root = release_root.resolve()

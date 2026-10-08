@@ -355,16 +355,53 @@ class StateDatabase:
         """List observed duels, including duels with only synced events."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT session_id, duel_id, max(id) AS last_operation_id "
+                "SELECT session_id, duel_id, MIN(created_unix_ms) AS started_unix_ms, "
+                "MAX(created_unix_ms) AS last_operation_unix_ms "
                 "FROM operations GROUP BY session_id, duel_id "
-                "ORDER BY last_operation_id DESC"
             )
+            trace_times: dict[tuple[str, str], tuple[int, int, int | None]] = {}
+            if self._db.execute("PRAGMA user_version").fetchone()[0] >= 2:
+                for trace in self._db.execute(
+                    "SELECT session_id, duel_id, MIN(created_unix_ms) AS first_ms, "
+                    "MAX(created_unix_ms) AS last_ms, "
+                    "MAX(CASE WHEN kind='duel_finished' THEN created_unix_ms END) AS finished_ms "
+                    "FROM traces GROUP BY session_id, duel_id"
+                ):
+                    trace_times[(trace["session_id"], trace["duel_id"])] = (
+                        trace["first_ms"],
+                        trace["last_ms"],
+                        trace["finished_ms"],
+                    )
             duels: list[JSONObject] = []
             for row in rows:
                 session_id = cast(str, row["session_id"])
                 duel_id = cast(str, row["duel_id"])
                 status = self._load((session_id, duel_id)).get_status(session_id, duel_id)
-                duels.append({"session_id": session_id, "duel_id": duel_id, **status})
+                started = cast(int, row["started_unix_ms"])
+                recent = cast(int, row["last_operation_unix_ms"])
+                trace_time = trace_times.get((session_id, duel_id))
+                finished: int | None = None
+                if trace_time is not None:
+                    first_trace, last_trace, finished = trace_time
+                    started = min(started, first_trace)
+                    recent = max(recent, last_trace)
+                duels.append(
+                    {
+                        "session_id": session_id,
+                        "duel_id": duel_id,
+                        **status,
+                        "started_unix_ms": started,
+                        "last_activity_unix_ms": recent,
+                        "status": "finished" if finished is not None else "unconfirmed",
+                    }
+                )
+            duels.sort(
+                key=lambda duel: (
+                    -cast(int, duel["last_activity_unix_ms"]),
+                    cast(str, duel["session_id"]),
+                    cast(str, duel["duel_id"]),
+                )
+            )
             return tuple(duels)
 
     def get_state(self, session_id: str, duel_id: str, state_version: int) -> JSONObject:
