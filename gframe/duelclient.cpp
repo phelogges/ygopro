@@ -308,13 +308,22 @@ void DuelClient::HandleSTOCPacketLan(unsigned char* data, size_t len) {
 	case STOC_GAME_MSG: {
 		if (len < 1 + sizeof(unsigned char))
 			return;
+		// A victory message is authoritative even while an Agent decision is in
+		// flight. Stop that decision before the victory animation or replay dialog.
+		const bool duel_finished = pdata[0] == MSG_WIN && len >= 4;
+		if(duel_finished) {
+			agent_client::AgentController::Instance().OnGameMessage(pdata, len - 1, false);
+			agent_client::AgentController::Instance().OnDuelEnd();
+		}
 		const auto submission_before = agent_client::AgentController::Instance().SubmissionSerial();
 		ClientAnalyze(pdata, len - 1);
 		const bool answered = submission_before != agent_client::AgentController::Instance().SubmissionSerial();
-		if(pdata[0] == MSG_RETRY && last_successful_msg_length)
-			agent_client::AgentController::Instance().OnGameMessage(last_successful_msg, last_successful_msg_length, answered);
-		else
-			agent_client::AgentController::Instance().OnGameMessage(pdata, len - 1, answered);
+		if(!duel_finished) {
+			if(pdata[0] == MSG_RETRY && last_successful_msg_length)
+				agent_client::AgentController::Instance().OnGameMessage(last_successful_msg, last_successful_msg_length, answered);
+			else
+				agent_client::AgentController::Instance().OnGameMessage(pdata, len - 1, answered);
+		}
 		agent_client::DuelRecorder::Instance().OnGameMessage(pdata, len - 1, answered);
 		break;
 	}

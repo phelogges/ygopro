@@ -104,7 +104,7 @@
 
 ## 同步、状态及故障
 
-`POST /v3/sync` 与 `POST /v3/status` 沿用 v2 的内容和持久确认语义，仅版本及路径更新。`/v3/status` 只恢复已持久接收的快照版本和事件前缀，不恢复中断的模型执行或旧提示。终局事件仍可经 `/v3/sync` 通知服务。
+`POST /v3/sync` 与 `POST /v3/status` 沿用 v2 的内容和持久确认语义，仅版本及路径更新。`/v3/status` 只恢复已持久接收的快照版本和事件前缀，不恢复中断的模型执行或旧提示。客户端一旦收到权威 `MSG_WIN`，须立即停止本局待决策动作、取消在途决策请求，并通过 `/v3/sync` 提交 `duel_ended` 事件；不得等待胜利动画、录像保存弹窗或 `STOC_DUEL_END`。服务端持久接收该事件后取消本局模型与工具任务，拒绝此局后续决策及迟到的动作／查询回执；重复终局同步保持幂等。取消不撤销游戏服务端已经接受的动作，也不改写权威胜负结果。
 
 所有错误均不含动作。非 2xx 错误体沿用 v2，补充 `query_not_pending`、`query_conflict`、`action_conflict`、`budget_exhausted`、`provider_unavailable`、`deck_manifest_missing` 和 `deck_manifest_conflict`。期限届满、历史不完整、状态冲突、客户端查询失败和在途执行中断时交还人工。客户端不会因 HTTP 超时执行旧动作；服务端不会因为重传而重复调用模型或重新执行查询工具。
 

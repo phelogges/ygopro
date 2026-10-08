@@ -475,13 +475,18 @@ void AgentController::OnDuelStart() {
 void AgentController::OnDuelEnd() {
 	nlohmann::json terminal_events;
 	std::string duel_id;
+	bool cancel_in_flight = false;
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 		terminal_events = events_;
 		duel_id = duel_id_;
+		cancel_in_flight = !duel_id.empty() && available_ && in_flight_prompt_id_ && !in_flight_terminal_;
 		if(!duel_id.empty() && !events_.empty())
 			terminal_ = TerminalPending{duel_id, events_, acknowledged_event_id_, history_complete_};
 		pending_.reset();
+		action_receipt_.reset();
+		action_result_queued_ = false;
+		needs_status_ = false;
 		duel_id_.clear();
 		submitted_deck_manifest_.reset();
 		duel_deck_manifest_.reset();
@@ -491,6 +496,9 @@ void AgentController::OnDuelEnd() {
 	if(!duel_id.empty())
 		Log({{"kind", "duel_finished"}, {"duel_id", duel_id},
 			{"events", std::move(terminal_events)}, {"timestamp_unix_ms", NowUnixMs()}});
+	if(cancel_in_flight && !RestartTransport())
+		Log({{"kind", "terminal_transport_restart_failed"}, {"duel_id", duel_id},
+			{"timestamp_unix_ms", NowUnixMs()}});
 	SubmitTerminalSync();
 }
 

@@ -253,7 +253,10 @@ class HttpService:
                 if type(event_id) is not int or event_id > ack:
                     continue
                 record_id = str(event_id)
-                if self.store.get_record(session, duel, "duel_finished", record_id) is None:
+                first_receipt = (
+                    self.store.get_record(session, duel, "duel_finished", record_id) is None
+                )
+                if first_receipt:
                     self.store.append_record(session, duel, "duel_finished", record_id, event)
                     self.store.add_trace(
                         session,
@@ -266,6 +269,8 @@ class HttpService:
                             "winner": event.get("winner"),
                         },
                     )
+                await self.manager.finish_duel(session, duel)
+                if first_receipt:
                     self.store.prune_finished(
                         self.settings.storage.retention_days, self.settings.storage.max_bytes
                     )

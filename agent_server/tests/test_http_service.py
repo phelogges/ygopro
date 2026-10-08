@@ -7,6 +7,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from aiohttp.test_utils import TestClient, TestServer
 from test_decision_session import request
@@ -43,6 +44,7 @@ class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
             client_token="client-secret",
             viewer_token="viewer-secret",
         )
+        self.service = service
         self.client = TestClient(TestServer(service.app()))
         await self.client.start_server()
 
@@ -115,6 +117,103 @@ class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 400)
         response = await self.client.post("/v3/decision", json=body, headers=viewer)
         self.assertEqual(response.status, 401)
+
+    async def test_terminal_sync_interrupts_in_flight_model(self) -> None:
+        started = asyncio.Event()
+        interrupted = asyncio.Event()
+
+        async def slow_decide(
+            _request: object, _delta: object, _ask: object
+        ) -> tuple[dict[str, Any], str]:
+            started.set()
+            try:
+                await asyncio.Future[None]()
+            except asyncio.CancelledError:
+                interrupted.set()
+                # A tool may swallow cancellation; it still cannot issue an action.
+                return {"kind": "choice", "candidate_id": "c0"}, "late result"
+            raise AssertionError("in-flight decision must be cancelled")
+
+        self.service.manager.decide = slow_decide
+        headers = {"Authorization": "Bearer client-secret"}
+        body = request()
+        body["database_sha256"] = self.skills.database_sha256
+        pending = asyncio.create_task(self.client.post("/v3/decision", json=body, headers=headers))
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+        finished = {
+            "schema_version": 3,
+            "session_id": body["session_id"],
+            "duel_id": body["duel_id"],
+            "database_sha256": body["database_sha256"],
+            "history_complete": True,
+            "events": [
+                {"event_id": 1, "kind": "duel_ended", "message_type": 5, "winner": 0, "reason": 0}
+            ],
+        }
+        response = await self.client.post("/v3/sync", json=finished, headers=headers)
+        self.assertEqual(response.status, 200)
+        self.assertEqual((await response.json())["ack_event_id"], 1)
+        await asyncio.wait_for(interrupted.wait(), timeout=2)
+        stale = await asyncio.wait_for(pending, timeout=2)
+        self.assertEqual((await stale.json())["error"]["code"], "stale_prompt")
+        duplicate = await self.client.post("/v3/sync", json=finished, headers=headers)
+        self.assertEqual(duplicate.status, 200)
+        self.assertEqual((await duplicate.json())["ack_event_id"], 1)
+        self.assertEqual(
+            len(self.storage.get_records("client-a", "duel-1", kind="duel_finished")), 1
+        )
+        self.assertEqual(self.storage.get_records("client-a", "duel-1", kind="agent_action"), ())
+        replay = await self.client.post("/v3/decision", json=body, headers=headers)
+        self.assertEqual((await replay.json())["error"]["code"], "stale_prompt")
+
+    async def test_terminal_sync_cancels_pending_client_query(self) -> None:
+        async def query_decide(
+            _request: object, _delta: object, ask: Any
+        ) -> tuple[dict[str, Any], str]:
+            await ask({"kind": "inspect_zone", "player": 0, "zone": "graveyard"})
+            return {"kind": "choice", "candidate_id": "c0"}, "late result"
+
+        self.service.manager.decide = query_decide
+        headers = {"Authorization": "Bearer client-secret"}
+        body = request()
+        body["database_sha256"] = self.skills.database_sha256
+        response = await self.client.post("/v3/decision", json=body, headers=headers)
+        query = await response.json()
+        self.assertEqual(query["kind"], "query")
+
+        finished = {
+            "schema_version": 3,
+            "session_id": body["session_id"],
+            "duel_id": body["duel_id"],
+            "database_sha256": body["database_sha256"],
+            "history_complete": True,
+            "events": [
+                {"event_id": 1, "kind": "duel_ended", "message_type": 5, "winner": 0, "reason": 0}
+            ],
+        }
+        response = await self.client.post("/v3/sync", json=finished, headers=headers)
+        self.assertEqual(response.status, 200)
+        result: dict[str, Any] = {
+            **{
+                key: query[key]
+                for key in (
+                    "schema_version",
+                    "session_id",
+                    "duel_id",
+                    "prompt_id",
+                    "state_version",
+                    "query_id",
+                )
+            },
+            "result": {
+                "kind": "inspect_zone",
+                "zone": {"player": 0, "name": "graveyard", "count": 0, "cards": []},
+            },
+        }
+        late = await self.client.post("/v3/query-result", json=result, headers=headers)
+        self.assertEqual((await late.json())["error"]["code"], "query_not_pending")
+        self.assertEqual(self.storage.get_records("client-a", "duel-1", kind="agent_action"), ())
 
     async def test_observation_page_timeline_export_and_sanitized_records(self) -> None:
         viewer = {"Authorization": "Bearer viewer-secret"}

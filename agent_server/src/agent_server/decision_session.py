@@ -95,6 +95,8 @@ class DecisionSession:
     async def _run(self) -> None:
         try:
             action, reason = await self.decide(self.request, self.delta, self.ask_client)
+            if self.failed is not None:
+                raise self.failed
             if time.time() * 1000 > cast(int, self.request.data["deadline_unix_ms"]):
                 raise DecisionFailure("timeout", "decision deadline expired")
             action_id = secrets.token_hex(16)
@@ -321,7 +323,11 @@ class DecisionSession:
         )
         self.action_receipt_fingerprint = digest
 
-    def cancel(self) -> None:
+    def cancel(self, reason: str = "decision cancelled") -> None:
+        if self.failed is None:
+            self.failed = DecisionFailure("stale_prompt", reason)
+        self.stage = None
+        self.stage_event.set()
         if self.query_future is not None and not self.query_future.done():
             self.query_future.cancel()
         if self.task is not None and not self.task.done():
@@ -341,6 +347,8 @@ class DecisionManager:
     async def decision(self, request: DecisionRequest) -> dict[str, Any]:
         key = _key(request)
         async with self._lock:
+            if self.store.get_latest_record(key[0], key[1], "duel_finished") is not None:
+                raise DecisionFailure("stale_prompt", "duel already finished")
             session = self._sessions.get(key)
             fingerprint = _fingerprint(request.data)
             if self.context is not None:
@@ -383,6 +391,14 @@ class DecisionManager:
             elif session.fingerprint != fingerprint:
                 raise DecisionFailure("state_conflict", "decision replay changed")
         return await session.wait_stage()
+
+    async def finish_duel(self, session_id: str, duel_id: str) -> None:
+        """Cancel all live model and tool work after a persisted terminal event."""
+        async with self._lock:
+            for key, active in list(self._sessions.items()):
+                if key[:2] == (session_id, duel_id):
+                    active.cancel("duel finished")
+                    del self._sessions[key]
 
     async def query_result(self, message: dict[str, Any]) -> dict[str, Any]:
         key = self._message_key(message)
