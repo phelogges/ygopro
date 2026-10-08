@@ -15,6 +15,10 @@
 #include <string>
 #include <vector>
 
+namespace ygo {
+struct Deck;
+}
+
 namespace ygo::agent_client {
 
 // Bridges the existing LAN client to the semantic Agent API. Game/GUI access
@@ -29,6 +33,7 @@ class AgentController final {
 	bool HasPendingDecision() const noexcept;
 	std::uint64_t SubmissionSerial() const noexcept;
 	void OnResponseSubmitted();
+	void OnDeckSubmitted(const Deck &deck);
 	void OnWirePacket(bool incoming, const void *bytes, std::size_t length);
 	void OnPreDuelDecision(DecisionSource source);
 	void OnGameMessage(const std::uint8_t *bytes, std::size_t length, bool already_answered);
@@ -118,6 +123,9 @@ class AgentController final {
 	std::string database_sha256_;
 	std::string session_id_;
 	std::string duel_id_;
+	std::optional<nlohmann::json> submitted_deck_manifest_;
+	std::optional<nlohmann::json> duel_deck_manifest_;
+	bool deck_manifest_acknowledged_ = false;
 	std::uint64_t next_prompt_id_ = 0;
 	std::uint64_t next_event_id_ = 0;
 	std::uint64_t next_state_version_ = 0;

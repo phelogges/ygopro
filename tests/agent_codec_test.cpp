@@ -1,5 +1,6 @@
 #undef NDEBUG
 #include "agent_client/decision_codec.h"
+#include "agent_client/random_result_event.h"
 #include "ocgcore/common.h"
 #include <cassert>
 #include <iostream>
@@ -111,6 +112,37 @@ int main(int argc, char** argv){
  auto hand_decoded = DecodeDecisionResponse(
      *hand.decision, e.response->packet_type, e.response->payload.data(), 1);
  assert(hand_decoded.action && *hand_decoded.action == choice("c0"));
+ assert(std::string(CoinFaceForSelectedOption(60)) == "heads");
+ assert(std::string(CoinFaceForSelectedOption(61)) == "tails");
+ assert(CoinFaceForSelectedOption(62) == nullptr);
+ B observed_coin = {MSG_TOSS_COIN, 1, 1, 0};
+ auto coin_event =
+     ParseRandomResultEvent(observed_coin.data(), observed_coin.size(), 1);
+ assert(coin_event && *coin_event == J({{"kind", "coin_tossed"},
+                                        {"player", 1},
+                                        {"count", 1},
+                                        {"results", J::array({"tails"})}}));
+ B observed_dice = {MSG_TOSS_DICE, 0, 3, 1, 6, 2};
+ auto dice_event =
+     ParseRandomResultEvent(observed_dice.data(), observed_dice.size(), 0);
+ assert(dice_event && *dice_event == J({{"kind", "dice_rolled"},
+                                        {"player", 0},
+                                        {"count", 3},
+                                        {"results", J::array({1, 6, 2})}}));
+ for (const auto &packet : {observed_coin, observed_dice}) {
+   for (std::size_t length = 0; length < packet.size(); ++length)
+     assert(!ParseRandomResultEvent(packet.data(), length, 0));
+   auto extra = packet;
+   extra.push_back(0);
+   assert(!ParseRandomResultEvent(extra.data(), extra.size(), 0));
+ }
+ for (const B &invalid :
+      {B{MSG_TOSS_COIN, 2, 1, 0}, B{MSG_TOSS_COIN, 1, 0},
+       B{MSG_TOSS_COIN, 1, 1, 2}, B{MSG_TOSS_DICE, 0, 1, 0},
+       B{MSG_TOSS_DICE, 0, 1, 7}, B{MSG_TOSS_DICE, 0, 6, 1, 2, 3, 4, 5, 6}})
+   assert(!ParseRandomResultEvent(invalid.data(), invalid.size(), 0));
+ assert(
+     !ParseRandomResultEvent(observed_coin.data(), observed_coin.size(), -1));
  if (argc == 2 && std::string(argv[1]) == "--dump-prompts") {
    J prompts = J::array({hand.decision->prompt(), tp.decision->prompt(),
                          announcement.decision->prompt()});

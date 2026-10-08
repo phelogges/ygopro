@@ -21,6 +21,266 @@ from agent_server.storage import StateDatabase
 
 
 class ModelAgentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_own_decklist_tool_reads_pinned_catalog(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                calls = 0
+
+                async def respond(_messages: list[Any], _info: object) -> ModelResponse:
+                    nonlocal calls
+                    calls += 1
+                    if calls == 1:
+                        return ModelResponse(
+                            [
+                                ToolCallPart(
+                                    "run_code", {"code": "deck = await own_decklist()\n"
+                                    "deck['main'][0]['card_id']"}
+                                )
+                            ]
+                        )
+                    return ModelResponse(
+                        [
+                            ToolCallPart(
+                                "final_result",
+                                {
+                                    "reason": "选择当前合法动作",
+                                    "intent": {"kind": "choice", "candidate_id": "c0"},
+                                },
+                            )
+                        ]
+                    )
+
+                settings = load_settings(root, offline=True)
+                settings.limits.finalization_reserve_requests = 0
+                settings.limits.finalization_reserve_seconds = 0
+                agent = DecisionAgent(
+                    settings, storage, SkillResources(root), model=FunctionModel(respond)
+                )
+
+                async def unused_query(_query: dict[str, object]) -> dict[str, object]:
+                    self.fail("test model should not query client")
+
+                parsed = parse_request(request())
+                await agent.decide(parsed, storage.apply_decision(parsed.data), unused_query)
+                self.assertEqual(calls, 2)
+                records = storage.get_records("client-a", "duel-1", kind="model_exchange")[0]
+                self.assertEqual(records["payload"]["tool_attempts"][0]["name"], "own_decklist")
+
+    async def test_batch_card_lookup_rejects_over_limit(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                calls = 0
+
+                async def respond(_messages: list[Any], _info: object) -> ModelResponse:
+                    nonlocal calls
+                    calls += 1
+                    if calls == 1:
+                        return ModelResponse(
+                            [
+                                ToolCallPart(
+                                    "run_code",
+                                    {"code": "await cards_by_ids(card_ids=list(range(1, 14)))"},
+                                )
+                            ]
+                        )
+                    return ModelResponse(
+                        [
+                            ToolCallPart(
+                                "final_result",
+                                {
+                                    "reason": "选择当前合法动作",
+                                    "intent": {"kind": "choice", "candidate_id": "c0"},
+                                },
+                            )
+                        ]
+                    )
+
+                settings = load_settings(root, offline=True)
+                settings.limits.finalization_reserve_requests = 0
+                settings.limits.finalization_reserve_seconds = 0
+                agent = DecisionAgent(
+                    settings, storage, SkillResources(root), model=FunctionModel(respond)
+                )
+
+                async def unused_query(_query: dict[str, object]) -> dict[str, object]:
+                    self.fail("test model should not query client")
+
+                parsed = parse_request(request())
+                await agent.decide(parsed, storage.apply_decision(parsed.data), unused_query)
+                self.assertEqual(calls, 2)
+                records = storage.get_records("client-a", "duel-1", kind="model_exchange")[0]
+                self.assertEqual(len(records["payload"]["tool_attempts"]), 1)
+                self.assertNotIn("result_bytes", records["payload"]["tool_attempts"][0])
+
+    async def test_pregame_query_loop_finalizes_before_request_budget(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                requests = 0
+
+                async def respond(_messages: list[Any], info: Any) -> ModelResponse:
+                    nonlocal requests
+                    requests += 1
+                    if info.function_tools:
+                        return ModelResponse(
+                            [
+                                ToolCallPart(
+                                    "run_code", {"code": "await card_by_id(card_id=5318639)"}
+                                )
+                            ]
+                        )
+                    return ModelResponse(
+                        [
+                            ToolCallPart(
+                                "final_result",
+                                {
+                                    "reason": "选择石头",
+                                    "intent": {"kind": "choice", "candidate_id": "c0"},
+                                },
+                            )
+                        ]
+                    )
+
+                settings = load_settings(root, offline=True)
+                settings.limits.model_requests = 4
+                settings.limits.finalization_reserve_requests = 2
+                settings.limits.finalization_reserve_seconds = 0
+                agent = DecisionAgent(
+                    settings, storage, SkillResources(root), model=FunctionModel(respond)
+                )
+                body = request()
+                body["prompt"] = {
+                    "kind": "rock_paper_scissors",
+                    "description": "选择石头、剪刀或布",
+                    "constraints": {},
+                    "candidates": [
+                        {"id": "c0", "kind": "rock", "description": "石头"},
+                        {"id": "c1", "kind": "scissors", "description": "剪刀"},
+                        {"id": "c2", "kind": "paper", "description": "布"},
+                    ],
+                }
+                parsed = parse_request(body)
+
+                async def unused_query(_query: dict[str, object]) -> dict[str, object]:
+                    self.fail("test model should not query client")
+
+                action, _ = await agent.decide(
+                    parsed, storage.apply_decision(parsed.data), unused_query
+                )
+                self.assertEqual(action, {"kind": "choice", "candidate_id": "c0"})
+                self.assertEqual(requests, 3)
+                attempts = storage.get_records("client-a", "duel-1", kind="model_exchange")[0]
+                self.assertEqual(len(attempts["payload"]["tool_attempts"]), 2)
+
+    async def test_batch_card_lookup_is_one_host_call_with_metrics(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                calls = 0
+
+                async def respond(messages: list[Any], _info: object) -> ModelResponse:
+                    nonlocal calls
+                    calls += 1
+                    if calls == 1:
+                        return ModelResponse(
+                            [
+                                ToolCallPart(
+                                    "run_code",
+                                    {
+                                        "code": "cards = await cards_by_ids(card_ids=[5318639])\n"
+                                        "cards[0]['id']"
+                                    },
+                                )
+                            ]
+                        )
+                    return ModelResponse(
+                        [
+                            ToolCallPart(
+                                "final_result",
+                                {
+                                    "reason": "选择当前合法动作",
+                                    "intent": {"kind": "choice", "candidate_id": "c0"},
+                                },
+                            )
+                        ]
+                    )
+
+                settings = load_settings(root, offline=True)
+                settings.limits.finalization_reserve_requests = 0
+                settings.limits.finalization_reserve_seconds = 0
+                agent = DecisionAgent(
+                    settings, storage, SkillResources(root), model=FunctionModel(respond)
+                )
+
+                async def unused_query(_query: dict[str, object]) -> dict[str, object]:
+                    self.fail("test model should not query client")
+
+                parsed = parse_request(request())
+                await agent.decide(parsed, storage.apply_decision(parsed.data), unused_query)
+                self.assertEqual(calls, 2)
+                exchange = storage.get_records("client-a", "duel-1", kind="model_exchange")[0]
+                attempt = exchange["payload"]["tool_attempts"][0]
+                self.assertEqual(attempt["name"], "cards_by_ids")
+                self.assertEqual(attempt["distinct_card_ids"], 1)
+                self.assertGreater(attempt["result_bytes"], 0)
+
+    async def test_first_pregame_turn_has_deck_catalog_and_finalization_guard(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                seen: dict[str, Any] = {}
+
+                async def respond(messages: list[Any], info: Any) -> ModelResponse:
+                    user_parts = [
+                        part.content
+                        for message in messages
+                        if isinstance(message, ModelRequest)
+                        for part in message.parts
+                        if isinstance(part, UserPromptPart)
+                    ]
+                    assert isinstance(user_parts[-1], str)
+                    seen["prompt"] = json.loads(user_parts[-1])
+                    seen["functions"] = [tool.name for tool in info.function_tools]
+                    seen["outputs"] = [tool.name for tool in info.output_tools]
+                    seen["instructions"] = info.instructions
+                    return ModelResponse(
+                        [
+                            ToolCallPart(
+                                "final_result",
+                                {
+                                    "reason": "选择当前合法动作",
+                                    "intent": {"kind": "choice", "candidate_id": "c0"},
+                                },
+                            )
+                        ]
+                    )
+
+                settings = load_settings(root, offline=True)
+                settings.limits.model_requests = 4
+                settings.limits.finalization_reserve_requests = 0
+                settings.limits.finalization_reserve_seconds = 20
+                agent = DecisionAgent(
+                    settings, storage, SkillResources(root), model=FunctionModel(respond)
+                )
+
+                async def unused_query(_query: dict[str, object]) -> dict[str, object]:
+                    self.fail("test model should not query client")
+
+                parsed = parse_request(request())
+                await agent.decide(parsed, storage.apply_decision(parsed.data), unused_query)
+                self.assertEqual(seen["prompt"]["own_deck_catalog"]["main"][0]["card_id"], 5318639)
+                self.assertEqual(seen["functions"], [])
+                self.assertIn("final_result", seen["outputs"])
+                self.assertIn("最终化", seen["instructions"])
+                traces = storage.get_traces("client-a", "duel-1")
+                self.assertTrue(any(event["kind"] == "finalization_guard" for event in traces))
+                prompt_trace = next(
+                    event for event in traces if event["kind"] == "model_request_started"
+                )
+                self.assertEqual(len(prompt_trace["payload"]["duel_prompt_sha256"]), 64)
+
     async def test_model_writes_hand_note_and_next_turn_receives_it(self) -> None:
         root = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as directory:

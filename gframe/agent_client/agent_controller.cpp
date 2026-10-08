@@ -1,7 +1,9 @@
 #include "agent_controller.h"
 
 #include "sha256_file.h"
+#include "random_result_event.h"
 #include "../client_card.h"
+#include "../data_manager.h"
 #include "../bufferio.h"
 #include "../duelclient.h"
 #include "../game.h"
@@ -11,6 +13,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <limits>
+#include <map>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -62,6 +65,25 @@ std::optional<int> EnvInt(const char* name, int minimum, int maximum) {
 	if(!end || *end || parsed < minimum || parsed > maximum)
 		return std::nullopt;
 	return static_cast<int>(parsed);
+}
+
+std::string ResponseFailureCode(const agent::HttpResult& result) {
+	if(result.status >= 400 && !result.body.empty()) {
+		const auto body = nlohmann::json::parse(result.body, nullptr, false);
+		if(body.is_object() && body.contains("schema_version") && body["schema_version"].is_number_integer() &&
+		   body["schema_version"] == 3 && body.contains("error") && body["error"].is_object()) {
+			const auto& error = body["error"];
+			if(error.contains("code") && error["code"].is_string()) {
+				const auto code = error["code"].get<std::string>();
+				if(!code.empty() && code.size() <= 64 &&
+				   std::all_of(code.begin(), code.end(), [](unsigned char ch) {
+					   return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_';
+				   }))
+					return code;
+			}
+		}
+	}
+	return result.error.empty() ? "http_error" : result.error;
 }
 
 std::string PhaseName(std::uint16_t value) {
@@ -391,6 +413,22 @@ void AgentController::OnResponseSubmitted() {
 	pending_.reset();
 }
 
+void AgentController::OnDeckSubmitted(const Deck &deck) {
+	const auto section = [](const std::vector<const CardDataC *> &cards) {
+		std::map<std::uint32_t, std::size_t> counts;
+		for(const auto *card : cards)
+			++counts[card->code];
+		auto entries = nlohmann::json::array();
+		for(const auto &[card_id, count] : counts)
+			entries.push_back({{"card_id", card_id}, {"count", count}});
+		return entries;
+	};
+	nlohmann::json manifest{{"main", section(deck.main)}, {"extra", section(deck.extra)},
+							{"side", section(deck.side)}};
+	std::lock_guard<std::mutex> lock(mutex_);
+	submitted_deck_manifest_ = std::move(manifest);
+}
+
 void AgentController::Log(const nlohmann::json& record) {
 	std::lock_guard<std::mutex> lock(log_mutex_);
 	if(!log_file_ || log_truncated_)
@@ -445,6 +483,9 @@ void AgentController::OnDuelEnd() {
 			terminal_ = TerminalPending{duel_id, events_, acknowledged_event_id_, history_complete_};
 		pending_.reset();
 		duel_id_.clear();
+		submitted_deck_manifest_.reset();
+		duel_deck_manifest_.reset();
+		deck_manifest_acknowledged_ = false;
 		events_.clear();
 	}
 	if(!duel_id.empty())
@@ -501,6 +542,19 @@ void AgentController::RecordEvent(const std::uint8_t* bytes, std::size_t length,
 		event["hint_type"] = bytes[1];
 		event["player"] = mainGame->LocalPlayer(bytes[2]);
 		event["value"] = ReadU32(bytes + 3);
+		if(bytes[1] == HINT_OPSELECTED) {
+			if(const auto* face = CoinFaceForSelectedOption(ReadU32(bytes + 3)))
+				event["option"] = face;
+		}
+	} else if(type == MSG_TOSS_COIN || type == MSG_TOSS_DICE) {
+		const auto random_event = ParseRandomResultEvent(bytes, length,
+			length >= 2 && bytes[1] <= 1 ? mainGame->LocalPlayer(bytes[1]) : -1);
+		if(random_event) {
+			event.update(*random_event);
+		} else {
+			parsed = false;
+			event["kind"] = "unparsed_game_message";
+		}
 	} else if(type == MSG_CARD_HINT && length >= 10) {
 		event["kind"] = "card_hint_observed";
 		event["player"] = mainGame->LocalPlayer(bytes[1]);
@@ -723,6 +777,14 @@ void AgentController::OnGameMessage(const std::uint8_t* bytes, std::size_t lengt
 void AgentController::OnPreDuelDecision(DecisionSource source) {
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
+		// The LAN duel-start notification precedes the opening choices. Bind
+		// only the most recent actual submission to this duel, even if the
+		// service is not yet available or control remains with the human.
+		if(!duel_deck_manifest_ && submitted_deck_manifest_) {
+			duel_deck_manifest_ = std::move(submitted_deck_manifest_);
+			submitted_deck_manifest_.reset();
+			deck_manifest_acknowledged_ = false;
+		}
 		if(!initialized_ || !available_)
 			return;
 	}
@@ -910,6 +972,8 @@ void AgentController::SubmitPending() {
 			return;
 		if(!history_complete_) {
 			failure = "history_incomplete";
+		} else if(v3_ && !duel_deck_manifest_) {
+			failure = "deck_manifest_missing";
 		} else {
 			if(!pending_->frozen) {
 				pending_->frozen_snapshot = snapshot;
@@ -967,6 +1031,8 @@ void AgentController::SubmitPending() {
 					   {"observation", pending_->frozen_snapshot},
 					   {"prompt", std::move(prompt)}};
 			request["observation"]["events"] = nlohmann::json::array();
+			if(v3_ && !deck_manifest_acknowledged_)
+				request["deck_manifest"] = *duel_deck_manifest_;
 			for(const auto &event : pending_->frozen_events)
 				if(event.at("event_id").get<std::uint64_t>() > acknowledged_event_id_)
 					request["observation"]["events"].push_back(event);
@@ -1394,7 +1460,7 @@ void AgentController::Poll() {
 			duel_id = duel_id_;
 		}
 		if(item.result.status != 200 || !item.result.error.empty()) {
-			FailCurrent(item.result.error.empty() ? "http_error" : item.result.error);
+			FailCurrent(ResponseFailureCode(item.result));
 			continue;
 		}
 		try {
@@ -1477,6 +1543,8 @@ void AgentController::Poll() {
 			{
 				std::lock_guard<std::mutex> lock(mutex_);
 				acknowledged_state_version_ = item.state_version;
+				if(v3_)
+					deck_manifest_acknowledged_ = true;
 			}
 			if(v3_ && reply.value("kind", std::string{}) == "query") {
 				HandleQuery(reply, item.prompt_id, item.state_version);

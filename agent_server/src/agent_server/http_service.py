@@ -18,6 +18,7 @@ from aiohttp import web
 
 from agent_server.config import ServiceSettings
 from agent_server.decision_session import DecideFunction, DecisionManager
+from agent_server.duel_context import DuelContext
 from agent_server.model_agent import DecisionFailure
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
@@ -98,7 +99,7 @@ class HttpService:
         self.settings = settings
         self.store = store
         self.skills = skills
-        self.manager = DecisionManager(store, decide)
+        self.manager = DecisionManager(store, decide, DuelContext(skills.root, store, skills))
         self.profile = profile
         self.nonce = nonce
         self.client_token = client_token
@@ -178,6 +179,8 @@ class HttpService:
             if code == "payload_too_large"
             else 503
             if code in ("provider_unavailable", "storage_error")
+            else 429
+            if code == "budget_exhausted"
             else 422
             if code in ("invalid_intent", "unsupported_prompt", "not_visible", "unavailable")
             else 400

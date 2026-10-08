@@ -35,6 +35,7 @@ ygopro-agent-macos-<版本>/
 └── .agents/
     ├── config.toml               # 从版本管理的 config.example.toml 复制
     ├── release-manifest.json
+    ├── prompts/duel_system.md
     └── skills/
         ├── ocg-rulebook/
         └── ygo-card-db/

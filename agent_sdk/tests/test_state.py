@@ -110,6 +110,70 @@ class StateTests(unittest.TestCase):
         self.assertEqual(store.apply_sync(sync(hints)), 2)
         self.assertEqual(store.get_events("client-a", "duel-1"), tuple(hints))
 
+    def test_public_coin_and_dice_results_are_persisted(self) -> None:
+        observed: list[dict[str, object]] = [
+            {
+                "event_id": 1,
+                "kind": "hint_observed",
+                "message_type": 2,
+                "hint_type": 4,
+                "player": 1,
+                "value": 61,
+                "option": "tails",
+            },
+            {
+                "event_id": 2,
+                "kind": "coin_tossed",
+                "message_type": 130,
+                "player": 1,
+                "count": 1,
+                "results": ["tails"],
+            },
+            {
+                "event_id": 3,
+                "kind": "dice_rolled",
+                "message_type": 131,
+                "player": 0,
+                "count": 3,
+                "results": [1, 6, 2],
+            },
+        ]
+        store = StateStore()
+        self.assertEqual(store.apply_sync(sync(observed)), 3)
+        self.assertEqual(store.get_events("client-a", "duel-1"), tuple(observed))
+
+    def test_random_result_events_reject_invalid_values(self) -> None:
+        valid: dict[str, object] = {
+            "event_id": 1,
+            "kind": "coin_tossed",
+            "message_type": 130,
+            "player": 1,
+            "count": 1,
+            "results": ["heads"],
+        }
+        invalid_changes: list[dict[str, object]] = [
+            {"message_type": 131},
+            {"player": 2},
+            {"count": 2},
+            {"count": 0},
+            {"results": ["unknown"]},
+            {"results": [0]},
+        ]
+        for changes in invalid_changes:
+            with self.subTest(changes=changes), self.assertRaises(StateError):
+                StateStore().apply_sync(sync([{**valid, **changes}]))
+        invalid_option = {
+            "event_id": 1,
+            "kind": "hint_observed",
+            "message_type": 2,
+            "hint_type": 4,
+            "player": 1,
+            "value": 61,
+            "option": "heads",
+        }
+        with self.assertRaises(StateError):
+            StateStore().apply_sync(sync([invalid_option]))
+
     def test_control_change_event(self) -> None:
         control: dict[str, object] = {
             "event_id": 1,

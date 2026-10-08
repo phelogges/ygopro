@@ -12,6 +12,7 @@ from typing import Any, cast
 from agent_sdk.contract import DecisionRequest
 from agent_sdk.state import StateDelta
 
+from agent_server.duel_context import DuelContext
 from agent_server.model_agent import DecisionFailure
 from agent_server.storage import StateDatabase
 
@@ -328,9 +329,12 @@ class DecisionSession:
 
 
 class DecisionManager:
-    def __init__(self, store: StateDatabase, decide: DecideFunction) -> None:
+    def __init__(
+        self, store: StateDatabase, decide: DecideFunction, context: DuelContext | None = None
+    ) -> None:
         self.store = store
         self.decide = decide
+        self.context = context
         self._sessions: dict[DecisionKey, DecisionSession] = {}
         self._lock = asyncio.Lock()
 
@@ -339,6 +343,8 @@ class DecisionManager:
         async with self._lock:
             session = self._sessions.get(key)
             fingerprint = _fingerprint(request.data)
+            if self.context is not None:
+                self.context.ensure(request)
             if session is None:
                 record_id = f"{key[2]}:{key[3]}"
                 started = self.store.get_record(key[0], key[1], "decision_started", record_id)

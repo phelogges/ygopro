@@ -39,28 +39,11 @@ from agent_server.budget_model import (
     current_telemetry,
 )
 from agent_server.config import ServiceSettings, model_api_key
+from agent_server.duel_context import DuelContext
 from agent_server.hand_notes import HandNotes
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
 from agent_server.trace import TraceWriter
-
-INSTRUCTIONS = """你是《游戏王》单局 1v1 决斗中的本方玩家。目标是在合法规则内争取获胜。
-每次只对当前 prompt 的合法候选作出一个语义决策；候选 id 仅在当前 prompt 有效。
-客户端发送的事件和场面是本方可见事实；不要把未知牌、卡片移动原因、效果使用情况或你的推测写成已知事实。
-历史展示事件可能让你知道对手曾将哪些卡加入手牌，即使当前手牌快照隐藏身份。结合洗手、移动及同名卡的不确定性自行推理；不要把打算执行的动作写成已发生事实。
-每次检查随决策提供的对手手牌认知说明及其后新事件。
-必要时用 write_zone_note 修订这段 Agent 推断，引用本视角真实事件 ID。说明并非权威快照。
-需要规则时查询规则书，需要卡片效果时按 id 查询卡库；必要时查询完整场面和历史。
-优先分析当前可执行候选及直接相关的卡片；不要在一次决策里穷举查询整副卡组。
-工具与模型请求有预算，预留至少一次模型响应来提交最终 intent。
-可以使用受限的本地 Python 计算基本分、攻击力等数值。
-可读信息不足时可以请求客户端只读查询。不得修改卡组、房间、游戏协议，不得要求隐藏信息，不得编造底层协议字节。
-返回简短中文 reason 和恰好一个符合当前候选约束的 intent。
-intent.kind 是动作类型，绝不能照抄 prompt.kind 或候选 kind。
-候选 id 必须从当前 prompt.candidates 的 id 中选取。
-例如猜拳 prompt.kind=rock_paper_scissors 时，输出
-intent={"kind":"choice","candidate_id":"c0"}，其中 c0 须替换为真实候选 id。
-不要返回 prompt_id、底层协议字节或未经请求的额外字段。"""
 
 
 def intent_format(request: DecisionRequest) -> dict[str, Any]:
@@ -156,6 +139,7 @@ class DecisionDeps:
     settings: ServiceSettings
     query_client: ClientQuery
     deadline_monotonic: float
+    prompt_text: str
     host_tool_attempts: int = 0
     client_queries: int = 0
     invalid_intents: int = 0
@@ -175,14 +159,18 @@ class DecisionDeps:
         if time.monotonic() >= self.deadline_monotonic:
             raise DecisionFailure("timeout", "decision deadline expired")
 
-    def tool(self, name: str, args: dict[str, Any]) -> None:
+    def tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         self.check_deadline()
         self.host_tool_attempts += 1
         if self.host_tool_attempts > self.settings.limits.host_tool_attempts:
             raise DecisionFailure("budget_exhausted", "host tool attempt budget exhausted")
-        self.tool_records.append(
-            {"name": name, "args": args, "at_unix_ms": int(time.time() * 1000)}
-        )
+        record: dict[str, Any] = {
+            "name": name,
+            "args": args,
+            "at_unix_ms": int(time.time() * 1000),
+        }
+        self.tool_records.append(record)
+        return record
 
     def client_tool(self, name: str, args: dict[str, Any]) -> None:
         self.tool(name, args)
@@ -206,6 +194,7 @@ class DecisionAgent:
         self.store = store
         self.hand_notes = HandNotes(store)
         self.skills = skills
+        self.context = DuelContext(skills.root, store, skills)
         self._stream_capable = (
             not isinstance(model, FunctionModel) or model.stream_function is not None
         )
@@ -257,7 +246,6 @@ class DecisionAgent:
             budgeted_model,
             name="ygopro_duel_agent",
             deps_type=DecisionDeps,
-            instructions=INSTRUCTIONS,
             output_type=ToolOutput(DecisionOutput),
             retries=settings.limits.invalid_intent_attempts - 1,
             model_settings=OpenAIResponsesModelSettings(openai_store=settings.model.store),
@@ -267,7 +255,9 @@ class DecisionAgent:
                         "rulebook_index",
                         "rulebook_section",
                         "card_by_id",
+                        "cards_by_ids",
                         "search_cards",
+                        "own_decklist",
                         "current_state",
                         "zone_state",
                         "card_state",
@@ -284,6 +274,10 @@ class DecisionAgent:
         )
         self._register_tools()
         self._histories: dict[tuple[str, str], list[Any]] = {}
+
+        @self.agent.instructions
+        def duel_instructions(ctx: RunContext[DecisionDeps]) -> str:
+            return ctx.deps.prompt_text
 
     def _request_settings(self) -> OpenAIResponsesModelSettings:
         model = self.settings.model
@@ -352,17 +346,46 @@ class DecisionAgent:
 
         @agent.tool
         def card_by_id(ctx: RunContext[DecisionDeps], card_id: int) -> dict[str, Any]:
-            """Read public card details and effect text by card ID."""
+            """Read public card details by ID; returns id, name, card_type and effect_text."""
             ctx.deps.tool("card_by_id", {"card_id": card_id})
             return ctx.deps.skills.card_by_id(card_id)
+
+        @agent.tool
+        def cards_by_ids(
+            ctx: RunContext[DecisionDeps], card_ids: list[int]
+        ) -> list[dict[str, Any]]:
+            """Read full details for distinct IDs; returns card objects in input order."""
+            record = ctx.deps.tool("cards_by_ids", {"card_ids": card_ids})
+            if not 1 <= len(card_ids) <= ctx.deps.settings.limits.card_lookup_batch_size:
+                raise ValueError("card_ids exceeds configured batch size")
+            started = time.perf_counter()
+            result = ctx.deps.skills.cards_by_ids(card_ids)
+            payload_bytes = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+            metric = {
+                "distinct_card_ids": len(card_ids),
+                "result_bytes": payload_bytes,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+            }
+            record.update(metric)
+            telemetry = current_telemetry.get()
+            if telemetry is not None:
+                telemetry.emit("card_batch_lookup", metric)
+            return result
 
         @agent.tool
         def search_cards(
             ctx: RunContext[DecisionDeps], keyword: str, limit: int = 30, offset: int = 0
         ) -> dict[str, Any]:
-            """Search public card text by keyword with bounded pagination."""
+            """Search card text; returns {keyword, ids: list[int], total: int}."""
             ctx.deps.tool("search_cards", {"keyword": keyword, "limit": limit, "offset": offset})
             return ctx.deps.skills.search_cards(keyword, limit=limit, offset=offset)
+
+        @agent.tool
+        def own_decklist(ctx: RunContext[DecisionDeps]) -> dict[str, Any]:
+            """Read own submitted main/extra deck catalog: card_id, count, name and card_type."""
+            ctx.deps.tool("own_decklist", {})
+            session, duel, _ = ctx.deps.identity
+            return self.context.catalog(session, duel)
 
         @agent.tool
         def current_state(ctx: RunContext[DecisionDeps]) -> dict[str, Any]:
@@ -521,6 +544,8 @@ class DecisionAgent:
         remaining = (deadline_ms - int(time.time() * 1000)) / 1000
         if remaining <= 0:
             raise DecisionFailure("timeout", "decision deadline expired")
+        self.context.ensure(request)
+        pinned_prompt = self.context.prompt(session, duel)
         deps = DecisionDeps(
             request,
             delta,
@@ -529,6 +554,7 @@ class DecisionAgent:
             self.settings,
             query_client,
             time.monotonic() + remaining,
+            pinned_prompt["text"],
         )
         history = self._load_history(session, duel)
         prompt_payload: dict[str, Any] = {
@@ -552,6 +578,7 @@ class DecisionAgent:
             prompt_payload["initial_state"] = self.store.get_state(
                 session, duel, cast(int, data["state_version"])
             )
+            prompt_payload["own_deck_catalog"] = self.context.catalog(session, duel)
         prompt = json.dumps(
             prompt_payload,
             ensure_ascii=False,
@@ -565,6 +592,7 @@ class DecisionAgent:
             {
                 "prompt": json.loads(prompt),
                 "history_messages": len(history),
+                "duel_prompt_sha256": pinned_prompt["sha256"],
                 "reasoning_effort_configured": self.settings.model.reasoning_effort,
                 "reasoning_effort_requested": (
                     None
@@ -576,7 +604,12 @@ class DecisionAgent:
             },
         )
         token = current_budget.set(
-            ModelBudget(self.settings.limits.model_requests, time.monotonic() + remaining)
+            ModelBudget(
+                self.settings.limits.model_requests,
+                time.monotonic() + remaining,
+                self.settings.limits.finalization_reserve_requests,
+                self.settings.limits.finalization_reserve_seconds,
+            )
         )
         telemetry = ModelTelemetry(lambda kind, payload: trace.emit(kind, payload, response_id=""))
         telemetry_token = current_telemetry.set(telemetry)

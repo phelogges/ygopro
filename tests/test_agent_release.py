@@ -41,6 +41,9 @@ class ReleaseVerificationTest(unittest.TestCase):
             '[storage]\ndirectory = ".agents/data"\n',
             encoding="utf-8",
         )
+        prompt = self.release / RELEASE["PROMPT_PATH"]
+        prompt.parent.mkdir(parents=True)
+        prompt.write_text("fixed prompt fixture\n", encoding="utf-8")
         for name, files in RELEASE["SKILL_FILES"].items():
             skill = self.release / ".agents/skills" / name
             for filename in files:
@@ -66,9 +69,17 @@ class ReleaseVerificationTest(unittest.TestCase):
         with zipfile.ZipFile(archive) as bundle:
             self.assertIn("release/deck/", bundle.namelist())
             self.assertIn("release/.agents/config.toml", bundle.namelist())
+            self.assertIn("release/.agents/prompts/duel_system.md", bundle.namelist())
 
     def test_tampered_database_rejected(self) -> None:
         (self.release / "cards.cdb").write_bytes(b"tampered")
+        with self.assertRaisesRegex(ValueError, "hash mismatch"):
+            RELEASE["verify_release"](self.release)
+
+    def test_tampered_prompt_rejected(self) -> None:
+        (self.release / RELEASE["PROMPT_PATH"]).write_text(
+            "changed prompt\n", encoding="utf-8"
+        )
         with self.assertRaisesRegex(ValueError, "hash mismatch"):
             RELEASE["verify_release"](self.release)
 

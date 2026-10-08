@@ -4164,6 +4164,7 @@ void DuelClient::SendResponse() {
 	}
 }
 void DuelClient::SendUpdateDeck(const Deck& deck) {
+	agent_client::AgentController::Instance().OnDeckSubmitted(deck);
 	agent_client::DuelRecorder::Instance().OnDeckSubmitted(deck);
 	std::vector<unsigned char> deckbuf;
 	deckbuf.reserve(1024);

@@ -81,6 +81,7 @@ _EVENT_FIELDS = {
     "source",
     "agent",
     "message_type",
+    "option",
     "attacker_attack",
     "attacker_defense",
     "attacker_location",
@@ -102,6 +103,7 @@ _EVENT_FIELDS = {
     "player",
     "reason_flags",
     "reason",
+    "results",
     "sequence",
     "target_attack",
     "target_defense",
@@ -118,7 +120,7 @@ _EVENT_FIELDS = {
     "winner",
     "zone",
 }
-_EVENT_TEXT_FIELDS = {"kind", "source", "phase", "zone", "from_position", "to_position"}
+_EVENT_TEXT_FIELDS = {"kind", "source", "phase", "zone", "from_position", "to_position", "option"}
 _CARD_NUMERIC_FIELDS = {
     "attack",
     "defense",
@@ -265,8 +267,35 @@ def _validate_events(value: object) -> list[JSONObject]:
                 raise StateError("invalid_state", "control_changed requires source and agent")
         elif "source" in event or "agent" in event:
             raise StateError("invalid_state", "control fields require control_changed")
+        if "option" in event and (
+            event["kind"] != "hint_observed"
+            or event.get("hint_type") != 4
+            or (event.get("value"), event["option"]) not in ((60, "heads"), (61, "tails"))
+        ):
+            raise StateError("invalid_state", "event.option: invalid selected coin face")
+        random_kind = event["kind"] in {"coin_tossed", "dice_rolled"}
+        if random_kind:
+            coin = event["kind"] == "coin_tossed"
+            if event.get("message_type") != (130 if coin else 131):
+                raise StateError("invalid_state", "random result message type mismatch")
+            if _integer(event.get("player"), "event.player") > 1:
+                raise StateError("invalid_state", "event.player: expected 0 or 1")
+            count = _integer(event.get("count"), "event.count", 1)
+            if count > (20 if coin else 5):
+                raise StateError("invalid_state", "event.count: too many random results")
+            results = event.get("results")
+            if not isinstance(results, list) or len(cast(list[object], results)) != count:
+                raise StateError("invalid_state", "event.results: count mismatch")
+            for result in cast(list[object], results):
+                if coin:
+                    if result not in ("heads", "tails"):
+                        raise StateError("invalid_state", "event.results: invalid coin face")
+                elif _integer(result, "event.results", 1) > 6:
+                    raise StateError("invalid_state", "event.results: invalid die face")
+        elif "results" in event:
+            raise StateError("invalid_state", "event.results requires a random result event")
         for name, field_value in event.items():
-            if name in {"event_id", "cards", "targets"}:
+            if name in {"event_id", "cards", "targets", "results"}:
                 continue
             if name == "agent":
                 _boolean(field_value, "event.agent")

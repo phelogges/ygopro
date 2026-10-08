@@ -37,6 +37,12 @@ model_requests = 8
 host_tool_attempts = 64
 # 一次决策内向客户端发起只读查询的上限。
 client_queries = 4
+# cards_by_ids 一次最多查询多少个不同卡片 ID；一次批量调用算一次宿主工具调用。
+card_lookup_batch_size = 12
+# 实验性最终化保护：剩余模型请求数达到此值时移除非最终工具；0 关闭此条件。
+finalization_reserve_requests = 2
+# 实验性最终化保护：剩余秒数达到此值时移除非最终工具；0 关闭此条件。
+finalization_reserve_seconds = 20
 
 [compaction]
 # 历史占上下文窗口的比例达到此值时触发压缩。

@@ -74,6 +74,18 @@ class SkillResources:
         finally:
             query.close()
 
+    def cards_by_ids(self, card_ids: list[int]) -> list[dict[str, Any]]:
+        """Read several public cards through one local card-database handle."""
+        if any(type(card_id) is not int or not 1 <= card_id <= 0xFFFFFFFF for card_id in card_ids):
+            raise ValueError("card_ids contains an invalid card ID")
+        if len(set(card_ids)) != len(card_ids):
+            raise ValueError("card_ids must be distinct")
+        query = self._card_query()
+        try:
+            return query.query_by_ids(card_ids)
+        finally:
+            query.close()
+
     def search_cards(self, keyword: str, *, limit: int = 30, offset: int = 0) -> dict[str, Any]:
         if not keyword or len(keyword) > 120:
             raise ValueError("keyword must contain 1 to 120 characters")

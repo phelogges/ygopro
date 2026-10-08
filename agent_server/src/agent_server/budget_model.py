@@ -6,10 +6,10 @@ import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
-from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.messages import InstructionPart, ModelMessage, ModelResponse
 from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.settings import ModelSettings
@@ -20,6 +20,8 @@ from pydantic_ai.usage import RequestUsage
 class ModelBudget:
     requests_remaining: int
     deadline_monotonic: float
+    reserve_requests: int = 0
+    reserve_seconds: int = 0
 
 
 current_budget: ContextVar[ModelBudget | None] = ContextVar("ygopro_model_budget", default=None)
@@ -121,17 +123,50 @@ class BudgetModel(WrapperModel):
         effective["timeout"] = remaining
         return ModelSettings(**effective)
 
+    @staticmethod
+    def _finalization_parameters(parameters: ModelRequestParameters) -> ModelRequestParameters:
+        budget = current_budget.get()
+        if budget is None or not parameters.output_tools:
+            return parameters
+        remaining_seconds = budget.deadline_monotonic - time.monotonic()
+        finalizing = (
+            budget.reserve_requests > 0 and budget.requests_remaining <= budget.reserve_requests
+        ) or (budget.reserve_seconds > 0 and remaining_seconds <= budget.reserve_seconds)
+        if not finalizing:
+            return parameters
+        telemetry = current_telemetry.get()
+        if telemetry is not None:
+            telemetry.emit(
+                "finalization_guard",
+                {
+                    "requests_remaining": budget.requests_remaining,
+                    "seconds_remaining": round(remaining_seconds, 2),
+                },
+            )
+        return replace(
+            parameters,
+            function_tools=[],
+            native_tools=[],
+            instruction_parts=[
+                *(parameters.instruction_parts or []),
+                InstructionPart(
+                    content="工具预算已进入最终化阶段。现在只能从当前合法候选提交最终语义动作与简短理由。"
+                ),
+            ],
+        )
+
     async def request(
         self,
         messages: list[ModelMessage],
         model_settings: ModelSettings | None,
         model_request_parameters: ModelRequestParameters,
     ) -> ModelResponse:
+        parameters = self._finalization_parameters(model_request_parameters)
         settings = self._budgeted_settings(model_settings)
         telemetry = current_telemetry.get()
         index = telemetry.start() if telemetry else None
         try:
-            response = await self.wrapped.request(messages, settings, model_request_parameters)
+            response = await self.wrapped.request(messages, settings, parameters)
         except BaseException as exc:
             if telemetry is not None and index is not None:
                 telemetry.finish(index, error=exc)
@@ -148,6 +183,7 @@ class BudgetModel(WrapperModel):
         model_request_parameters: ModelRequestParameters,
         run_context: Any = None,
     ) -> AsyncGenerator[StreamedResponse]:
+        parameters = self._finalization_parameters(model_request_parameters)
         settings = self._budgeted_settings(model_settings)
         telemetry = current_telemetry.get()
         index = telemetry.start() if telemetry else None
@@ -156,7 +192,7 @@ class BudgetModel(WrapperModel):
         error: BaseException | None = None
         try:
             async with self.wrapped.request_stream(
-                messages, settings, model_request_parameters, run_context
+                messages, settings, parameters, run_context
             ) as stream:
                 yield stream
         except BaseException as exc:

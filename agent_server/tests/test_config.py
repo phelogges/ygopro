@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
-from agent_server.config import ModelSettings, load_settings, profile_data_dir
+from agent_server.config import (
+    LimitSettings,
+    ModelSettings,
+    StorageSettings,
+    load_settings,
+    profile_data_dir,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -33,9 +40,22 @@ class ProfileDataTests(unittest.TestCase):
                 profile_data_dir(ROOT, settings, "host")
 
     def test_retention_defaults(self) -> None:
-        settings = load_settings(ROOT, offline=True)
-        self.assertEqual(settings.storage.retention_days, 30)
-        self.assertEqual(settings.storage.max_bytes, 2 * 1024 * 1024 * 1024)
+        template = tomllib.loads((ROOT / ".agents/config.example.toml").read_text())
+        storage = StorageSettings()
+        limits = LimitSettings()
+        self.assertEqual(storage.retention_days, 30)
+        self.assertEqual(storage.max_bytes, 2 * 1024 * 1024 * 1024)
+        self.assertEqual(limits.card_lookup_batch_size, 12)
+        self.assertEqual(limits.finalization_reserve_requests, 2)
+        self.assertEqual(limits.finalization_reserve_seconds, 20)
+        for name in ("retention_days", "max_bytes"):
+            self.assertEqual(template["storage"][name], getattr(storage, name))
+        for name in (
+            "card_lookup_batch_size",
+            "finalization_reserve_requests",
+            "finalization_reserve_seconds",
+        ):
+            self.assertEqual(template["limits"][name], getattr(limits, name))
 
     def test_forced_tool_choice_default_and_override(self) -> None:
         model = ModelSettings.model_validate(

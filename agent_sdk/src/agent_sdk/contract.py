@@ -169,6 +169,25 @@ def parse_request(value: object) -> DecisionRequest:
             raise ContractError("history_complete: expected boolean")
         if data["history_complete"] is not True:
             raise ContractError("history_incomplete")
+    if "deck_manifest" in data:
+        if data["schema_version"] != 3:
+            raise ContractError("deck_manifest requires schema_version 3")
+        manifest = _object(data["deck_manifest"], "deck_manifest")
+        _keys(manifest, {"main", "extra", "side"}, {"main", "extra", "side"}, "deck_manifest")
+        for zone in ("main", "extra", "side"):
+            previous = 0
+            total = 0
+            for item in _array(manifest[zone], f"deck_manifest.{zone}"):
+                entry = _object(item, f"deck_manifest.{zone} entry")
+                _keys(entry, {"card_id", "count"}, {"card_id", "count"}, "deck entry")
+                card_id = _int(entry["card_id"], "card_id", 1, 0xFFFFFFFF)
+                count = _int(entry["count"], "count", 1, 250)
+                if card_id <= previous:
+                    raise ContractError(f"deck_manifest.{zone}: card IDs must increase")
+                previous = card_id
+                total += count
+            if total > 250:
+                raise ContractError(f"deck_manifest.{zone}: too many cards")
     for key in ("session_id", "duel_id"):
         _string(data.get(key), key)
     _int(data.get("prompt_id"), "prompt_id", 1)

@@ -57,6 +57,9 @@ class LimitSettings(BaseModel):
     model_requests: Annotated[int, Field(ge=1, le=100)] = 8
     host_tool_attempts: Annotated[int, Field(ge=1, le=1000)] = 64
     client_queries: Annotated[int, Field(ge=0, le=100)] = 4
+    card_lookup_batch_size: Annotated[int, Field(ge=1, le=100)] = 12
+    finalization_reserve_requests: Annotated[int, Field(ge=0, le=20)] = 2
+    finalization_reserve_seconds: Annotated[int, Field(ge=0, le=120)] = 20
 
 
 class CompactionSettings(BaseModel):

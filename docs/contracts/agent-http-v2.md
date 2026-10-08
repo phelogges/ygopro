@@ -93,7 +93,14 @@
 
 ### 观测事件
 
-每个事件含 `event_id` 和 `kind`。来自游戏消息的事件还含 `message_type`；本地人工／Agent 控制切换事件使用 `source: "client_control"`。事件只附协议或客户端 GUI 确实观察到的字段。首版已解析回合／阶段、抽卡、移动、终局、提示、展示、连锁发动与结算、LP 变化、攻击／战斗、表示形式、盖放、指定对象、召唤、洗牌，以及卡片与玩家提示等消息。`MSG_CARD_HINT` 在关联卡片当前可见且身份已知时记录 `card_hint_observed`，包含本方视角的 `player`、去除叠放标记的 `location`、`sequence`、`hint_type`、`value`；关联卡片不可见时不生成事件，避免泄露隐藏信息。`MSG_PLAYER_HINT` 记录 `player_hint_observed`，包含 `player`、`hint_type`、`value`。提示值仅作为观察到的原始值，不推断具体规则含义。洗牌消息只记录 `shuffle_message_observed`，不凭消息推断未知牌序。移动消息给出收到的原始 `reason_flags`，但不能补写未观测到的战斗破坏、素材用途、效果已使用等因果。已确认对历史不产生必要事实的更新包和决策提示不入事件日志。其余消息或已知消息的截断内容记录 `unparsed_game_message` 并把 `history_complete` 置为 `false`；服务端拒绝自动决策。绝不把未知消息的原始包、隐藏卡 ID 或服务端私有字段传给 Agent。
+每个事件含 `event_id` 和 `kind`。来自游戏消息的事件还含 `message_type`；本地人工／Agent 控制切换事件使用 `source: "client_control"`。事件只附协议或客户端 GUI 确实观察到的字段。首版已解析回合／阶段、抽卡、移动、终局、提示、展示、连锁发动与结算、LP 变化、攻击／战斗、表示形式、盖放、指定对象、召唤、洗牌、硬币与骰子结果，以及卡片与玩家提示等消息。`MSG_CARD_HINT` 在关联卡片当前可见且身份已知时记录 `card_hint_observed`，包含本方视角的 `player`、去除叠放标记的 `location`、`sequence`、`hint_type`、`value`；关联卡片不可见时不生成事件，避免泄露隐藏信息。`MSG_PLAYER_HINT` 记录 `player_hint_observed`，包含 `player`、`hint_type`、`value`。提示值保留观察到的原始值；仅 `HINT_OPSELECTED` 的公开选项值 `60`／`61` 额外给出 `option: "heads"`／`"tails"`，对应 GUI 展示的正面／反面，不据此判断卡片效果是否成功。洗牌消息只记录 `shuffle_message_observed`，不凭消息推断未知牌序。移动消息给出收到的原始 `reason_flags`，但不能补写未观测到的战斗破坏、素材用途、效果已使用等因果。已确认对历史不产生必要事实的更新包和决策提示不入事件日志。其余消息或已知消息的截断内容记录 `unparsed_game_message` 并把 `history_complete` 置为 `false`；服务端拒绝自动决策。绝不把未知消息的原始包、隐藏卡 ID 或服务端私有字段传给 Agent。
+
+`MSG_TOSS_COIN`（130）生成 `coin_tossed`，`MSG_TOSS_DICE`（131）生成 `dice_rolled`；二者均含本方视角的 `player`、`count` 和按报文顺序排列的 `results`。硬币结果使用 `"heads"`／`"tails"`，与 GUI 展示一致（原始值 `1`／`0`）；骰子结果为 `1` 至 `6` 的整数。`count` 必须等于结果数；单包硬币最多 20 次、骰子最多 5 次。长度、次数、投掷者或结果非法时按解析不完整处理。结果事件只报告公开随机结果，不推断猜测是否命中或效果结算因果。例如：
+
+```json
+{"event_id": 9, "kind": "coin_tossed", "message_type": 130,
+ "player": 1, "count": 1, "results": ["tails"]}
+```
 
 快照比较生成的是**净状态差异**，与上述有序观测事件分开。相同卡片 ID 的多份副本、手牌重排及隐藏区进出不能凭快照推断为同一实体移动；只有已观测事件明确关联时才表达移动关系。
 

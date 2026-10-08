@@ -30,6 +30,7 @@ SKILL_TREES = {
     "ygo-card-db": ("scripts",),
 }
 MANIFEST_PATH = Path(".agents/release-manifest.json")
+PROMPT_PATH = Path(".agents/prompts/duel_system.md")
 HASHED_FILES = (
     "ygopro",
     "agent-server",
@@ -37,6 +38,7 @@ HASHED_FILES = (
     ".agents/config.toml",
     ".agents/skills/ocg-rulebook/SKILL.md",
     ".agents/skills/ygo-card-db/SKILL.md",
+    str(PROMPT_PATH),
 )
 EXCLUDED_NAMES = {".DS_Store", "__pycache__", ".git", ".env"}
 
@@ -100,6 +102,7 @@ def check_inputs(preset: str) -> None:
     require_file(SERVER_PROJECT / "uv.lock")
     require_file(ROOT / ".agents/config.example.toml")
     check_config(ROOT / ".agents/config.example.toml")
+    require_file(ROOT / PROMPT_PATH)
     for filename in ROOT_FILES:
         require_file(ROOT / filename)
     check_database(ROOT / "cards.cdb")
@@ -196,6 +199,9 @@ def populate_release(target: Path, preset: str, server_binary: Path) -> None:
         (target / name).mkdir()
     (target / ".agents").mkdir()
     shutil.copy2(ROOT / ".agents/config.example.toml", target / ".agents/config.toml")
+    prompt_target = target / PROMPT_PATH
+    prompt_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / PROMPT_PATH, prompt_target)
     for name, files in SKILL_FILES.items():
         skill_target = target / ".agents/skills" / name
         skill_target.mkdir(parents=True)
@@ -228,6 +234,7 @@ def verify_release(target: Path) -> None:
     if {path.name for path in (target / ".agents").iterdir()} != {
         "config.toml",
         "release-manifest.json",
+        "prompts",
         "skills",
     }:
         raise ValueError("Release .agents directory contains unexpected files")
@@ -244,6 +251,7 @@ def verify_release(target: Path) -> None:
         require_file(path)
         if digest(path) != expected_hashes[name]:
             raise ValueError(f"Release file hash mismatch: {path}")
+    require_file(target / PROMPT_PATH)
     for name in ("ygopro", "agent-server"):
         if not os.access(target / name, os.X_OK):
             raise ValueError(f"Release executable is not executable: {name}")

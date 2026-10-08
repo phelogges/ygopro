@@ -23,6 +23,11 @@ def request() -> dict[str, Any]:
         "session_id": "client-a",
         "duel_id": "duel-1",
         "database_sha256": "a" * 64,
+        "deck_manifest": {
+            "main": [{"card_id": 5318639, "count": 3}],
+            "extra": [],
+            "side": [],
+        },
         "history_complete": True,
         "state_version": 1,
         "prompt_id": 1,

@@ -14,11 +14,20 @@ from test_decision_session import request
 from agent_server.__main__ import offline_decide
 from agent_server.config import load_settings
 from agent_server.http_service import HttpService
+from agent_server.model_agent import DecisionFailure
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
 
 
 class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_budget_error_has_distinct_status_and_code(self) -> None:
+        response = HttpService.error(
+            DecisionFailure("budget_exhausted", "model or tool budget exhausted")
+        )
+        self.assertEqual(response.status, 429)
+        assert isinstance(response.body, bytes | bytearray)
+        self.assertEqual(json.loads(response.body)["error"]["code"], "budget_exhausted")
+
     async def asyncSetUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(__file__).resolve().parents[2]
@@ -56,6 +65,11 @@ class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await response.json())["nonce"], "nonce-1234567890")
         body = request()
         body["database_sha256"] = self.skills.database_sha256
+        missing = dict(body)
+        missing.pop("deck_manifest")
+        response = await self.client.post("/v3/decision", json=missing, headers=headers)
+        self.assertEqual(response.status, 400)
+        self.assertEqual((await response.json())["error"]["code"], "deck_manifest_missing")
         response = await self.client.post("/v3/decision", json=body, headers=headers)
         self.assertEqual(response.status, 200)
         action = await response.json()
@@ -63,6 +77,12 @@ class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(action["action"], {"kind": "choice", "candidate_id": "c0"})
         response = await self.client.post("/v3/decision", json=body, headers=headers)
         self.assertEqual(await response.json(), action)
+        conflicting = request()
+        conflicting["database_sha256"] = self.skills.database_sha256
+        conflicting["deck_manifest"]["main"][0]["count"] = 2
+        response = await self.client.post("/v3/decision", json=conflicting, headers=headers)
+        self.assertEqual(response.status, 409)
+        self.assertEqual((await response.json())["error"]["code"], "deck_manifest_conflict")
         receipt = {
             **{
                 key: action[key]
