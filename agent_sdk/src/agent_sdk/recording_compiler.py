@@ -689,6 +689,7 @@ def _compile(
     cards_db: Path,
     overrides: dict[str, dict[str, Any]],
     analysis_draft: bool,
+    scenario_kind: str,
 ) -> dict[str, Any]:
     captures = {role: _records(source / f"{role}.jsonl", role) for role in ROLES}
     sessions = {role: _single(captures[role], "session", role) for role in ROLES}
@@ -752,9 +753,30 @@ def _compile(
                         f"{role} seq {record['seq']}: uncontrolled random event "
                         f"{RANDOM_MESSAGES[message]}"
                     )
+                    if scenario_kind == "random":
+                        continue
                     if not analysis_draft:
                         raise RecordingError(reason)
                     blockers.append(reason)
+    random_by_role = {
+        role: [
+            r.get("message_type")
+            for r in captures[role]
+            if r.get("kind") == "visible_snapshot" and r.get("message_type") in (81, 130, 131)
+        ]
+        for role in ROLES
+    }
+    random_target: int | None = None
+    if scenario_kind == "random":
+        for role, messages in random_by_role.items():
+            if len(messages) != 1:
+                raise RecordingError(
+                    f"{role}: random scenario requires exactly one target random operation; "
+                    f"observed {messages}"
+                )
+        if random_by_role["host"] != random_by_role["guest"]:
+            raise RecordingError(f"random message differs by perspective: {random_by_role}")
+        random_target = random_by_role["host"][0]
     if room_settings["host"] != room_settings["guest"]:
         raise RecordingError("host and guest room settings differ")
     _check_mirrored_public_state(captures)
@@ -865,7 +887,7 @@ def _compile(
     for role in ROLES:
         timeline[role].append(f"- 终局 #{ends[role]['seq']}：胜者 {winner}")
     scene: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2 if scenario_kind == "random" else 1,
         "decks": {role: f"{role}.ydk" for role in ROLES},
         "pregame": {"host": rps["host"], "guest": rps["guest"], "winner_chooses": first_player},
         "steps": steps,
@@ -875,6 +897,19 @@ def _compile(
             "expect": {role: _terminal_expect(captures[role], role) for role in ROLES},
         },
     }
+    if scenario_kind == "random":
+        # A full recording cannot identify the effect-completion boundary. Keep
+        # its decisions for review, but never label this generated file runnable.
+        scene["scenario_kind"] = "random"
+        scene["random_target"] = {
+            "message_type": random_target,
+            "max_runs": 20,
+            "coverage": [],
+        }
+        blockers.append(
+            "review required: truncate decisions at the completed effect, replace "
+            "duel_end with a visible checkpoint, and specify per-result assertions"
+        )
     if any(
         r.get("kind") == "visible_snapshot" and r.get("message_type") == 33
         for role in ROLES
@@ -900,10 +935,11 @@ def _compile(
         scene["goal"]["surrender"] = {"role": surrender["role"], "expect": expectations}
     if unused := overrides.keys() - used_overrides:
         raise RecordingError(f"unused or stale overrides: {sorted(unused)}")
-    try:
-        Scenario(scene)
-    except ScenarioError as exc:
-        raise RecordingError(f"generated scenario invalid: {exc}") from exc
+    if scenario_kind != "random":
+        try:
+            Scenario(scene)
+        except ScenarioError as exc:
+            raise RecordingError(f"generated scenario invalid: {exc}") from exc
     for role in ROLES:
         (output / f"{role}.ydk").write_text(decks[role], encoding="utf-8")
     scenario_name = "scenario.unverified.yaml" if blockers else "scenario.yaml"
@@ -923,6 +959,8 @@ def _compile(
         "winner": winner,
         "steps": {role: len(steps[role]) for role in ROLES},
         "blockers": blockers,
+        "scenario_kind": scenario_kind,
+        "random_target_message_type": random_target,
         "ordinal_usages": ordinal_usages,
         "errors": [],
     }
@@ -934,10 +972,13 @@ def compile_recording(
     cards_db: Path | None = None,
     overrides_path: Path | None = None,
     analysis_draft: bool = False,
+    scenario_kind: str = "deterministic",
 ) -> dict[str, Any]:
     """Write a scenario draft and report; replay must promote it to verified."""
     output.mkdir(parents=True, exist_ok=True)
     try:
+        if scenario_kind not in ("deterministic", "random"):
+            raise RecordingError(f"invalid scenario kind {scenario_kind!r}")
         override_file = overrides_path or source / "overrides.json"
         if overrides_path is not None and not overrides_path.is_file():
             raise RecordingError(f"missing override file: {overrides_path}")
@@ -947,6 +988,7 @@ def compile_recording(
             cards_db or Path(__file__).resolve().parents[3] / "cards.cdb",
             _overrides(override_file),
             analysis_draft,
+            scenario_kind,
         )
         (output / "review-needed.json").unlink(missing_ok=True)
         stale = (

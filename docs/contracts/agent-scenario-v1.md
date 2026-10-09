@@ -1,5 +1,7 @@
 # 固定牌序对局场景契约 v1
 
+随机效果场景使用 [v2 扩展](agent-scenario-v2.md)。v1 剧本的解析和严格回放语义保持不变。
+
 本契约定义本地双客户端回归的 YAML 场景文件。它是测试输入，不是客户端与 Agent 服务的 HTTP 协议。客户端仍只接受 `docs/contracts/agent-http-v1.md` 的语义动作，场景执行器通过 `agent_sdk` 翻译并验证动作。游戏服务端、`ocgcore` 和 CTOS/STOC 协议不变。
 
 同一场景也可用 `tools/agent-e2e.py --scenario ... --gui` 在双窗口中播放。GUI 观看节奏和窗口生命周期见 [设计说明](../design/agent-gui-e2e.md)；场景字段及动作语义在两种模式下相同。

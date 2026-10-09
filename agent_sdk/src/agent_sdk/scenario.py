@@ -7,6 +7,7 @@ They never carry raw CTOS bytes or prompt-scoped candidate IDs.
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 from time import time
 from typing import Any, cast
@@ -288,8 +289,12 @@ def _card_match(value: Any, predicate: dict[str, Any]) -> bool:
 
 
 def _event_assertion(value: object, path: str) -> dict[str, Any]:
-    event = _dict(value, path, {"kind"}, {"kind", "player", "zone", "cards"})
+    event = _dict(value, path, {"kind"}, {"kind", "player", "zone", "cards", "count"})
     _string(event["kind"], f"{path}.kind")
+    if "count" in event:
+        if event["kind"] != "cards_randomly_selected":
+            raise ScenarioError(f"{path}.count: only cards_randomly_selected supports count")
+        _integer(event["count"], f"{path}.count", 1)
     if "player" in event:
         if event["player"] in ("self", "opponent"):
             event["player"] = 0 if event["player"] == "self" else 1
@@ -298,15 +303,20 @@ def _event_assertion(value: object, path: str) -> dict[str, Any]:
     if "zone" in event:
         _string(event["zone"], f"{path}.zone")
     if "cards" in event:
-        if event["kind"] != "cards_revealed":
-            raise ScenarioError(f"{path}.cards: only cards_revealed supports cards")
+        if event["kind"] not in ("cards_revealed", "cards_randomly_selected"):
+            raise ScenarioError(f"{path}.cards: unsupported for this event kind")
         cards = _list(event["cards"], f"{path}.cards")
         if not cards:
             raise ScenarioError(f"{path}.cards: expected at least one card")
         for index, card in enumerate(cards):
             card_path = f"{path}.cards[{index}]"
-            item = _dict(card, card_path, {"card_id"}, {"card_id", "player", "location"})
-            _normalize_card_id(item, card_path)
+            if event["kind"] == "cards_revealed":
+                item = _dict(card, card_path, {"card_id"}, {"card_id", "player", "location"})
+                _normalize_card_id(item, card_path)
+            else:
+                item = _dict(
+                    card, card_path, {"player", "location"}, {"player", "location", "sequence"}
+                )
             if "player" in item:
                 if item["player"] in ("self", "opponent"):
                     item["player"] = 0 if item["player"] == "self" else 1
@@ -314,6 +324,11 @@ def _event_assertion(value: object, path: str) -> dict[str, Any]:
                     raise ScenarioError(f"{card_path}.player: expected self, opponent, 0, or 1")
             if "location" in item:
                 _integer(item["location"], f"{card_path}.location")
+            if "sequence" in item:
+                _integer(item["sequence"], f"{card_path}.sequence")
+        if event["kind"] == "cards_randomly_selected" and "count" in event:
+            if event["count"] != len(cards):
+                raise ScenarioError(f"{path}: count differs from cards length")
     return event
 
 
@@ -333,7 +348,21 @@ def _event_match(actual: object, expected: dict[str, Any]) -> bool:
         return False
     remaining = list(cards)
     for wanted in expected["cards"]:
-        found = next((i for i, card in enumerate(remaining) if _card_match(card, wanted)), None)
+        found = next(
+            (
+                i
+                for i, card in enumerate(remaining)
+                if _card_match(card, wanted)
+                and (
+                    expected["kind"] != "cards_randomly_selected"
+                    or (
+                        isinstance(card, dict)
+                        and set(cast(dict[str, Any], card)) == set(wanted)
+                    )
+                )
+            ),
+            None,
+        )
         if found is None:
             return False
         remaining.pop(found)
@@ -357,10 +386,90 @@ class Scenario:
                 "defaults",
                 "allowed_random_events",
                 "event_assertions",
+                "scenario_kind",
+                "random_target",
             },
         )
-        if type(root["schema_version"]) is not int or root["schema_version"] != 1:
-            raise ScenarioError("scenario.schema_version: expected 1")
+        if type(root["schema_version"]) is not int or root["schema_version"] not in (1, 2):
+            raise ScenarioError("scenario.schema_version: expected 1 or 2")
+        self.scenario_kind = root.get("scenario_kind", "deterministic")
+        if root["schema_version"] == 1 and self.scenario_kind != "deterministic":
+            raise ScenarioError("scenario_kind random requires schema_version 2")
+        if root["schema_version"] == 2 and self.scenario_kind != "random":
+            raise ScenarioError("schema_version 2 requires scenario_kind random")
+        self.random_target: dict[str, Any] | None = None
+        if self.scenario_kind == "random":
+            target = _dict(
+                root.get("random_target"),
+                "random_target",
+                {"message_type", "expect"},
+                {"message_type", "expect", "cases", "coverage", "max_runs"},
+            )
+            if target["message_type"] not in (81, 130, 131):
+                raise ScenarioError("random_target.message_type: expected 81, 130, or 131")
+            _integer(target.get("max_runs", 20), "random_target.max_runs", 1)
+            if target.get("max_runs", 20) > 100:
+                raise ScenarioError("random_target.max_runs: maximum is 100")
+            common_expect = _dict(target["expect"], "random_target.expect", set(ROLES), set(ROLES))
+            for role in ROLES:
+                if not common_expect[role]:
+                    raise ScenarioError(
+                        f"random_target.expect.{role}: post-effect assertion required"
+                    )
+                _assertion(common_expect[role], f"random_target.expect.{role}")
+            cases = _list(target.get("cases", []), "random_target.cases")
+            for index, entry in enumerate(cases):
+                path = f"random_target.cases[{index}]"
+                case = _dict(entry, path, {"expect"}, {"expect", "results", "count"})
+                if target["message_type"] in (130, 131):
+                    results = _list(case.get("results"), f"{path}.results")
+                    if not results:
+                        raise ScenarioError(f"{path}.results: expected nonempty list")
+                    max_count = 20 if target["message_type"] == 130 else 5
+                    if len(results) > max_count:
+                        raise ScenarioError(f"{path}.results: exceeds {max_count} results")
+                    allowed = ("heads", "tails") if target["message_type"] == 130 else range(1, 7)
+                    if any(type(v) is bool or v not in allowed for v in results):
+                        raise ScenarioError(f"{path}.results: invalid random result")
+                    if "count" in case:
+                        raise ScenarioError(f"{path}.count: use results length")
+                else:
+                    if "results" in case:
+                        raise ScenarioError(
+                            f"{path}.results: random selection has no public identity"
+                        )
+                    _integer(case.get("count"), f"{path}.count", 1)
+                expect = _dict(case["expect"], f"{path}.expect", set(ROLES), set(ROLES))
+                for role in ROLES:
+                    if not expect[role]:
+                        raise ScenarioError(f"{path}.expect.{role}: post-effect assertion required")
+                    _assertion(expect[role], f"{path}.expect.{role}")
+            identities = [
+                tuple(case["results"]) if target["message_type"] in (130, 131) else case["count"]
+                for case in cases
+            ]
+            if len(set(identities)) != len(identities):
+                raise ScenarioError("random_target.cases: duplicate result case")
+            coverage = _list(target.get("coverage", []), "random_target.coverage")
+            if target["message_type"] == 81 and coverage:
+                raise ScenarioError("random selection cannot claim hidden identity coverage")
+            coverage_keys: list[tuple[Any, ...]] = []
+            for index, result in enumerate(coverage):
+                values = _list(result, f"random_target.coverage[{index}]")
+                allowed = ("heads", "tails") if target["message_type"] == 130 else range(1, 7)
+                if not values or any(type(v) is bool or v not in allowed for v in values):
+                    raise ScenarioError(f"random_target.coverage[{index}]: invalid result")
+                max_count = 20 if target["message_type"] == 130 else 5
+                if len(values) > max_count:
+                    raise ScenarioError(
+                        f"random_target.coverage[{index}]: exceeds {max_count} results"
+                    )
+                coverage_keys.append(tuple(values))
+            if len(set(coverage_keys)) != len(coverage_keys):
+                raise ScenarioError("random_target.coverage: duplicate target")
+            self.random_target = target
+        elif "random_target" in root:
+            raise ScenarioError("random_target requires a random scenario")
         self.source = source
         defaults = _dict(root.get("defaults", {}), "defaults", set(), {"optional"})
         if "optional" in defaults and defaults["optional"] != "decline":
@@ -374,6 +483,8 @@ class Scenario:
         self.allowed_random_messages: set[int] = (
             {33} if "hand_shuffle" in allowed_random_events else set()
         )
+        if self.random_target is not None:
+            self.allowed_random_messages.add(self.random_target["message_type"])
         self.event_assertions = _dict(
             root.get("event_assertions", {}), "event_assertions", set(), set(ROLES)
         )
@@ -466,6 +577,8 @@ class Scenario:
                     _assertion(expectations[role], f"goal.surrender.expect.{role}")
         else:
             raise ScenarioError("goal.kind: expected checkpoint or duel_end")
+        if self.random_target is not None and self.goal["kind"] != "checkpoint":
+            raise ScenarioError("random scenario requires a post-effect checkpoint")
         self._cursors = {role: 0 for role in ROLES}
         self._rps = {role: 0 for role in ROLES}
         self._first_player_seen = False
@@ -647,6 +760,44 @@ class Scenario:
                     f"after accepted event offset {cursor}"
                 )
             cursor = match + 1
+
+    def match_random_case(
+        self, events: dict[str, list[dict[str, Any]]]
+    ) -> tuple[str, dict[str, Any]]:
+        """Select exactly one public result case from each perspective's accepted events."""
+        target = self.random_target
+        if target is None:
+            raise ScenarioError("random case requested for deterministic scenario")
+        kind = {81: "cards_randomly_selected", 130: "coin_tossed", 131: "dice_rolled"}[
+            target["message_type"]
+        ]
+        found: dict[str, dict[str, Any]] = {}
+        for role in ROLES:
+            matches = [event for event in events.get(role, []) if event.get("kind") == kind]
+            if len(matches) != 1:
+                raise ScenarioError(
+                    f"{role}: expected exactly one {kind} event, found {len(matches)}"
+                )
+            found[role] = matches[0]
+        host = found["host"]
+        guest = found["guest"]
+        if host.get("count") != guest.get("count"):
+            raise ScenarioError("random event count differs by perspective")
+        if target["message_type"] in (130, 131):
+            results = host.get("results")
+            if results != guest.get("results") or not isinstance(results, list):
+                raise ScenarioError("public random results differ by perspective")
+            results = cast(list[Any], results)
+            if host.get("count") != len(results):
+                raise ScenarioError("random event count differs from result length")
+            cases = [case for case in target.get("cases", []) if case["results"] == results]
+            key = json.dumps(results, ensure_ascii=False, separators=(",", ":"))
+        else:
+            cases = [case for case in target.get("cases", []) if case["count"] == host.get("count")]
+            key = f"count:{host['count']}"
+        if len(cases) > 1:
+            raise ScenarioError("random result matches multiple cases")
+        return key, cases[0] if cases else {"expect": target["expect"]}
 
     def _resolve(self, request: DecisionRequest, selector: dict[str, Any], context: str) -> str:
         matches = [c for c in request.candidates if _candidate_match(c, selector)]

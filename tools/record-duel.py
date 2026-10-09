@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record a deterministic manual LAN duel and verify the generated scenario."""
+"""Record a manual LAN duel and prepare a reviewable scenario."""
 
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ class CaptureState:
             if record.get("no_shuffle_deck") not in (True, 1):
                 raise RecordingFailure(
                     "config_failed",
-                    f"{role}: 未勾选「不洗牌」；录制只接受确定性房间",
+                    f"{role}: 未勾选「不洗牌」；场景录制要求固定牌序",
                     close_clients=True,
                 )
             for key, expected in ROOM_REQUIREMENTS.items():
@@ -98,7 +98,7 @@ class CaptureState:
                         "config_failed",
                         f"{role}: {key}={record.get(key)!r}，要求 {expected}",
                     )
-            print(f"{role}: 已入房，确定性房间参数通过", flush=True)
+            print(f"{role}: 已入房，固定牌序房间参数通过", flush=True)
             if len(self.rooms) == len(ROLES):
                 keys = (*ROOM_REQUIREMENTS, "no_shuffle_deck", "no_check_deck")
                 if any(
@@ -214,6 +214,17 @@ def main() -> int:
     parser.add_argument("--cards-db", type=Path, default=root / "cards.cdb")
     parser.add_argument("--output", type=Path, help="recording directory")
     parser.add_argument("--name", help="human-readable name stored in the manifest")
+    parser.add_argument(
+        "--goal-file",
+        type=Path,
+        help="existing UTF-8 goal.md prepared before GUI launch",
+    )
+    parser.add_argument(
+        "--scenario-kind",
+        choices=("deterministic", "random"),
+        default="deterministic",
+        help="random records one target random operation for later Agent review",
+    )
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--terminal-grace", type=int, default=15)
     parser.add_argument("--verify-timeout", type=int, default=300)
@@ -231,6 +242,14 @@ def main() -> int:
         parser.error("--name must be 1-80 readable characters without path separators")
     if args.name is not None:
         args.name = args.name.strip()
+    goal_text: str | None = None
+    if args.goal_file is not None:
+        try:
+            goal_text = args.goal_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            parser.error(f"cannot read --goal-file: {exc}")
+        if goal_text is None or not goal_text.strip():
+            parser.error("--goal-file is empty")
     if (
         args.timeout < 60
         or args.verify_timeout < 10
@@ -242,11 +261,20 @@ def main() -> int:
     capture_id = uuid.uuid4().hex
     work = (args.output or root / "out/duel-recordings" / capture_id).resolve()
     work.mkdir(parents=True, exist_ok=False)
+    if goal_text is not None:
+        (work / "goal.md").write_text(goal_text, encoding="utf-8")
     manifest_path = work / "manifest.json"
     manifest: dict[str, Any] = {
         "schema_version": 1,
         "record_id": capture_id,
         "name": args.name,
+        "scenario_kind": args.scenario_kind,
+        "goal": {
+            "path": "goal.md",
+            "source": str(args.goal_file.resolve()),
+        }
+        if args.goal_file is not None
+        else None,
         "created_at": utc_now(),
         "status": "recording",
         "phase": "starting",
@@ -361,6 +389,8 @@ def main() -> int:
                 str(draft),
                 "--cards-db",
                 str(cards_db),
+                "--scenario-kind",
+                args.scenario_kind,
             ],
             cwd=root,
             env=environment,
@@ -379,6 +409,19 @@ def main() -> int:
                 else "compile_failed"
             )
             raise RecordingFailure(status, f"场景编译失败；诊断见 {report_path}")
+
+        if args.scenario_kind == "random":
+            candidate = draft / "scenario.unverified.yaml"
+            write_manifest(
+                manifest_path,
+                manifest,
+                status="review_required",
+                phase="finished",
+                scenario=str(candidate.relative_to(work)),
+                reason="随机效果完成边界、后置断言和覆盖目标须由 Agent 审查",
+            )
+            print(f"随机场景候选：{candidate}；需审查后才能执行", flush=True)
+            return 0
 
         write_manifest(
             manifest_path, manifest, phase="validating", scenario="draft/scenario.yaml"

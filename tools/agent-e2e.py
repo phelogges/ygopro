@@ -158,6 +158,36 @@ def matching_snapshot(
     )
 
 
+def post_random_snapshot_seen(
+    scenario: Any,
+    role: str,
+    snapshots: list[dict[str, Any]],
+    target_message: int,
+    last_action_unix_ms: int,
+    requirements: tuple[dict[str, Any], ...],
+) -> bool:
+    """Require every post-effect assertion on the same snapshot after the result."""
+    positions = [
+        index
+        for index, record in enumerate(snapshots)
+        if record.get("message_type") == target_message
+    ]
+    if len(positions) != 1:
+        raise RuntimeError(
+            f"{role}: expected exactly one target random message, found {len(positions)}"
+        )
+    for record in snapshots[positions[0] + 1 :]:
+        if record["timestamp_unix_ms"] < last_action_unix_ms:
+            continue
+        try:
+            for expected in requirements:
+                scenario.assert_visible(role, record["observation"], expected)
+        except ValueError:
+            continue
+        return True
+    return False
+
+
 def checkpoint_failure(
     scenario: Any, status: dict[str, Any], tails: dict[str, SnapshotTail]
 ) -> str:
@@ -185,10 +215,12 @@ def checkpoint_failure(
     return "; ".join(differences)
 
 
-def assert_recorded_events(scenario: Any, work: Path) -> None:
+def assert_recorded_events(
+    scenario: Any, work: Path
+) -> dict[str, list[dict[str, Any]]]:
     """Check the test service's accepted event journal, including /v2/sync batches."""
-    if not any(scenario.event_assertions.values()):
-        return
+    if not any(scenario.event_assertions.values()) and scenario.random_target is None:
+        return {}
     from agent_sdk.state_journal import StateJournal
 
     journal_root = work / "state"
@@ -222,6 +254,7 @@ def assert_recorded_events(scenario: Any, work: Path) -> None:
         if role not in accepted:
             raise RuntimeError(f"{role}: accepted event journal missing")
         scenario.assert_events(role, accepted[role])
+    return accepted
 
 
 def run_scripted_duel(
@@ -339,6 +372,17 @@ def run_scripted_duel(
             and hands_ready
             and steps_done
             and waits_done
+            and (
+                scenario.random_target is None
+                or all(
+                    any(
+                        record.get("message_type")
+                        == scenario.random_target["message_type"]
+                        for record in tails[role].snapshots
+                    )
+                    for role in roles
+                )
+            )
             and all(
                 matching_snapshot(
                     scenario,
@@ -350,7 +394,31 @@ def run_scripted_duel(
                 for role in roles
             )
         ):
-            assert_recorded_events(scenario, work)
+            accepted = assert_recorded_events(scenario, work)
+            random_case_key = None
+            if scenario.random_target is not None:
+                random_case_key, random_case = scenario.match_random_case(accepted)
+                target_message = scenario.random_target["message_type"]
+                post_effect_ready = True
+                for role in roles:
+                    requirements = (
+                        scenario.goal["expect"][role],
+                        scenario.random_target["expect"][role],
+                        random_case["expect"][role],
+                    )
+                    if not post_random_snapshot_seen(
+                        scenario,
+                        role,
+                        tails[role].snapshots,
+                        target_message,
+                        status["last_action_unix_ms"],
+                        requirements,
+                    ):
+                        post_effect_ready = False
+                        break
+                if not post_effect_ready:
+                    time.sleep(0.05)
+                    continue
             for role in roles:
                 audit_decisions(tails[role].path, require_hand=False)
             if gui:
@@ -366,6 +434,11 @@ def run_scripted_duel(
                 "status": "checkpoint_passed",
                 "opening_hands": {role: tails[role].opening_hand for role in roles},
                 "decisions": status["decisions"],
+                **(
+                    {"random_case": random_case_key}
+                    if random_case_key is not None
+                    else {}
+                ),
             }
         if all((work / f"game-1-{role}.json").is_file() for role in roles) and (
             gui or all(child.poll() is not None for child in clients)
@@ -594,6 +667,7 @@ def main() -> int:
     parser.add_argument("--host-deck")
     parser.add_argument("--guest-deck")
     parser.add_argument("--scenario", help="YAML scripted fixed-deck duel")
+    parser.add_argument("--report-output", type=Path, help=argparse.SUPPRESS)
     parser.add_argument(
         "--agent-v3-offline",
         action="store_true",
@@ -911,6 +985,11 @@ def main() -> int:
             write_scenario_report(
                 work, scenario, decks, expected_opening, outcome, failure
             )
+            if args.report_output:
+                args.report_output.parent.mkdir(parents=True, exist_ok=True)
+                args.report_output.write_bytes(
+                    (work / "scenario-report.json").read_bytes()
+                )
             print(f"scenario report: {work / 'scenario-report.json'}", flush=True)
         print(f"diagnostic files retained: {work}", flush=True)
     return 0

@@ -10,7 +10,9 @@ cmake --build --preset MacOS-Debug
 uv run --project agent_sdk --extra scenario python tools/record-duel.py --name "示例对局"
 ```
 
-启动器打开 Host、Guest 两个正常 GUI 窗口。人工在 Host 建立单局 1v1 房间，启用“不洗牌”，使用起手五张、LP 8000、每回合抽一张且无时间限制；“不检查卡组”可开可关。Guest 加入该房间，双方选好卡组并手动决斗至终局。启动器从实际提交的卡组、双端提示和响应编译场景，然后运行一次无界面双客户端回归。客户端录制与回归都使用现有局域网协议，服务端实现不变。
+默认是严格确定性场景。启动器打开 Host、Guest 两个正常 GUI 窗口。人工在 Host 建立单局 1v1 房间，启用“不洗牌”，使用起手五张、LP 8000、每回合抽一张且无时间限制；“不检查卡组”可开可关。Guest 加入该房间，双方选好卡组并手动决斗至终局。启动器从实际提交的卡组、双端提示和响应编译场景，然后运行一次无界面双客户端回归。客户端录制与回归都使用现有局域网协议，服务端实现不变。
+
+测试目标先由开发 Agent 写成含“用户原话”和“Agent 整理目标”的 `goal.md`，再用 `--goal-file PATH` 在打开 GUI 前归档。若目标是抛币、掷骰或随机选卡，显式追加 `--scenario-kind random`；仍须勾选“不洗牌”。随机模式结束后只产 `draft/scenario.unverified.yaml` 和 `review_required` 清单，等待 Agent 按[随机场景契约](../contracts/agent-scenario-v2.md)裁切到效果完成后的 checkpoint 并补断言，不能直接当作通过的回归。
 
 原始 `host.jsonl`、`guest.jsonl`、进程日志、`manifest.json` 与生成草稿保存在 `out/duel-recordings/<record_id>/`。`draft/scenario.yaml`、两端 YDK、中文 `timeline.md` 是待验证产物；`draft/compile-report.json` 说明能否编译，`validation-report.json` 与 `validation.log` 记录实际回归结果。只有 `manifest.json` 和 `validation-report.json` 都为 `validated` 才认为 YAML 通过回放。命令结束时打印绝对路径，窗口默认保留，`--close-clients` 可让启动器关闭本次启动的窗口。`--max-log-mib` 调整每端日志大小上限，默认 100。录制数据含双方隐藏信息，不提交到 Git。
 
@@ -39,7 +41,7 @@ uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario
 uv run --project agent_sdk --extra scenario python tools/compile-duel-recording.py --recording out/duel-recordings/<record_id> --output out/duel-recordings/<record_id>/draft --analysis-draft
 ```
 
-此时查看 `draft/scenario.unverified.yaml`、`draft/timeline.md` 和 `draft/compile-report.json`。`draft_unverified` 不是回归通过，不能直接把这份 YAML 当作固定牌序测试用例。新标准录制入口只允许确定性录制，未开启“不洗牌”应在开局前报错并关闭本次启动的两个 GUI；历史分析命令不能视为新录制模式。
+此时查看 `draft/scenario.unverified.yaml`、`draft/timeline.md` 和 `draft/compile-report.json`。`draft_unverified` 不是回归通过，不能直接把这份 YAML 当作固定牌序测试用例。新标准入口有显式的随机场景模式，但依然要求“不洗牌”；未开启时应在开局前报错并关闭本次启动的两个 GUI。历史分析命令不能替代新随机录制模式。
 
 旧版本录制器若报告 `unpaired_response`，保留原始日志，并使用 CMake Debug 构建出的 `agent_response_decode` 与 `tools/repair-duel-recording.py --recording <原录制目录> --output <独立修复目录>` 重新配对。工具只在每条入站决策帧恰有一个提示或空连锁、一个实际出站响应时继续，并由原始决策编解码器逐字节反解。`repair-report.json` 列出修复数量；对修复目录重新编译和回归，不覆盖原始日志。新录制器已修复空连锁响应的暂存错误。
 

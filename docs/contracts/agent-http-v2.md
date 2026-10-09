@@ -102,6 +102,15 @@
  "player": 1, "count": 1, "results": ["tails"]}
 ```
 
+`MSG_RANDOM_SELECTED`（81）生成 `cards_randomly_selected`，包含本方视角的执行玩家 `player`、`count` 和按收到的报文顺序排列的 `cards`。每项仅含选中卡所在的本方视角 `player` 与原始 `location`；当前位置确实可查看时才含 `sequence`。双方牌组、对方手牌、对方额外卡组与除外区，以及本次不可查看的墓地不提供序号。报文本身没有卡片 ID，事件也绝不从客户端缓存补充 ID 或推断选中的是哪张卡。报文的玩家、数量（`uint8`，1–255）、区域、长度非法时置为解析不完整。例如，对方手牌和己方怪兽区各选中一张：
+
+```json
+{"event_id": 10, "kind": "cards_randomly_selected", "message_type": 81,
+ "player": 1, "count": 2,
+ "cards": [{"player": 1, "location": 2},
+           {"player": 0, "location": 4, "sequence": 2}]}
+```
+
 快照比较生成的是**净状态差异**，与上述有序观测事件分开。相同卡片 ID 的多份副本、手牌重排及隐藏区进出不能凭快照推断为同一实体移动；只有已观测事件明确关联时才表达移动关系。
 
 ## 决策响应

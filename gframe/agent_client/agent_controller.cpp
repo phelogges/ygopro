@@ -2,6 +2,7 @@
 
 #include "sha256_file.h"
 #include "random_result_event.h"
+#include "random_selection_event.h"
 #include "../client_card.h"
 #include "../data_manager.h"
 #include "../bufferio.h"
@@ -559,6 +560,15 @@ void AgentController::RecordEvent(const std::uint8_t* bytes, std::size_t length,
 			length >= 2 && bytes[1] <= 1 ? mainGame->LocalPlayer(bytes[1]) : -1);
 		if(random_event) {
 			event.update(*random_event);
+		} else {
+			parsed = false;
+			event["kind"] = "unparsed_game_message";
+		}
+	} else if(type == MSG_RANDOM_SELECTED) {
+		const auto selected = ParseRandomSelectionEvent(bytes, length,
+			mainGame->dInfo.isFirst, !mainGame->dField.cant_check_grave);
+		if(selected) {
+			event.update(*selected);
 		} else {
 			parsed = false;
 			event["kind"] = "unparsed_game_message";

@@ -39,8 +39,13 @@ class RecordDuelLauncherTests(unittest.TestCase):
         self.assertEqual(state.terminal_since, 45.0)
 
     def run_fake_client(
-        self, *, no_shuffle: bool, disconnect: bool
-    ) -> tuple[dict, str]:
+        self,
+        *,
+        no_shuffle: bool,
+        disconnect: bool,
+        scenario_kind: str = "deterministic",
+        goal_text: str | None = None,
+    ) -> tuple[dict, str, str | None]:
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
             client = folder / "fake-client"
@@ -69,6 +74,9 @@ class RecordDuelLauncherTests(unittest.TestCase):
             cards_db = folder / "cards.cdb"
             cards_db.write_bytes(b"test-only")
             recording = folder / "capture"
+            goal = folder / "goal.md"
+            if goal_text is not None:
+                goal.write_text(goal_text, encoding="utf-8")
             command = [
                 sys.executable,
                 str(LAUNCHER),
@@ -80,10 +88,14 @@ class RecordDuelLauncherTests(unittest.TestCase):
                 str(recording),
                 "--name",
                 "测试（录制）",
+                "--scenario-kind",
+                scenario_kind,
                 "--timeout",
                 "60",
                 "--close-clients",
             ]
+            if goal_text is not None:
+                command.extend(("--goal-file", str(goal)))
             completed = subprocess.run(
                 command,
                 cwd=ROOT,
@@ -99,10 +111,15 @@ class RecordDuelLauncherTests(unittest.TestCase):
                 with self.assertRaises(ProcessLookupError):
                     os.kill(pid, 0)
             self.assertNotEqual(completed.returncode, 0)
-            return manifest, completed.stdout + completed.stderr
+            archived_goal = (
+                (recording / "goal.md").read_text(encoding="utf-8")
+                if (recording / "goal.md").is_file()
+                else None
+            )
+            return manifest, completed.stdout + completed.stderr, archived_goal
 
     def test_missing_no_shuffle_closes_both_owned_clients(self) -> None:
-        manifest, output = self.run_fake_client(no_shuffle=False, disconnect=False)
+        manifest, output, _ = self.run_fake_client(no_shuffle=False, disconnect=False)
         self.assertEqual(manifest["status"], "config_failed")
         self.assertEqual(manifest["name"], "测试（录制）")
         self.assertIn("未勾选「不洗牌」", manifest["reason"])
@@ -110,9 +127,21 @@ class RecordDuelLauncherTests(unittest.TestCase):
         self.assertTrue(manifest["observed_rooms"])
 
     def test_connection_close_marks_aborted(self) -> None:
-        manifest, _ = self.run_fake_client(no_shuffle=True, disconnect=True)
+        manifest, _, _ = self.run_fake_client(no_shuffle=True, disconnect=True)
         self.assertEqual(manifest["status"], "aborted")
         self.assertIn("连接关闭", manifest["reason"])
+
+    def test_random_goal_is_archived_before_duel_starts(self) -> None:
+        goal_text = "## 用户原始描述\n测试一次抛币\n\n## Agent 整理\n检查双方结果\n"
+        manifest, _, archived_goal = self.run_fake_client(
+            no_shuffle=True,
+            disconnect=True,
+            scenario_kind="random",
+            goal_text=goal_text,
+        )
+        self.assertEqual(manifest["scenario_kind"], "random")
+        self.assertEqual(manifest["goal"]["path"], "goal.md")
+        self.assertEqual(archived_goal, goal_text)
 
 
 if __name__ == "__main__":

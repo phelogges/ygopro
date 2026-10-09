@@ -136,6 +136,102 @@ def finish_pregame(scenario: Scenario) -> None:
 
 
 class ScenarioTests(unittest.TestCase):
+    def test_random_selection_event_asserts_each_view_without_hidden_sequence(self) -> None:
+        data = scene()
+        data["schema_version"] = 2
+        data["scenario_kind"] = "random"
+        data["random_target"] = {
+            "message_type": 81,
+            "expect": {"host": {"turn": 1}, "guest": {"turn": 1}},
+        }
+        data["event_assertions"] = {
+            "host": [
+                {
+                    "kind": "cards_randomly_selected",
+                    "count": 1,
+                    "cards": [{"player": "opponent", "location": 2}],
+                }
+            ],
+            "guest": [
+                {
+                    "kind": "cards_randomly_selected",
+                    "count": 1,
+                    "cards": [{"player": "self", "location": 2, "sequence": 3}],
+                }
+            ],
+        }
+        scenario = Scenario(data)
+        scenario.assert_events(
+            "host",
+            [
+                {
+                    "kind": "cards_randomly_selected",
+                    "count": 1,
+                    "cards": [{"player": 1, "location": 2}],
+                }
+            ],
+        )
+        scenario.assert_events(
+            "guest",
+            [
+                {
+                    "kind": "cards_randomly_selected",
+                    "count": 1,
+                    "cards": [{"player": 0, "location": 2, "sequence": 3}],
+                }
+            ],
+        )
+        with self.assertRaisesRegex(ScenarioError, "event_assertions"):
+            scenario.assert_events(
+                "host",
+                [
+                    {
+                        "kind": "cards_randomly_selected",
+                        "count": 1,
+                        "cards": [{"player": 1, "location": 2, "sequence": 3}],
+                    }
+                ],
+            )
+
+    def test_random_v2_accepts_untargeted_legal_result(self) -> None:
+        data = scene()
+        data["schema_version"] = 2
+        data["scenario_kind"] = "random"
+        data["random_target"] = {
+            "message_type": 130,
+            "coverage": [["heads"]],
+            "expect": {"host": {"phase": "main_1"}, "guest": {"phase": "main_1"}},
+        }
+        scenario = Scenario(data)
+        event = {"kind": "coin_tossed", "count": 1, "results": ["tails"]}
+        key, case = scenario.match_random_case({"host": [event], "guest": [event]})
+        self.assertEqual(key, '["tails"]')
+        self.assertEqual(case["expect"]["host"], {"phase": "main_1"})
+
+    def test_random_v2_requires_post_effect_checkpoint(self) -> None:
+        data = scene()
+        data["schema_version"] = 2
+        data["scenario_kind"] = "random"
+        data["random_target"] = {
+            "message_type": 131,
+            "expect": {"host": {"turn": 1}, "guest": {"turn": 1}},
+        }
+        data["goal"] = {"kind": "duel_end", "winner": "any"}
+        with self.assertRaisesRegex(ScenarioError, "post-effect checkpoint"):
+            Scenario(data)
+
+    def test_random_selection_rejects_identity_coverage(self) -> None:
+        data = scene()
+        data["schema_version"] = 2
+        data["scenario_kind"] = "random"
+        data["random_target"] = {
+            "message_type": 81,
+            "coverage": [[1]],
+            "expect": {"host": {"turn": 1}, "guest": {"turn": 1}},
+        }
+        with self.assertRaisesRegex(ScenarioError, "hidden identity coverage"):
+            Scenario(data)
+
     def test_semantic_choice_and_visible_assertions(self) -> None:
         scenario = Scenario(scene())
         self.assertEqual(scenario.first_player_role, "host")

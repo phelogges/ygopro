@@ -162,7 +162,7 @@ class StateTests(unittest.TestCase):
         for changes in invalid_changes:
             with self.subTest(changes=changes), self.assertRaises(StateError):
                 StateStore().apply_sync(sync([{**valid, **changes}]))
-        invalid_option = {
+        invalid_option: dict[str, object] = {
             "event_id": 1,
             "kind": "hint_observed",
             "message_type": 2,
@@ -173,6 +173,47 @@ class StateTests(unittest.TestCase):
         }
         with self.assertRaises(StateError):
             StateStore().apply_sync(sync([invalid_option]))
+
+    def test_random_selection_preserves_only_visible_positions(self) -> None:
+        selected: dict[str, object] = {
+            "event_id": 1,
+            "kind": "cards_randomly_selected",
+            "message_type": 81,
+            "player": 1,
+            "count": 3,
+            "cards": [
+                {"player": 1, "location": 2},
+                {"player": 0, "location": 4, "sequence": 2},
+                {"player": 1, "location": 1},
+            ],
+        }
+        store = StateStore()
+        self.assertEqual(store.apply_sync(sync([selected])), 1)
+        self.assertEqual(store.get_events("client-a", "duel-1"), (selected,))
+        invalid_cards: list[list[dict[str, int]]] = [
+            [{"player": 1, "location": 2, "sequence": 4}],
+            [{"player": 1, "location": 1, "sequence": 9}],
+            [{"player": 1, "location": 32, "sequence": 0}],
+            [{"player": 1, "location": 2, "card_id": 12345}],
+            [{"player": 2, "location": 4}],
+            [{"player": 0, "location": 4, "sequence": 256}],
+            [{"player": 0, "location": 260}],
+        ]
+        for cards in invalid_cards:
+            with self.subTest(cards=cards), self.assertRaises(StateError):
+                StateStore().apply_sync(sync([{**selected, "count": 1, "cards": cards}]))
+        for changes in ({"message_type": 130}, {"count": 2}, {"player": 2}):
+            with self.subTest(changes=changes), self.assertRaises(StateError):
+                StateStore().apply_sync(sync([{**selected, **changes}]))
+        many_cards = [{"player": 0, "location": 4, "sequence": 255}] * 255
+        self.assertEqual(
+            StateStore().apply_sync(sync([{**selected, "count": 255, "cards": many_cards}])),
+            1,
+        )
+        with self.assertRaises(StateError):
+            StateStore().apply_sync(
+                sync([{**selected, "count": 256, "cards": many_cards + many_cards[:1]}])
+            )
 
     def test_control_change_event(self) -> None:
         control: dict[str, object] = {

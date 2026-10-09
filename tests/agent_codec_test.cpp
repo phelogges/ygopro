@@ -1,6 +1,7 @@
 #undef NDEBUG
 #include "agent_client/decision_codec.h"
 #include "agent_client/random_result_event.h"
+#include "agent_client/random_selection_event.h"
 #include "ocgcore/common.h"
 #include <cassert>
 #include <iostream>
@@ -143,6 +144,50 @@ int main(int argc, char** argv){
    assert(!ParseRandomResultEvent(invalid.data(), invalid.size(), 0));
  assert(
      !ParseRandomResultEvent(observed_coin.data(), observed_coin.size(), -1));
+ B selected = {MSG_RANDOM_SELECTED, 1, 3,
+               1, LOCATION_HAND, 4, 0,
+               0, LOCATION_MZONE, 2, 0,
+               1, LOCATION_DECK, 9, 0};
+ const auto selected_first = ParseRandomSelectionEvent(
+     selected.data(), selected.size(), true, true);
+ assert(selected_first && *selected_first ==
+     J({{"kind", "cards_randomly_selected"}, {"player", 1}, {"count", 3},
+        {"cards", J::array({J{{"player", 1}, {"location", LOCATION_HAND}},
+                             J{{"player", 0}, {"location", LOCATION_MZONE}, {"sequence", 2}},
+                             J{{"player", 1}, {"location", LOCATION_DECK}}})}}));
+ const auto selected_second = ParseRandomSelectionEvent(
+     selected.data(), selected.size(), false, true);
+ assert(selected_second && (*selected_second)["player"] == 0);
+ assert((*selected_second)["cards"][0] ==
+        J({{"player", 0}, {"location", LOCATION_HAND}, {"sequence", 4}}));
+ assert((*selected_second)["cards"][2] ==
+        J({{"player", 0}, {"location", LOCATION_DECK}}));
+ B selected_hidden = {MSG_RANDOM_SELECTED, 0, 2,
+                      1, LOCATION_EXTRA, 3, 0,
+                      0, LOCATION_GRAVE, 4, 0};
+ const auto hidden_event = ParseRandomSelectionEvent(
+     selected_hidden.data(), selected_hidden.size(), true, false);
+ assert(hidden_event && (*hidden_event)["cards"] ==
+     J::array({J{{"player", 1}, {"location", LOCATION_EXTRA}},
+               J{{"player", 0}, {"location", LOCATION_GRAVE}}}));
+ B many_selected = {MSG_RANDOM_SELECTED, 0, 255};
+ for (int i = 0; i < 255; ++i)
+   many_selected.insert(many_selected.end(), {0, LOCATION_MZONE, 0, 0});
+ const auto many_event = ParseRandomSelectionEvent(
+     many_selected.data(), many_selected.size(), true, true);
+ assert(many_event && (*many_event)["count"] == 255 &&
+        (*many_event)["cards"].size() == 255);
+ for (std::size_t length = 0; length < selected.size(); ++length)
+   assert(!ParseRandomSelectionEvent(selected.data(), length, true, true));
+ B extra_selected = selected;
+ extra_selected.push_back(0);
+ assert(!ParseRandomSelectionEvent(extra_selected.data(), extra_selected.size(), true, true));
+ for (const B &invalid :
+      {B{MSG_RANDOM_SELECTED, 2, 1, 0, LOCATION_MZONE, 0, 0},
+       B{MSG_RANDOM_SELECTED, 0, 0},
+       B{MSG_RANDOM_SELECTED, 0, 1, 2, LOCATION_HAND, 0, 0},
+       B{MSG_RANDOM_SELECTED, 0, 1, 0, 0, 0, 0}})
+   assert(!ParseRandomSelectionEvent(invalid.data(), invalid.size(), true, true));
  if (argc == 2 && std::string(argv[1]) == "--dump-prompts") {
    J prompts = J::array({hand.decision->prompt(), tp.decision->prompt(),
                          announcement.decision->prompt()});

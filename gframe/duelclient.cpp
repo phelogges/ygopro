@@ -3197,7 +3197,7 @@ bool DuelClient::ClientAnalyze(unsigned char* msg, size_t len) {
 			return true;
 		}
 		soundManager.PlaySoundEffect(SOUND_DICE);
-		ClientCard* pcards[10];
+		std::vector<ClientCard*> pcards(count);
 		for (int i = 0; i < count; ++i) {
 			int c = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 			unsigned int l = BufferIO::Read<uint8_t>(pbuf);

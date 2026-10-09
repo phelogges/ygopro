@@ -18,6 +18,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cards-db", type=Path)
     parser.add_argument(
+        "--scenario-kind",
+        choices=("deterministic", "random"),
+        default="deterministic",
+    )
+    parser.add_argument(
         "--analysis-draft",
         action="store_true",
         help="emit an explicitly unverified draft when random events or room settings prevent replay",
@@ -29,7 +34,12 @@ def main() -> int:
     )
     args = parser.parse_args()
     report = compile_recording(
-        args.recording, args.output, args.cards_db, args.overrides, args.analysis_draft
+        args.recording,
+        args.output,
+        args.cards_db,
+        args.overrides,
+        args.analysis_draft,
+        args.scenario_kind,
     )
     if report["status"] == "draft_unverified":
         print(f"未验证草稿：{args.output / 'scenario.unverified.yaml'}")

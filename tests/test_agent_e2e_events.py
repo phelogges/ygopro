@@ -12,6 +12,60 @@ from agent_sdk.state_journal import StateJournal
 
 
 class AcceptedEventAssertionTests(unittest.TestCase):
+    def test_random_checkpoint_requires_one_later_snapshot_satisfying_all_assertions(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runner = runpy.run_path(str(root / "tools/agent-e2e.py"))
+
+        class VisibleFields:
+            @staticmethod
+            def assert_visible(
+                _role: str, observation: dict[str, object], expected: dict[str, object]
+            ) -> None:
+                if any(
+                    observation.get(key) != value for key, value in expected.items()
+                ):
+                    raise ValueError("mismatch")
+
+        target = {
+            "message_type": 130,
+            "timestamp_unix_ms": 100,
+            "observation": {"turn": 1, "phase": "main_1"},
+        }
+        requirements = ({"turn": 1}, {"phase": "main_1"})
+        check = runner["post_random_snapshot_seen"]
+        self.assertFalse(
+            check(VisibleFields(), "host", [target], 130, 100, requirements)
+        )
+        split = [
+            target,
+            {"message_type": 40, "timestamp_unix_ms": 101, "observation": {"turn": 1}},
+            {
+                "message_type": 41,
+                "timestamp_unix_ms": 102,
+                "observation": {"phase": "main_1"},
+            },
+        ]
+        self.assertFalse(check(VisibleFields(), "host", split, 130, 100, requirements))
+        combined = {
+            "message_type": 42,
+            "timestamp_unix_ms": 103,
+            "observation": {"turn": 1, "phase": "main_1"},
+        }
+        self.assertTrue(
+            check(VisibleFields(), "host", [*split, combined], 130, 100, requirements)
+        )
+        with self.assertRaisesRegex(RuntimeError, "exactly one target random message"):
+            check(
+                VisibleFields(),
+                "host",
+                [target, target, combined],
+                130,
+                100,
+                requirements,
+            )
+
     def test_sync_only_reveal_is_checked_from_persisted_journal(self) -> None:
         root = Path(__file__).resolve().parents[1]
         runner = runpy.run_path(str(root / "tools/agent-e2e.py"))

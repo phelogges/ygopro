@@ -294,6 +294,39 @@ def _validate_events(value: object) -> list[JSONObject]:
                     raise StateError("invalid_state", "event.results: invalid die face")
         elif "results" in event:
             raise StateError("invalid_state", "event.results requires a random result event")
+        if event["kind"] == "cards_randomly_selected":
+            if event.get("message_type") != 81:
+                raise StateError("invalid_state", "random selection message type mismatch")
+            if _integer(event.get("player"), "event.player") > 1:
+                raise StateError("invalid_state", "event.player: expected 0 or 1")
+            count = _integer(event.get("count"), "event.count", 1)
+            cards = event.get("cards")
+            if (
+                count > 255
+                or not isinstance(cards, list)
+                or len(cast(list[object], cards)) != count
+            ):
+                raise StateError("invalid_state", "event.cards: random selection count mismatch")
+            for selected in cast(list[object], cards):
+                card = _object(selected, "event.cards item")
+                _only_fields(card, {"player", "location", "sequence"}, "event.cards item")
+                player = _integer(card.get("player"), "event.cards.player")
+                location = _integer(card.get("location"), "event.cards.location")
+                if (
+                    player > 1
+                    or location > 255
+                    or (location & 0x7f) not in (1, 2, 4, 8, 16, 32, 64)
+                    or (location & 0x80 and (location & 0x7f) != 4)
+                ):
+                    raise StateError("invalid_state", "event.cards: invalid location")
+                if "sequence" in card:
+                    sequence = _integer(card["sequence"], "event.cards.sequence")
+                    if sequence > 255:
+                        raise StateError("invalid_state", "event.cards: invalid sequence")
+                    if (location & 0x7f) == 1 or (
+                        player == 1 and (location & 0x7f) in (2, 32, 64)
+                    ):
+                        raise StateError("invalid_state", "event.cards: hidden sequence")
         for name, field_value in event.items():
             if name in {"event_id", "cards", "targets", "results"}:
                 continue
