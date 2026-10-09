@@ -8,7 +8,9 @@ import json
 import os
 import signal
 import socket
+import subprocess
 import sys
+import tempfile
 import time
 from contextlib import closing
 from pathlib import Path
@@ -19,6 +21,8 @@ from agent_sdk.state import StateDelta
 from agent_sdk.test_server import decide as deterministic_decide
 from aiohttp import web
 
+from agent_server.codex_agent import CodexDecisionAgent
+from agent_server.codex_mcp_stdio import main as codex_mcp_main
 from agent_server.config import load_settings, profile_data_dir
 from agent_server.http_service import HttpService, load_viewer_token, web_root
 from agent_server.model_agent import DecisionAgent, DecisionFailure
@@ -74,8 +78,30 @@ async def serve(profile: str, *, offline: bool = False) -> None:
     ):
         storage.mark_interrupted_turns()
         storage.prune_finished(settings.storage.retention_days, settings.storage.max_bytes)
+        codex_agent: CodexDecisionAgent | None = None
         if offline:
             decide = offline_decide
+        elif settings.backend == "codex":
+            codex_agent = CodexDecisionAgent(settings, storage, skills, data_dir)
+            probe_started = time.perf_counter()
+            probe_ok = False
+            try:
+                async with asyncio.timeout(settings.server.startup_timeout_seconds):
+                    await codex_agent.start()
+                probe_ok = True
+            finally:
+                print(
+                    json.dumps(
+                        {
+                            "event": "codex_start_timing",
+                            "duration_ms": round((time.perf_counter() - probe_started) * 1000, 2),
+                            "status": "completed" if probe_ok else "failed",
+                        }
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+            decide = codex_agent.decide
         else:
             decision_agent = DecisionAgent(settings, storage, skills)
             probe_started = time.perf_counter()
@@ -96,19 +122,21 @@ async def serve(profile: str, *, offline: bool = False) -> None:
                     flush=True,
                 )
             decide = decision_agent.decide
-        service = HttpService(
-            settings,
-            storage,
-            skills,
-            decide,
-            profile=profile,
-            nonce=nonce,
-            client_token=token,
-            viewer_token=load_viewer_token(data_dir),
-        )
-        runner = web.AppRunner(service.app(), access_log=None)
-        await runner.setup()
+        runner: web.AppRunner | None = None
         try:
+            service = HttpService(
+                settings,
+                storage,
+                skills,
+                decide,
+                profile=profile,
+                nonce=nonce,
+                client_token=token,
+                viewer_token=load_viewer_token(data_dir),
+                on_duel_finished=codex_agent.finish_duel if codex_agent is not None else None,
+            )
+            runner = web.AppRunner(service.app(), access_log=None)
+            await runner.setup()
             site = web.SockSite(runner, sock)
             await site.start()
             print(
@@ -132,7 +160,10 @@ async def serve(profile: str, *, offline: bool = False) -> None:
                     pass
             await stop.wait()
         finally:
-            await runner.cleanup()
+            if runner is not None:
+                await runner.cleanup()
+            if codex_agent is not None:
+                await codex_agent.close()
 
 
 async def view_only(profile: str, port: int) -> None:
@@ -220,8 +251,51 @@ def main() -> None:
     parser.add_argument(
         "--check-resources", action="store_true", help="check packaged skills and card DB"
     )
+    parser.add_argument("--codex-mcp-stdio", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--check-codex-runtime", action="store_true", help="check bundled Codex runtime offline"
+    )
+    parser.add_argument("--init-codex", action="store_true", help="initialize Codex ChatGPT login")
+    parser.add_argument(
+        "--device-code", action="store_true", help="use device code for Codex login"
+    )
     args = parser.parse_args()
     try:
+        if args.codex_mcp_stdio:
+            codex_mcp_main()
+            return
+        if args.check_codex_runtime:
+            from codex_cli_bin import bundled_codex_path  # pyright: ignore[reportMissingTypeStubs]
+            from openai_codex import Codex, CodexConfig
+
+            binary = bundled_codex_path()
+            if not binary.is_file():
+                raise ValueError("bundled Codex runtime is missing")
+            version = subprocess.run(
+                [str(binary), "--version"], capture_output=True, text=True, timeout=10, check=True
+            )
+            with tempfile.TemporaryDirectory(prefix="ygopro-codex-check-") as directory:
+                config = CodexConfig(
+                    cwd=directory,
+                    env={"CODEX_HOME": directory, "HOME": directory},
+                    config_overrides=("project_doc_max_bytes=0",),
+                )
+                with Codex(config=config) as codex:
+                    codex.account()
+            print(json.dumps({"status": "ok", "codex_version": version.stdout.strip()}))
+            return
+        if args.init_codex:
+            from agent_server.codex_init import initialize_codex
+
+            initialize_codex(
+                release_root(),
+                args.config,
+                load_settings(release_root(), args.config),
+                device_code=args.device_code,
+            )
+            return
+        if args.device_code:
+            parser.error("--device-code requires --init-codex")
         if args.check_resources:
             skills = SkillResources(release_root())
             skills.rulebook_index()

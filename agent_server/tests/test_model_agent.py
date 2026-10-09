@@ -511,6 +511,7 @@ class ModelAgentTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             with StateDatabase(Path(directory) / "state.sqlite3") as storage:
                 settings = load_settings(root, offline=True)
+                assert settings.model is not None
                 settings.model.reasoning_effort = "none"
                 agent = DecisionAgent(
                     settings,

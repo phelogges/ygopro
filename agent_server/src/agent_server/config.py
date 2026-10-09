@@ -88,11 +88,20 @@ class StorageSettings(BaseModel):
 class ServiceSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    backend: Literal["pydantic_ai", "codex"] = "pydantic_ai"
     server: ServerSettings
-    model: ModelSettings
+    model: ModelSettings | None = None
     limits: LimitSettings
     compaction: CompactionSettings
     storage: StorageSettings
+
+    @model_validator(mode="after")
+    def valid_backend(self) -> "ServiceSettings":
+        if self.backend == "pydantic_ai" and self.model is None:
+            raise ValueError("pydantic_ai backend requires [model]")
+        if self.backend == "codex" and self.model is not None:
+            raise ValueError("codex backend must use codex_home/config.toml, not [model]")
+        return self
 
 
 def load_settings(
@@ -118,6 +127,8 @@ def load_settings(
 
 
 def model_api_key(settings: ServiceSettings) -> str:
+    if settings.model is None:
+        raise ValueError("Codex backend does not use a model API key")
     secret = os.environ.get(settings.model.api_key_env, "")
     if not secret:
         raise ValueError(f"missing model API key environment variable {settings.model.api_key_env}")

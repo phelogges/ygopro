@@ -190,7 +190,10 @@ class DecisionAgent:
         *,
         model: Model | None = None,
     ) -> None:
+        if settings.model is None:
+            raise ValueError("Pydantic AI backend requires model settings")
         self.settings = settings
+        self.model_settings = settings.model
         self.store = store
         self.hand_notes = HandNotes(store)
         self.skills = skills
@@ -200,12 +203,14 @@ class DecisionAgent:
         )
         if model is None:
             model = OpenAIResponsesModel(
-                settings.model.name,
+                self.model_settings.name,
                 provider=OpenAIProvider(
-                    base_url=settings.model.base_url,
+                    base_url=self.model_settings.base_url,
                     api_key=model_api_key(settings),
                 ),
-                profile={"supports_forced_tool_choice": settings.model.supports_forced_tool_choice},
+                profile={
+                    "supports_forced_tool_choice": self.model_settings.supports_forced_tool_choice
+                },
             )
         budgeted_model = BudgetModel(model)
         self.model = budgeted_model
@@ -220,7 +225,7 @@ class DecisionAgent:
                             model=budgeted_model,
                             max_messages=1,
                             keep_tokens=int(
-                                settings.model.context_window_tokens
+                                self.model_settings.context_window_tokens
                                 * settings.compaction.target_fraction
                             ),
                             instructions=(
@@ -232,7 +237,7 @@ class DecisionAgent:
                         SlidingWindowCompaction(
                             max_messages=1,
                             keep_tokens=int(
-                                settings.model.context_window_tokens
+                                self.model_settings.context_window_tokens
                                 * settings.compaction.target_fraction
                             ),
                         ),
@@ -248,7 +253,7 @@ class DecisionAgent:
             deps_type=DecisionDeps,
             output_type=ToolOutput(DecisionOutput),
             retries=settings.limits.invalid_intent_attempts - 1,
-            model_settings=OpenAIResponsesModelSettings(openai_store=settings.model.store),
+            model_settings=OpenAIResponsesModelSettings(openai_store=self.model_settings.store),
             capabilities=[
                 CodeMode(
                     tools=[
@@ -280,7 +285,7 @@ class DecisionAgent:
             return ctx.deps.prompt_text
 
     def _request_settings(self) -> OpenAIResponsesModelSettings:
-        model = self.settings.model
+        model = self.model_settings
         options: dict[str, Any] = {"openai_store": model.store}
         if model.reasoning_effort != "auto":
             options["openai_reasoning_effort"] = model.reasoning_effort
@@ -593,14 +598,14 @@ class DecisionAgent:
                 "prompt": json.loads(prompt),
                 "history_messages": len(history),
                 "duel_prompt_sha256": pinned_prompt["sha256"],
-                "reasoning_effort_configured": self.settings.model.reasoning_effort,
+                "reasoning_effort_configured": self.model_settings.reasoning_effort,
                 "reasoning_effort_requested": (
                     None
-                    if self.settings.model.reasoning_effort == "auto"
-                    else self.settings.model.reasoning_effort
+                    if self.model_settings.reasoning_effort == "auto"
+                    else self.model_settings.reasoning_effort
                 ),
-                "reasoning_summary_configured": self.settings.model.reasoning_summary,
-                "reasoning_summary_requested": self.settings.model.effective_reasoning_summary,
+                "reasoning_summary_configured": self.model_settings.reasoning_summary,
+                "reasoning_summary_requested": self.model_settings.effective_reasoning_summary,
             },
         )
         token = current_budget.set(

@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.12,<3",
     "pydantic-ai-slim[openai]>=2.18,<3",
     "pydantic-ai-harness[codemode]>=0.1,<1",
+    "openai-codex>=0.1,<1",
 ]
 
 [project.scripts]

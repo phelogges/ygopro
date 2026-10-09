@@ -2,7 +2,7 @@
 
 ## 目标与范围
 
-在一期可见状态和语义动作契约上，实现 `agent_server/` 中的完整本地 Agent 服务。客户端在配置启用时启动独占子进程；它使用 Pydantic AI 调用 OpenAI 风格 Responses 端点，通过本地 Monty 代码沙盒和受限工具分析对局，输出可校验的语义动作。首版中文、单局 1v1；人工完成房间和卡组操作。游戏服务端、CTOS/STOC、`ocgcore` 和卡片脚本不改。macOS 先实现，Windows 最后构建验证。
+在一期可见状态和语义动作契约上，实现 `agent_server/` 中的完整本地 Agent 服务。客户端在配置启用时启动独占子进程；原有 Pydantic AI 后端调用 OpenAI 风格 Responses 端点，通过本地 Monty 代码沙盒和受限工具分析对局，输出可校验的语义动作。新增可选 Codex 后端的隔离、工具和运行时要求见 [Codex Agent 后端设计](agent-codex-backend.md)。首版中文、单局 1v1；人工完成房间和卡组操作。游戏服务端、CTOS/STOC、`ocgcore` 和卡片脚本不改。macOS 先实现，Windows 最后构建验证。
 
 正式通信以 [HTTP v3](../contracts/agent-http-v3.md)为准；一期 v2 测试服务保留。
 

@@ -1,12 +1,16 @@
 # 手动启动真实模型 Agent 客户端（macOS 开发环境）
 
+本页描述现有 Pydantic AI 路径；Codex 后端的独立登录和验证流程见 [Codex 后端验证](agent-codex-backend.md)。
+
 在项目根目录执行：
 
 ```bash
 python3.12 tools/launch-agent-client.py
 ```
 
-这个命令启动 `out/build/MacOS-Debug/gframe/ygopro`，为该客户端启用 v3 Agent，并由客户端启动 `agent_server/.venv/bin/agent-server` 子进程。启动器从 `.agents/config.toml` 读取模型配置；API 密钥优先从该配置指定的环境变量读取，否则从本地 `.agents/data/agent.env` 读取。密钥不会进入命令行参数或诊断日志。可以先用 `python3.12 tools/launch-agent-client.py --check` 检查本地文件，不启动 GUI。
+这个命令启动 `out/build/MacOS-Debug/gframe/ygopro`，为该客户端启用 v3 Agent，并由客户端启动 `agent_server/.venv/bin/agent-server` 子进程。启动器从 `.agents/config.toml` 读取后端配置。`pydantic_ai` 后端的 API 密钥优先从配置指定的环境变量读取，否则从本地 `.agents/data/agent.env` 读取；`codex` 后端不读取此密钥。密钥不会进入命令行参数或诊断日志。可以先用 `python3.12 tools/launch-agent-client.py --check` 检查本地文件，不启动 GUI。
+
+使用 Codex 后端时，将配置档根级 `backend` 设为 `"codex"` 并删除整个 `[model]` 段。先执行 `uv run --project agent_server python tools/init-codex.py --profile config`，按输出的网址完成 ChatGPT 登录；需要设备码时加 `--device-code`。Codex 在 `.agents/data/<profile>/codex/codex_home/` 保存该配置档的登录状态；模型和推理强度可由用户在此目录下的 `config.toml` 自行配置。初始化工具不会预创建或覆盖该文件。不同配置档要分别初始化。
 
 首次准备时，需要完成 macOS Debug 客户端构建和 `cd agent_server && uv sync --group dev --locked`，并在 `.agents/config.toml` 填好端点、模型、端口及密钥环境变量名。本地密钥文件只写一行，例如 `YGOPRO_AGENT_API_KEY=你的密钥`，不要纳入 Git。启动器自动把诊断日志写入 `out/agent-live/agent-client-<时间>-<PID>.jsonl`；它不修改或读取全局 Agent skill。
 

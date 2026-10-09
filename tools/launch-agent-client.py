@@ -27,7 +27,7 @@ def api_key_from_file(name: str) -> str:
         key, separator, value = line.partition("=")
         if not separator or key.strip() != name or found is not None:
             raise ValueError(f"agent.env must contain only one {name}=... entry")
-        found = value.strip().strip('"\'')
+        found = value.strip().strip("\"'")
     if not found:
         raise ValueError(f"agent.env does not contain {name}")
     return found
@@ -36,7 +36,9 @@ def api_key_from_file(name: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", default="config", help=".agents/<profile>.toml")
-    parser.add_argument("--check", action="store_true", help="validate local inputs without launching")
+    parser.add_argument(
+        "--check", action="store_true", help="validate local inputs without launching"
+    )
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", args.profile):
         parser.error("invalid Agent profile name")
@@ -46,18 +48,34 @@ def main() -> None:
         parser.error(f"missing Agent configuration: {profile_file}")
     with profile_file.open("rb") as stream:
         config = tomllib.load(stream)
-    key_name = config.get("model", {}).get("api_key_env")
-    if not isinstance(key_name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key_name):
-        parser.error("model.api_key_env must name an environment variable")
-    for path in (CLIENT, SERVICE, ROOT / "cards.cdb", ROOT / ".agents/prompts/duel_system.md"):
+    backend = config.get("backend", "pydantic_ai")
+    if backend not in ("pydantic_ai", "codex"):
+        parser.error("backend must be pydantic_ai or codex")
+    for path in (
+        CLIENT,
+        SERVICE,
+        ROOT / "cards.cdb",
+        ROOT / ".agents/prompts/duel_system.md",
+    ):
         if not path.is_file():
             parser.error(f"missing development resource: {path}")
     if not os.access(CLIENT, os.X_OK) or not os.access(SERVICE, os.X_OK):
         parser.error("client and Agent service must be executable")
-    try:
-        api_key = os.environ.get(key_name) or api_key_from_file(key_name)
-    except (OSError, UnicodeError, ValueError) as exc:
-        parser.error(str(exc))
+    key_name = None
+    api_key = None
+    if backend == "pydantic_ai":
+        model = config.get("model", {})
+        key_name = model.get("api_key_env") if isinstance(model, dict) else None
+        if not isinstance(key_name, str) or not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*", key_name
+        ):
+            parser.error("model.api_key_env must name an environment variable")
+        try:
+            api_key = os.environ.get(key_name) or api_key_from_file(key_name)
+        except (OSError, UnicodeError, ValueError) as exc:
+            parser.error(str(exc))
+    elif "model" in config:
+        parser.error("codex backend must use codex_home/config.toml, not [model]")
 
     if args.check:
         print(f"Agent client inputs ready: profile={args.profile}, client={CLIENT}")
@@ -70,7 +88,6 @@ def main() -> None:
     environment = os.environ.copy()
     environment.update(
         {
-            key_name: api_key,
             "YGOPRO_AGENT_ENABLE": "1",
             "YGOPRO_AGENT_PROTOCOL": "v3",
             "YGOPRO_AGENT_CONFIG": args.profile,
@@ -78,6 +95,8 @@ def main() -> None:
             "YGOPRO_AGENT_LOG_PATH": str(log_path),
         }
     )
+    if key_name is not None and api_key is not None:
+        environment[key_name] = api_key
     environment.pop("YGOPRO_AGENT_E2E_ROLE", None)
     print(f"Starting Agent client; diagnostic log: {log_path}", flush=True)
     os.chdir(ROOT)

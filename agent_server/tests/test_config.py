@@ -6,12 +6,17 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
+from agent_server.codex_init import initialize_codex
 from agent_server.config import (
     LimitSettings,
     ModelSettings,
+    ServiceSettings,
     StorageSettings,
     load_settings,
+    model_api_key,
     profile_data_dir,
 )
 
@@ -89,6 +94,54 @@ class ProfileDataTests(unittest.TestCase):
             ModelSettings.model_validate(
                 {**base, "reasoning_effort": "none", "reasoning_summary": "detailed"}
             )
+
+    def test_codex_backend_omits_model_and_api_key(self) -> None:
+        template = tomllib.loads((ROOT / ".agents/config.example.toml").read_text())
+        template["backend"] = "codex"
+        del template["model"]
+        settings = ServiceSettings.model_validate(template)
+        self.assertIsNone(settings.model)
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "does not use"):
+                model_api_key(settings)
+        with self.assertRaisesRegex(ValueError, "requires \\[model\\]"):
+            ServiceSettings.model_validate({**template, "backend": "pydantic_ai"})
+        with self.assertRaisesRegex(ValueError, "must use codex_home"):
+            ServiceSettings.model_validate(
+                {
+                    **template,
+                    "model": ModelSettings.model_validate(
+                        {
+                            "base_url": "https://example.test/v1",
+                            "name": "test-model",
+                            "api_key_env": "TEST_KEY",
+                            "context_window_tokens": 4096,
+                        }
+                    ),
+                }
+            )
+
+    def test_codex_init_uses_profile_home_without_creating_config(self) -> None:
+        template = tomllib.loads((ROOT / ".agents/config.example.toml").read_text())
+        template["backend"] = "codex"
+        del template["model"]
+        settings = ServiceSettings.model_validate(template)
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            settings.storage.directory = str(Path(directory).relative_to(ROOT))
+            codex = MagicMock()
+            codex.account.return_value.account = SimpleNamespace(
+                root=SimpleNamespace(type="chatgpt")
+            )
+            codex_type = MagicMock()
+            codex_type.return_value.__enter__.return_value = codex
+            with patch("openai_codex.Codex", codex_type):
+                initialize_codex(ROOT, "host", settings)
+            config = codex_type.call_args.kwargs["config"]
+            codex_home = Path(config.env["CODEX_HOME"])
+            self.assertEqual(config.env["HOME"], str(codex_home))
+            self.assertEqual(codex_home, Path(directory) / "host/codex/codex_home")
+            self.assertFalse((codex_home / "config.toml").exists())
+            codex.login_chatgpt.assert_not_called()
 
 
 if __name__ == "__main__":

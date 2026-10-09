@@ -983,6 +983,35 @@ wheels = [
 ]
 
 [[package]]
+name = "openai-codex"
+version = "0.162.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "openai-codex-cli-bin" },
+    { name = "packaging" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a7/0a/597379f19aeef7059c6d83e4f44d98b25090765dfd1ee31002d5bb54c22f/openai_codex-0.162.0.tar.gz", hash = "sha256:10533557b34a3121878fcd7749dacd0af09bd14445647082e07da096045701dd", size = 90227, upload-time = "2026-10-08T19:10:36.141Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b0/66/ef68b93e6a42c83c28dd7c5e00eeb7940bb34be40a3777b94316858de3b5/openai_codex-0.162.0-py3-none-any.whl", hash = "sha256:83c88364e5405432af6ccc48e604a3de837b3ea28f1d1bad2b0b1faa70a35e49", size = 98389, upload-time = "2026-10-08T19:10:34.593Z" },
+]
+
+[[package]]
+name = "openai-codex-cli-bin"
+version = "0.162.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/5f/80a42a6f1619f262bbc3dcf5eb992b796c3bc54997e50812e9c8b169bddf/openai_codex_cli_bin-0.162.0-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:0fe74fea8208ca603c9a04abcda75e5f8794a9618f3b064493ab38122a497f72", size = 134769561, upload-time = "2026-10-08T19:09:01.101Z" },
+    { url = "https://files.pythonhosted.org/packages/25/0e/a375f5d782777e2bb4787ae0c41c476702f433aa092a31ec910fbc474ae7/openai_codex_cli_bin-0.162.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:146c965ee57f545cc66c367f51e9ce6598f6a120290b8881e74fccd5032a45cf", size = 123950032, upload-time = "2026-10-08T19:09:10.545Z" },
+    { url = "https://files.pythonhosted.org/packages/14/27/7e946974d7bfe9ab7cc71f582e8cea030d18860763e25875635106895fb6/openai_codex_cli_bin-0.162.0-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:c7fd4aee3a73d3e30f5c6edecaf3ada54000eb6f7c1c14b00ee701c4ed10a779", size = 131956979, upload-time = "2026-10-08T19:09:16.603Z" },
+    { url = "https://files.pythonhosted.org/packages/94/73/9b4cd136c07a7a8aad687f9ebb13753a100a895b5867a32bc07d0784f564/openai_codex_cli_bin-0.162.0-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:fa854ffc9cb066932d3bb2541b8542ed78acb112171a71561924adb49b6bf209", size = 141550770, upload-time = "2026-10-08T19:09:23.981Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/b9/479937f1eb8e8f4e3e5dd38b532fee6fb5b498be019469f43ed8bf178eb5/openai_codex_cli_bin-0.162.0-py3-none-musllinux_1_1_aarch64.whl", hash = "sha256:6ff2f18adec1956a6bc265c32a081e5930c679c261a69560aa101a8125522c9b", size = 153097472, upload-time = "2026-10-08T19:09:32.763Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/00/da99722aaea59401ccadd38383353e603c403bfc129e19292203ef3d0bbb/openai_codex_cli_bin-0.162.0-py3-none-musllinux_1_1_x86_64.whl", hash = "sha256:24803d524cca37a78bea528b0e0b9586751f174cb559fe7984fd464302e53bbd", size = 162963203, upload-time = "2026-10-08T19:09:42.123Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/51/9eaed6c8ac038637e781839be18ddb1645b07796c3ae25422c64c610157b/openai_codex_cli_bin-0.162.0-py3-none-win_amd64.whl", hash = "sha256:84381b2464ad51605b4e4fe0a81899ad094cf7f090c02d4e0089556a01a2c544", size = 151752253, upload-time = "2026-10-08T19:09:49.926Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/1f/ccdc118fcd955bbd2bc39965645d4194218fa6c7a7d2143f9d2f8aa8d19d/openai_codex_cli_bin-0.162.0-py3-none-win_arm64.whl", hash = "sha256:053bf0965c54eba214569cb2f62ad6647caaecf1c371ea797c30f9468e471316", size = 140565812, upload-time = "2026-10-08T19:09:56.644Z" },
+]
+
+[[package]]
 name = "opentelemetry-api"
 version = "1.45.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1920,6 +1949,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
+    { name = "openai-codex" },
     { name = "pydantic" },
     { name = "pydantic-ai-harness", extra = ["codemode"] },
     { name = "pydantic-ai-slim", extra = ["openai"] },
@@ -1937,6 +1967,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.12,<4" },
+    { name = "openai-codex", specifier = ">=0.1,<1" },
     { name = "pydantic", specifier = ">=2.12,<3" },
     { name = "pydantic-ai-harness", extras = ["codemode"], specifier = ">=0.1,<1" },
     { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2.18,<3" },

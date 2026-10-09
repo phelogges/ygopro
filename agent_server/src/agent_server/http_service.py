@@ -7,7 +7,7 @@ import json
 import secrets
 import sqlite3
 import sys
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
@@ -95,6 +95,7 @@ class HttpService:
         client_token: str,
         viewer_token: str,
         view_only: bool = False,
+        on_duel_finished: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
@@ -105,6 +106,7 @@ class HttpService:
         self.client_token = client_token
         self.viewer_token = viewer_token
         self.view_only = view_only
+        self.on_duel_finished = on_duel_finished
 
     def app(self) -> web.Application:
         app = web.Application(client_max_size=MAX_BODY)
@@ -270,6 +272,8 @@ class HttpService:
                         },
                     )
                 await self.manager.finish_duel(session, duel)
+                if first_receipt and self.on_duel_finished is not None:
+                    await self.on_duel_finished(session, duel)
                 if first_receipt:
                     self.store.prune_finished(
                         self.settings.storage.retention_days, self.settings.storage.max_bytes

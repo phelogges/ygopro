@@ -1,5 +1,8 @@
 # 将此模板复制为 config.toml。双 Agent 客户端可分别复制为 host.toml / guest.toml。
 # 用 YGOPRO_AGENT_CONFIG=host（或 guest）选择配置档；不同配置档使用不同端口。
+# 后端可选 pydantic_ai / codex；codex 时删除整个 [model] 段，
+# 使用 tools/init-codex.py 登录，并在该配置档的 codex_home 中自行配置模型和推理强度。
+backend = "pydantic_ai"
 
 [server]
 # 本机 Agent HTTP 监听端口；端口占用直接报错。

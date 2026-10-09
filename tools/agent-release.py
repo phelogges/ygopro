@@ -84,9 +84,19 @@ def check_config(path: Path) -> None:
     require_file(path)
     with path.open("rb") as stream:
         config = tomllib.load(stream)
-    model = config.get("model", {})
-    if not isinstance(model, dict) or not model.get("api_key_env"):
-        raise ValueError(f"Config must name an API-key environment variable: {path}")
+    backend = config.get("backend", "pydantic_ai")
+    if backend not in ("pydantic_ai", "codex"):
+        raise ValueError(f"Unknown Agent backend: {path}")
+    model = config.get("model")
+    if backend == "pydantic_ai" and (
+        not isinstance(model, dict) or not model.get("api_key_env")
+    ):
+        raise ValueError(
+            f"Pydantic AI config must name an API-key environment variable: {path}"
+        )
+    if backend == "codex" and model is not None:
+        raise ValueError(f"Codex config must omit [model]: {path}")
+    model = model or {}
     if any(key in model for key in ("api_key", "token", "secret")):
         raise ValueError(f"Config contains a direct secret field: {path}")
     storage = config.get("storage", {})
@@ -166,10 +176,18 @@ def build_server(work: Path) -> Path:
         "pydantic_monty",
         "--collect-all",
         "pydantic_ai_harness",
+        "--collect-all",
+        "openai_codex",
+        "--collect-all",
+        "codex_cli_bin",
         "--collect-submodules",
         "pydantic_ai",
         "--copy-metadata",
         "genai_prices",
+        "--copy-metadata",
+        "openai-codex",
+        "--copy-metadata",
+        "openai-codex-cli-bin",
         "--copy-metadata",
         "pydantic_ai_slim",
         str(SERVER_PROJECT / "src/agent_server/__main__.py"),
@@ -255,6 +273,15 @@ def verify_release(target: Path) -> None:
     for name in ("ygopro", "agent-server"):
         if not os.access(target / name, os.X_OK):
             raise ValueError(f"Release executable is not executable: {name}")
+    # This exercises the frozen SDK's bundled CLI lookup, not just its Python import.
+    subprocess.run(
+        [str(target / "agent-server"), "--check-codex-runtime"],
+        cwd=target,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     for name in REQUIRED_TREES:
         require_tree(target / name)
     for name in ("deck", "replay", "single"):
