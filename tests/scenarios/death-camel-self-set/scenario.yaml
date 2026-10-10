@@ -1,0 +1,187 @@
+schema_version: 1
+decks:
+  host: host.ydk
+  guest: guest.ydk
+pregame:
+  host:
+  - scissors
+  guest:
+  - rock
+  winner_chooses: go_first
+steps:
+  host: []
+  guest:
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "02326738"
+    action:
+      kind: choice
+      match:
+        kind: normal_summon
+        card_id: "02326738"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 0
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "02326738"
+          position: face_up_attack
+          sequence: 0
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "02326738"
+        description_id: 37227808
+        controller: 0
+        location: monster
+        sequence: 0
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "02326738"
+          position: face_down_defense
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: end_turn
+goal:
+  kind: duel_end
+  winner: guest
+  expect:
+    host:
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 6
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+          count: 3
+      - player: 1
+        name: hand
+        count: 4
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - known: false
+          position: face_down_defense
+          sequence: 0
+    guest:
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "02326738"
+          known: true
+          position: face_down_defense
+          sequence: 0
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 6
+  surrender:
+    role: host
+    expect:
+      host:
+        turn: 2
+        phase: main_1
+        turn_player: 0
+      guest: {}
+event_assertions:
+  host:
+  - kind: effect_activated
+    card_id: "02326738"
+    controller: opponent
+    location: 4
+    sequence: 0
+  - kind: position_changed
+    player: opponent
+    location: 4
+    sequence: 0
+    from_position: face_up_attack
+    to_position: face_down_defense
+  guest:
+  - kind: effect_activated
+    card_id: "02326738"
+    controller: self
+    location: 4
+    sequence: 0
+  - kind: position_changed
+    player: self
+    location: 4
+    sequence: 0
+    from_position: face_up_attack
+    to_position: face_down_defense

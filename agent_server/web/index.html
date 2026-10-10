@@ -49,7 +49,8 @@
     </section>
 
     <section id="tab-hand-note" class="tab-panel" aria-label="Agent 推断" hidden>
-      <div class="section-heading"><div><h2>对手手牌认知说明</h2><p>由 Agent 根据本方观察自行维护的推断；不属于客户端确认的当前场面。手牌中的卡片位置与后续持有情况可能无法确定。</p></div></div>
+      <div class="section-heading"><div><h2>对手隐藏区域认知说明</h2><p>由 Agent 根据本方观察自行维护的推断；不属于客户端确认的当前场面。后续移动可能使旧推断失效。</p></div></div>
+      <h3>对手手牌</h3>
       <article class="note-current" aria-live="polite">
         <h3>当前说明 <span class="inference-label">Agent 推断</span></h3>
         <p id="hand-note-text" class="note-text">选择对局后加载。</p>
@@ -57,6 +58,17 @@
       </article>
       <div class="section-heading note-history-heading"><div><h3>修订历史</h3><p>逐次保留 Agent 写入的完整说明及依据事件；按最新到最早排列。</p></div></div>
       <div id="hand-note-history" class="note-history"><p class="empty">选择对局后加载。</p></div>
+      <h3>对手魔法与陷阱区域</h3>
+      <article class="note-current" aria-live="polite">
+        <h3>当前说明 <span class="inference-label">Agent 推断</span></h3>
+        <p id="spell-note-text" class="note-text">选择对局后加载。</p>
+        <p id="spell-note-meta" class="note-meta"></p>
+      </article>
+      <div class="section-heading note-history-heading"><div><h3>修订历史</h3></div></div>
+      <div id="spell-note-history" class="note-history"><p class="empty">选择对局后加载。</p></div>
+      <h3>对手主怪兽区</h3>
+      <p>分别记录主怪兽区 1–5 号格的推断；额外怪兽区不在此处。</p>
+      <div id="main-monster-notes"></div>
     </section>
 
     <section id="tab-history" class="tab-panel" aria-label="历史记录" hidden>

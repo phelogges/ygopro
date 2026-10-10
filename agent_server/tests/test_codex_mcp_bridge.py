@@ -54,8 +54,40 @@ def test_bridge_rejects_unauthorized_and_stale_calls() -> None:
                 client_tool=record_tool,
                 check_deadline=lambda: None,
                 identity=("s", "d", 1),
+                delta=SimpleNamespace(ack_event_id=2),
             )
-            bridge.activate(cast(Any, deps), cast(Any, None), cast(Any, None))
+
+            def current_note(
+                _session: str,
+                _duel: str,
+                _ack: int,
+                player: int,
+                zone: str,
+                sequence: int | None = None,
+            ) -> dict[str, Any]:
+                return {"status": "unwritten", "player": player, "zone": zone, "sequence": sequence}
+
+            def write_note(
+                _session: str,
+                _duel: str,
+                _version: int,
+                _ack: int,
+                player: int,
+                zone: str,
+                note: str,
+                _evidence: list[int],
+                sequence: int | None = None,
+            ) -> dict[str, Any]:
+                return {
+                    "status": "agent_inference",
+                    "player": player,
+                    "zone": zone,
+                    "sequence": sequence,
+                    "note": note,
+                }
+
+            notes = SimpleNamespace(current=current_note, write=write_note)
+            bridge.activate(cast(Any, deps), cast(Any, None), cast(Any, notes))
             response = await _exchange(
                 reader,
                 writer,
@@ -66,7 +98,64 @@ def test_bridge_rejects_unauthorized_and_stale_calls() -> None:
                 },
             )
             assert response == {"ok": True, "result": {"result": "5300"}}
-            assert records == ["calculate"]
+            response = await _exchange(
+                reader,
+                writer,
+                {
+                    "token": token,
+                    "name": "write_zone_note",
+                    "arguments": {
+                        "player": 1,
+                        "zone": "spell",
+                        "note": "序号3曾展示原罪宝－蛇眼",
+                        "evidence_event_ids": [1, 2],
+                    },
+                },
+            )
+            assert response["result"]["zone"] == "spell"
+            response = await _exchange(
+                reader,
+                writer,
+                {
+                    "token": token,
+                    "name": "read_zone_note",
+                    "arguments": {"player": 1, "zone": "spell"},
+                },
+            )
+            assert response["result"]["zone"] == "spell"
+            response = await _exchange(
+                reader,
+                writer,
+                {
+                    "token": token,
+                    "name": "write_zone_note",
+                    "arguments": {
+                        "player": 1,
+                        "zone": "main_monster",
+                        "sequence": 0,
+                        "note": "序号0曾是死亡骆驼",
+                        "evidence_event_ids": [1, 2],
+                    },
+                },
+            )
+            assert response["result"]["sequence"] == 0
+            response = await _exchange(
+                reader,
+                writer,
+                {
+                    "token": token,
+                    "name": "read_zone_note",
+                    "arguments": {"player": 1, "zone": "main_monster", "sequence": 0},
+                },
+            )
+            assert response["result"]["sequence"] == 0
+            assert records == [
+                "calculate",
+                "write_zone_note",
+                "read_zone_note",
+                "write_zone_note",
+                "read_zone_note",
+            ]
             bridge.deactivate()
             response = await _exchange(
                 reader,
@@ -78,12 +167,69 @@ def test_bridge_rejects_unauthorized_and_stale_calls() -> None:
                 },
             )
             assert response["ok"] is False
-            assert records == ["calculate"]
+            assert records == [
+                "calculate",
+                "write_zone_note",
+                "read_zone_note",
+                "write_zone_note",
+                "read_zone_note",
+            ]
         finally:
             writer.close()
             await writer.wait_closed()
             await bridge.close()
             assert not Path(path).exists()
+
+    asyncio.run(run())
+
+
+def test_bridge_batch_lookup_records_shared_metrics() -> None:
+    async def run() -> None:
+        bridge = CodexMcpBridge()
+        await bridge.start()
+        config = bridge.mcp_config()
+        reader, writer = await asyncio.open_unix_connection(config["env"]["YGOPRO_MCP_SOCKET"])
+        attempts: list[dict[str, Any]] = []
+        metrics: list[tuple[str, dict[str, Any]]] = []
+
+        def record_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
+            record: dict[str, Any] = {"name": name, "args": args}
+            attempts.append(record)
+            return record
+
+        def cards_by_ids(ids: list[int]) -> list[dict[str, Any]]:
+            return [{"id": ids[0], "name": "test"}]
+
+        def emit_metric(name: str, payload: dict[str, Any]) -> None:
+            metrics.append((name, payload))
+
+        deps = SimpleNamespace(
+            tool=record_tool,
+            check_deadline=lambda: None,
+            settings=SimpleNamespace(limits=SimpleNamespace(card_lookup_batch_size=12)),
+            skills=SimpleNamespace(cards_by_ids=cards_by_ids),
+            emit_tool_metric=emit_metric,
+        )
+        bridge.activate(cast(Any, deps), cast(Any, None), cast(Any, None))
+        try:
+            response = await _exchange(
+                reader,
+                writer,
+                {
+                    "token": config["env"]["YGOPRO_MCP_TOKEN"],
+                    "name": "cards_by_ids",
+                    "arguments": {"card_ids": [2326738]},
+                },
+            )
+            assert response["ok"] is True
+            assert response["result"][0]["id"] == 2326738
+            assert attempts[0]["distinct_card_ids"] == 1
+            assert attempts[0]["result_bytes"] > 0
+            assert metrics[0][0] == "card_batch_lookup"
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            await bridge.close()
 
     asyncio.run(run())
 

@@ -12,6 +12,9 @@ const recordsJson = byId("records-json");
 const handNoteText = byId("hand-note-text");
 const handNoteMeta = byId("hand-note-meta");
 const handNoteHistory = byId("hand-note-history");
+const spellNoteText = byId("spell-note-text");
+const spellNoteMeta = byId("spell-note-meta");
+const spellNoteHistory = byId("spell-note-history");
 const tokenKey = "ygopro-agent-view-token";
 const pageSize = 200;
 
@@ -24,10 +27,14 @@ let streamController = null;
 let cursor = 0;
 let traceCount = 0;
 let refreshTimer = null;
-let handNoteCursor = 0;
+const noteCursors = { hand: 0, spell: 0 };
 let confirmedEventId = null;
 const turns = new Map();
-const handNoteRevisions = new Map();
+const noteRevisions = { hand: new Map(), spell: new Map() };
+const noteElements = {
+  hand: { text: handNoteText, meta: handNoteMeta, history: handNoteHistory },
+  spell: { text: spellNoteText, meta: spellNoteMeta, history: spellNoteHistory },
+};
 const cardNames = new Map();
 const cardIdsPending = new Set();
 
@@ -36,6 +43,27 @@ function node(tag, className, text) {
   if (className) element.className = className;
   if (text !== undefined) element.textContent = String(text);
   return element;
+}
+
+for (let sequence = 0; sequence < 5; sequence += 1) {
+  const key = `main_monster_${sequence}`;
+  const section = node("section", "note-current");
+  section.append(node("h4", "", `主怪兽区 ${sequence + 1} 号格 · Agent 推断`));
+  const text = node("p", "note-text", "选择对局后加载。");
+  const meta = node("p", "note-meta");
+  const history = node("div", "note-history");
+  history.append(node("p", "empty", "选择对局后加载。"));
+  section.append(text, meta, history);
+  byId("main-monster-notes").append(section);
+  noteElements[key] = {text, meta, history};
+  noteCursors[key] = 0;
+  noteRevisions[key] = new Map();
+}
+
+function noteRecordKind(zone) {
+  return zone.startsWith("main_monster_")
+    ? `main_monster_note_revision_${zone.slice("main_monster_".length)}`
+    : `${zone}_note_revision`;
 }
 
 function setNotice(message, isError = false) {
@@ -132,14 +160,15 @@ function noteMetadata(record) {
   return parts.join(" · ");
 }
 
-function renderHandNotes() {
-  const revisions = [...handNoteRevisions.values()].sort((a, b) => Number(b.id) - Number(a.id));
+function renderZoneNotes(zone) {
+  const elements = noteElements[zone];
+  const revisions = [...noteRevisions[zone].values()].sort((a, b) => Number(b.id) - Number(a.id));
   const latest = revisions[0];
-  handNoteText.textContent = latest ? String(latest.payload?.text ?? "") : "尚未建立对手手牌认知说明。";
-  handNoteMeta.textContent = latest ? noteMetadata(latest) : "无修订记录；这不表示对手手牌为空。";
-  handNoteHistory.replaceChildren();
+  elements.text.textContent = latest ? String(latest.payload?.text ?? "") : "尚未建立认知说明。";
+  elements.meta.textContent = latest ? noteMetadata(latest) : "无修订记录；不表示该区域为空。";
+  elements.history.replaceChildren();
   if (!latest) {
-    handNoteHistory.append(node("p", "empty", "Agent 尚未写入说明。"));
+    elements.history.append(node("p", "empty", "Agent 尚未写入说明。"));
     return;
   }
   for (const record of revisions) {
@@ -150,15 +179,15 @@ function renderHandNotes() {
     body.append(node("p", "note-text", String(record.payload?.text ?? "")));
     body.append(node("p", "note-meta", noteMetadata(record)));
     details.append(body);
-    handNoteHistory.append(details);
+    elements.history.append(details);
   }
 }
 
-async function loadHandNotes(epoch) {
+async function loadZoneNotes(epoch, zone) {
   while (selected && epoch === generation) {
     const params = query();
-    params.set("kind", "hand_note_revision");
-    params.set("after_id", String(handNoteCursor));
+    params.set("kind", noteRecordKind(zone));
+    params.set("after_id", String(noteCursors[zone]));
     params.set("limit", String(pageSize));
     const result = await json(`/v3/view/records?${params}`);
     if (epoch !== generation) return;
@@ -166,10 +195,10 @@ async function loadHandNotes(epoch) {
     for (const record of records) {
       const id = Number(record.id);
       if (!Number.isSafeInteger(id) || id <= 0) continue;
-      handNoteRevisions.set(id, record);
-      handNoteCursor = Math.max(handNoteCursor, id);
+      noteRevisions[zone].set(id, record);
+      noteCursors[zone] = Math.max(noteCursors[zone], id);
     }
-    renderHandNotes();
+    renderZoneNotes(zone);
     if (records.length < pageSize) break;
   }
 }
@@ -563,11 +592,12 @@ async function refreshSecondary() {
   if (!selected) return;
   const epoch = generation;
   const params = query();
-  const [state, events, records, notes] = await Promise.allSettled([
+  const zones = Object.keys(noteElements);
+  const [state, events, records, ...notes] = await Promise.allSettled([
     json(`/v3/view/state?${params}`),
     json(`/v3/view/events?${params}&limit=100`),
     json(`/v3/view/records?${params}&limit=100`),
-    loadHandNotes(epoch),
+    ...zones.map((zone) => loadZoneNotes(epoch, zone)),
   ]);
   if (epoch !== generation) return;
   if (state.status === "fulfilled") {
@@ -581,11 +611,13 @@ async function refreshSecondary() {
   }
   eventsJson.textContent = events.status === "fulfilled" ? pretty(events.value.events) : `加载失败：${events.reason.message}`;
   recordsJson.textContent = records.status === "fulfilled" ? pretty(records.value.records) : `加载失败：${records.reason.message}`;
-  if (notes.status === "rejected") {
-    handNoteMeta.textContent = `说明加载失败：${notes.reason.message}`;
-  } else {
-    renderHandNotes();
-  }
+  zones.forEach((zone, index) => {
+    if (notes[index].status === "rejected") {
+      noteElements[zone].meta.textContent = `说明加载失败：${notes[index].reason.message}`;
+    } else {
+      renderZoneNotes(zone);
+    }
+  });
 }
 
 function stopStream() {
@@ -605,9 +637,11 @@ async function chooseDuel() {
   stateJson.textContent = "正在加载…";
   eventsJson.textContent = "正在加载…";
   recordsJson.textContent = "正在加载…";
-  handNoteText.textContent = "正在加载…";
-  handNoteMeta.textContent = "";
-  handNoteHistory.replaceChildren(node("p", "empty", "正在加载修订历史…"));
+  for (const elements of Object.values(noteElements)) {
+    elements.text.textContent = "正在加载…";
+    elements.meta.textContent = "";
+    elements.history.replaceChildren(node("p", "empty", "正在加载修订历史…"));
+  }
   byId("state-meta").textContent = "";
   byId("trace-count").textContent = "0 条记录";
   turns.clear();
@@ -615,9 +649,11 @@ async function chooseDuel() {
   cardIdsPending.clear();
   cursor = 0;
   traceCount = 0;
-  handNoteCursor = 0;
+  for (const zone of Object.keys(noteElements)) {
+    noteCursors[zone] = 0;
+    noteRevisions[zone].clear();
+  }
   confirmedEventId = null;
-  handNoteRevisions.clear();
   if (!hasDuel) { setConnection("尚未选择对局"); return; }
   setConnection("加载历史中", "wait");
   const epoch = generation;

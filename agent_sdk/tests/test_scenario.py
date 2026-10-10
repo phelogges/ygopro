@@ -576,6 +576,111 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(len(scenario.event_assertions["host"]), 2)
         self.assertEqual(scenario.event_assertions["host"][0]["cards"][0]["card_id"], 5318639)
 
+    def test_revealed_field_card_can_assert_public_sequence(self) -> None:
+        data = scene()
+        data["event_assertions"] = {
+            "guest": [
+                {
+                    "kind": "cards_revealed",
+                    "cards": [
+                        {
+                            "card_id": "89023486",
+                            "player": "opponent",
+                            "location": 8,
+                            "sequence": 3,
+                        }
+                    ],
+                }
+            ]
+        }
+        scenario = Scenario(data)
+        event = {
+            "kind": "cards_revealed",
+            "cards": [{"card_id": 89023486, "player": 1, "location": 8, "sequence": 3}],
+        }
+        scenario.assert_events("guest", [event])
+        cast(dict[str, Any], event["cards"][0])["sequence"] = 2
+        with self.assertRaisesRegex(ScenarioError, "event_assertions\\[0\\]"):
+            scenario.assert_events("guest", [event])
+
+    def test_position_change_and_hidden_identity_assertions(self) -> None:
+        data = scene()
+        data["event_assertions"] = {
+            "host": [
+                {
+                    "kind": "effect_activated",
+                    "card_id": "02326738",
+                    "controller": "opponent",
+                    "location": 4,
+                    "sequence": 0,
+                },
+                {
+                    "kind": "position_changed",
+                    "player": "opponent",
+                    "location": 4,
+                    "sequence": 0,
+                    "from_position": "face_up_attack",
+                    "to_position": "face_down_defense",
+                },
+            ]
+        }
+        scenario = Scenario(data)
+        activated = {
+            "kind": "effect_activated",
+            "card_id": 2326738,
+            "controller": 1,
+            "location": 4,
+            "sequence": 0,
+        }
+        event = {
+            "kind": "position_changed",
+            "player": 1,
+            "location": 4,
+            "sequence": 0,
+            "from_position": "face_up_attack",
+            "to_position": "face_down_defense",
+        }
+        scenario.assert_events("host", [activated, event])
+        changed = dict(event, sequence=1)
+        with self.assertRaisesRegex(ScenarioError, "event_assertions\\[1\\]"):
+            scenario.assert_events("host", [activated, changed])
+        with self.assertRaisesRegex(ScenarioError, "event_assertions\\[0\\]"):
+            scenario.assert_events("host", [event])
+
+        hidden = {
+            "zones": [
+                {
+                    "player": 1,
+                    "name": "monster",
+                    "count": 1,
+                    "cards": [{"known": False, "position": "face_down_defense", "sequence": 0}],
+                }
+            ]
+        }
+        expected = {
+            "zones": [
+                {
+                    "player": 1,
+                    "name": "monster",
+                    "count": 1,
+                    "contains": [{"known": False, "position": "face_down_defense", "sequence": 0}],
+                }
+            ]
+        }
+        scenario.assert_visible("host", hidden, expected)
+        visible = {
+            "zones": [
+                {
+                    "player": 1,
+                    "name": "monster",
+                    "count": 1,
+                    "cards": [{"known": True, "position": "face_down_defense", "sequence": 0}],
+                }
+            ]
+        }
+        with self.assertRaisesRegex(ScenarioError, "visible zone"):
+            scenario.assert_visible("host", visible, expected)
+
     def test_gui_pacing_skips_automatic_optional_decline(self) -> None:
         data = scene()
         data["defaults"] = {"optional": "decline"}

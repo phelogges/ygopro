@@ -3,12 +3,10 @@
 import asyncio
 import json
 import time
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
 from typing import Any, cast
 
 from agent_sdk.contract import ContractError, DecisionRequest, translate_intent
-from agent_sdk.state import StateDelta, StateError
+from agent_sdk.state import StateDelta
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent, ModelMessagesTypeAdapter, RunContext, ToolOutput, UsageLimits
 from pydantic_ai.exceptions import (
@@ -40,10 +38,11 @@ from agent_server.budget_model import (
 )
 from agent_server.config import ServiceSettings, model_api_key
 from agent_server.duel_context import DuelContext
-from agent_server.hand_notes import HandNotes
+from agent_server.duel_tools import ClientQuery, DecisionDeps, DecisionFailure, DuelTools
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
 from agent_server.trace import TraceWriter
+from agent_server.zone_notes import ZoneNotes
 
 
 def intent_format(request: DecisionRequest) -> dict[str, Any]:
@@ -121,64 +120,6 @@ class ProbeOutput(BaseModel):
     ok: bool
 
 
-class DecisionFailure(RuntimeError):
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
-
-
-type ClientQuery = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
-
-
-@dataclass(slots=True)
-class DecisionDeps:
-    request: DecisionRequest
-    delta: StateDelta
-    store: StateDatabase
-    skills: SkillResources
-    settings: ServiceSettings
-    query_client: ClientQuery
-    deadline_monotonic: float
-    prompt_text: str
-    host_tool_attempts: int = 0
-    client_queries: int = 0
-    invalid_intents: int = 0
-    validated_action: dict[str, Any] | None = None
-    tool_records: list[dict[str, Any]] = field(default_factory=lambda: [])
-
-    @property
-    def identity(self) -> tuple[str, str, int]:
-        data = self.request.data
-        return (
-            cast(str, data["session_id"]),
-            cast(str, data["duel_id"]),
-            cast(int, data["state_version"]),
-        )
-
-    def check_deadline(self) -> None:
-        if time.monotonic() >= self.deadline_monotonic:
-            raise DecisionFailure("timeout", "decision deadline expired")
-
-    def tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
-        self.check_deadline()
-        self.host_tool_attempts += 1
-        if self.host_tool_attempts > self.settings.limits.host_tool_attempts:
-            raise DecisionFailure("budget_exhausted", "host tool attempt budget exhausted")
-        record: dict[str, Any] = {
-            "name": name,
-            "args": args,
-            "at_unix_ms": int(time.time() * 1000),
-        }
-        self.tool_records.append(record)
-        return record
-
-    def client_tool(self, name: str, args: dict[str, Any]) -> None:
-        self.tool(name, args)
-        self.client_queries += 1
-        if self.client_queries > self.settings.limits.client_queries:
-            raise DecisionFailure("budget_exhausted", "client query budget exhausted")
-
-
 class DecisionAgent:
     """One service process owns one Pydantic AI agent and isolated duel histories."""
 
@@ -195,9 +136,10 @@ class DecisionAgent:
         self.settings = settings
         self.model_settings = settings.model
         self.store = store
-        self.hand_notes = HandNotes(store)
+        self.zone_notes = ZoneNotes(store)
         self.skills = skills
         self.context = DuelContext(skills.root, store, skills)
+        self.tools = DuelTools(self.context, self.zone_notes)
         self._stream_capable = (
             not isinstance(model, FunctionModel) or model.stream_function is not None
         )
@@ -270,6 +212,7 @@ class DecisionAgent:
                         "read_zone_note",
                         "client_inspect_zone",
                         "client_inspect_card",
+                        "calculate",
                     ],
                     max_tool_calls=settings.limits.host_tool_attempts,
                     resource_limits={"max_duration_secs": 10, "max_memory": 67_108_864},
@@ -340,111 +283,68 @@ class DecisionAgent:
         @agent.tool
         def rulebook_index(ctx: RunContext[DecisionDeps]) -> str:
             """List the available OCG rulebook topics before reading a section."""
-            ctx.deps.tool("rulebook_index", {})
-            return ctx.deps.skills.rulebook_index()
+            return self.tools.rulebook_index(ctx.deps)
 
         @agent.tool
         def rulebook_section(ctx: RunContext[DecisionDeps], section: str) -> str:
             """Read one named OCG rulebook section, such as effects or game-progression."""
-            ctx.deps.tool("rulebook_section", {"section": section})
-            return ctx.deps.skills.rulebook_section(section)
+            return self.tools.rulebook_section(ctx.deps, section)
 
         @agent.tool
         def card_by_id(ctx: RunContext[DecisionDeps], card_id: int) -> dict[str, Any]:
             """Read public card details by ID; returns id, name, card_type and effect_text."""
-            ctx.deps.tool("card_by_id", {"card_id": card_id})
-            return ctx.deps.skills.card_by_id(card_id)
+            return self.tools.card_by_id(ctx.deps, card_id)
 
         @agent.tool
         def cards_by_ids(
             ctx: RunContext[DecisionDeps], card_ids: list[int]
         ) -> list[dict[str, Any]]:
             """Read full details for distinct IDs; returns card objects in input order."""
-            record = ctx.deps.tool("cards_by_ids", {"card_ids": card_ids})
-            if not 1 <= len(card_ids) <= ctx.deps.settings.limits.card_lookup_batch_size:
-                raise ValueError("card_ids exceeds configured batch size")
-            started = time.perf_counter()
-            result = ctx.deps.skills.cards_by_ids(card_ids)
-            payload_bytes = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
-            metric = {
-                "distinct_card_ids": len(card_ids),
-                "result_bytes": payload_bytes,
-                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
-            }
-            record.update(metric)
-            telemetry = current_telemetry.get()
-            if telemetry is not None:
-                telemetry.emit("card_batch_lookup", metric)
-            return result
+            return self.tools.cards_by_ids(ctx.deps, card_ids)
 
         @agent.tool
         def search_cards(
             ctx: RunContext[DecisionDeps], keyword: str, limit: int = 30, offset: int = 0
         ) -> dict[str, Any]:
             """Search card text; returns {keyword, ids: list[int], total: int}."""
-            ctx.deps.tool("search_cards", {"keyword": keyword, "limit": limit, "offset": offset})
-            return ctx.deps.skills.search_cards(keyword, limit=limit, offset=offset)
+            return self.tools.search_cards(ctx.deps, keyword, limit, offset)
 
         @agent.tool
         def own_decklist(ctx: RunContext[DecisionDeps]) -> dict[str, Any]:
             """Read own submitted main/extra deck catalog: card_id, count, name and card_type."""
-            ctx.deps.tool("own_decklist", {})
-            session, duel, _ = ctx.deps.identity
-            return self.context.catalog(session, duel)
+            return self.tools.own_decklist(ctx.deps)
 
         @agent.tool
         def current_state(ctx: RunContext[DecisionDeps]) -> dict[str, Any]:
             """Read the complete, current confirmed visible field for this player."""
-            ctx.deps.tool("current_state", {})
-            session, duel, version = ctx.deps.identity
-            return ctx.deps.store.get_state(session, duel, version)
+            return self.tools.current_state(ctx.deps)
 
         @agent.tool
         def zone_state(ctx: RunContext[DecisionDeps], player: int, zone: str) -> dict[str, Any]:
             """Read one confirmed visible zone; hidden cards remain hidden."""
-            ctx.deps.tool("zone_state", {"player": player, "zone": zone})
-            session, duel, version = ctx.deps.identity
-            return ctx.deps.store.get_zone(session, duel, version, player, zone)
+            return self.tools.zone_state(ctx.deps, player, zone)
 
         @agent.tool
         def card_state(ctx: RunContext[DecisionDeps], instance_id: str) -> dict[str, Any]:
             """Read a card at a current visible position key, if still present."""
-            ctx.deps.tool("card_state", {"instance_id": instance_id})
-            session, duel, version = ctx.deps.identity
-            state = ctx.deps.store.get_state(session, duel, version)
-            for zone in cast(list[dict[str, Any]], state["zones"]):
-                for card in zone["cards"]:
-                    if card["instance_id"] == instance_id:
-                        return card
-            raise StateError("card_not_found", "card position is not visible")
+            return self.tools.card_state(ctx.deps, instance_id)
 
         @agent.tool
         def event_history(
             ctx: RunContext[DecisionDeps], after_event_id: int = 0, limit: int = 50
         ) -> dict[str, Any]:
             """Read a page of confirmed observed events for this player."""
-            ctx.deps.tool("event_history", {"after_event_id": after_event_id, "limit": limit})
-            session, duel, version = ctx.deps.identity
-            events = ctx.deps.store.get_events(
-                session,
-                duel,
-                state_version=version,
-                after_event_id=after_event_id,
-                limit=min(limit, 100),
-            )
-            return {"state_version": version, "after_event_id": after_event_id, "events": events}
+            return self.tools.event_history(ctx.deps, after_event_id, limit)
 
         @agent.tool
         def read_zone_note(
-            ctx: RunContext[DecisionDeps], player: int = 1, zone: str = "hand"
+            ctx: RunContext[DecisionDeps],
+            player: int = 1,
+            zone: str = "hand",
+            sequence: int | None = None,
         ) -> dict[str, Any]:
-            """Read this Agent's current inference about the opponent hand."""
-            ctx.deps.tool("read_zone_note", {"player": player, "zone": zone})
-            if type(player) is not int or player != 1 or zone != "hand":
-                return {"ok": False, "error": "only the opponent hand is supported"}
-            session, duel, _ = ctx.deps.identity
-            note = self.hand_notes.current(session, duel, ctx.deps.delta.ack_event_id)
-            return {"ok": True, **note}
+            """Read an opponent inference note: hand or spell, or main_monster with sequence 0–4."""
+            return self.tools.read_zone_note(ctx.deps, player, zone, sequence)
 
         @agent.tool
         def write_zone_note(
@@ -453,45 +353,41 @@ class DecisionAgent:
             zone: str,
             note: str,
             evidence_event_ids: list[int],
+            sequence: int | None = None,
         ) -> dict[str, Any]:
-            """Replace the current opponent-hand inference and retain its old revision."""
-            ctx.deps.tool(
-                "write_zone_note",
-                {"player": player, "zone": zone, "evidence_event_ids": evidence_event_ids},
+            """Replace an opponent inference note.
+
+            Use player=1 and zone=hand or spell; main_monster requires sequence 0–4.
+            Cite 1–20 real event IDs visible in this view. Reassess after card movement
+            or slot reuse. Notes never change authoritative hidden state.
+            """
+            return self.tools.write_zone_note(
+                ctx.deps, player, zone, note, evidence_event_ids, sequence
             )
-            session, duel, version = ctx.deps.identity
-            try:
-                value = self.hand_notes.write(
-                    session,
-                    duel,
-                    version,
-                    ctx.deps.delta.ack_event_id,
-                    player,
-                    zone,
-                    note,
-                    evidence_event_ids,
-                )
-            except StateError as exc:
-                return {"ok": False, "error": exc.code, "message": str(exc)}
-            return {"ok": True, **value}
 
         @agent.tool
         async def client_inspect_zone(
             ctx: RunContext[DecisionDeps], player: int, zone: str
         ) -> dict[str, Any]:
             """Ask the client for a currently inspectable zone missing from the mirror."""
-            ctx.deps.client_tool("client_inspect_zone", {"player": player, "zone": zone})
-            return await ctx.deps.query_client(
-                {"kind": "inspect_zone", "player": player, "zone": zone}
-            )
+            return await self.tools.client_inspect_zone(ctx.deps, player, zone)
 
         @agent.tool
         async def client_inspect_card(
             ctx: RunContext[DecisionDeps], instance_id: str
         ) -> dict[str, Any]:
             """Ask the client for currently inspectable fields of one position key."""
-            ctx.deps.client_tool("client_inspect_card", {"instance_id": instance_id})
-            return await ctx.deps.query_client({"kind": "inspect_card", "instance_id": instance_id})
+            return await self.tools.client_inspect_card(ctx.deps, instance_id)
+
+        @agent.tool
+        def calculate(
+            ctx: RunContext[DecisionDeps],
+            operation: str,
+            left: int | float | str,
+            right: int | float | str,
+        ) -> dict[str, str]:
+            """Calculate bounded decimal add, subtract, multiply, divide, or compare."""
+            return self.tools.calculate(ctx.deps, operation, left, right)
 
         @agent.output_validator
         def validate_output(
@@ -561,13 +457,27 @@ class DecisionAgent:
             time.monotonic() + remaining,
             pinned_prompt["text"],
         )
+
+        def emit_tool_metric(kind: str, payload: dict[str, Any]) -> None:
+            telemetry = current_telemetry.get()
+            if telemetry is not None:
+                telemetry.emit(kind, payload)
+
+        deps.emit_tool_metric = emit_tool_metric
         history = self._load_history(session, duel)
         prompt_payload: dict[str, Any] = {
             "state_version": data["state_version"],
             "ack_event_id": delta.ack_event_id,
             "new_events": delta.events,
             "net_changes": delta.changes,
-            "opponent_hand_note": self.hand_notes.current(session, duel, delta.ack_event_id),
+            "opponent_hand_note": self.zone_notes.current(session, duel, delta.ack_event_id),
+            "opponent_spell_note": self.zone_notes.current(
+                session, duel, delta.ack_event_id, 1, "spell"
+            ),
+            "opponent_main_monster_notes": [
+                self.zone_notes.current(session, duel, delta.ack_event_id, 1, "main_monster", i)
+                for i in range(5)
+            ],
             "prompt": data["prompt"],
             "intent_format": intent_format(request),
             "budget": {

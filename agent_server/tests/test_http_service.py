@@ -250,6 +250,35 @@ class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
                 "state_version": 1,
             },
         )
+        self.storage.append_record(
+            "client-a",
+            "duel-1",
+            "spell_note_revision",
+            "revision-2",
+            {
+                "player": 1,
+                "zone": "spell",
+                "text": "对手魔陷区序号3曾展示原罪宝－蛇眼。",
+                "evidence_event_ids": [1],
+                "observed_ack_event_id": 1,
+                "state_version": 1,
+            },
+        )
+        self.storage.append_record(
+            "client-a",
+            "duel-1",
+            "main_monster_note_revision_0",
+            "revision-3",
+            {
+                "player": 1,
+                "zone": "main_monster",
+                "sequence": 0,
+                "text": "序号0的里侧怪兽曾是死亡骆驼。",
+                "evidence_event_ids": [1],
+                "observed_ack_event_id": 1,
+                "state_version": 1,
+            },
+        )
         path = "/v3/view/timeline?session_id=client-a&duel_id=duel-1"
         response = await self.client.get(path, headers=viewer)
         data = await response.json()
@@ -280,6 +309,27 @@ class HttpServiceTests(unittest.IsolatedAsyncioTestCase):
         notes = (await response.json())["records"]
         self.assertEqual(len(notes), 1)
         self.assertEqual(notes[0]["payload"]["evidence_event_ids"], [1])
+        response = await self.client.get(
+            "/v3/view/records?session_id=client-a&duel_id=duel-1&kind=spell_note_revision",
+            headers=viewer,
+        )
+        self.assertEqual(response.status, 200)
+        spell_notes = (await response.json())["records"]
+        self.assertEqual(len(spell_notes), 1)
+        self.assertEqual(spell_notes[0]["payload"]["zone"], "spell")
+        response = await self.client.get(
+            "/v3/view/records?session_id=client-a&duel_id=duel-1&kind=main_monster_note_revision_0",
+            headers=viewer,
+        )
+        self.assertEqual(response.status, 200)
+        monster_notes = (await response.json())["records"]
+        self.assertEqual(len(monster_notes), 1)
+        self.assertEqual(monster_notes[0]["payload"]["sequence"], 0)
+        response = await self.client.get(
+            "/v3/view/records?session_id=client-a&duel_id=duel-1&kind=main_monster_note_revision_5",
+            headers=viewer,
+        )
+        self.assertEqual(response.status, 400)
         response = await self.client.get(
             "/v3/view/records?session_id=client-a&duel_id=duel-1&kind=model_context",
             headers=viewer,

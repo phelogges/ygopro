@@ -32,3 +32,5 @@
 - `python3.12 tools/agent-release.py build --preset MacOS-Debug --output-dir out/codex-release-check-v2`：构建与发布校验通过，发布包位于 `out/codex-release-check-v2/ygopro-agent-macos-0.1.0/`。校验从冻结后的 `agent-server` 实际启动 SDK 配套的 Codex app-server，并调用本地账户状态接口；没有登录或请求模型。
 
 真实登录、模型推理、双客户端对局和 Windows 路径均**未验证**。Codex SDK 目前只提供 thread 归档接口，终局会归档本局 thread；归档不等于物理删除原生会话文件。
+
+2026-10-10 将共用工具执行逻辑抽至 `agent_server/duel_tools.py`。Pydantic AI 注册函数与 Codex MCP 桥接层调用同一执行类；原 Codex 专属 `calculate` 的确定性十进制实现也移入该类，并在 Pydantic AI 注册同名工具。离线测试分别覆盖两端的批量卡片查询指标、计算和既有笔记工具。`cd agent_server && .venv/bin/python -m pytest tests -q` 为 63 项通过，Ruff、格式检查与 Pyright 通过。本次重构未运行真实模型或双客户端对局。

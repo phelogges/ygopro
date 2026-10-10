@@ -13,7 +13,7 @@ from agent_sdk.contract import DecisionRequest
 from agent_sdk.state import StateDelta
 
 from agent_server.duel_context import DuelContext
-from agent_server.model_agent import DecisionFailure
+from agent_server.duel_tools import DecisionFailure
 from agent_server.storage import StateDatabase
 
 type DecisionKey = tuple[str, str, int, int]

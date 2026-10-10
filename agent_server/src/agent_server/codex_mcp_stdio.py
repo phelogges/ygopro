@@ -121,8 +121,14 @@ def _description(name: str) -> str:
         "zone_state": "读取一个已确认区域，隐藏卡身份仍保持隐藏。",
         "card_state": "按当前场面位置键读取卡片可见状态。",
         "event_history": "分页读取本方可见的已确认事件历史。",
-        "read_zone_note": "读取 Agent 对对手手牌的推测笔记。",
-        "write_zone_note": "更新 Agent 对对手手牌的推测笔记，须提供证据事件 ID。",
+        "read_zone_note": (
+            "读取对手推断笔记：player=1，zone 为 hand、spell，或 main_monster 且 sequence 为 0–4。"
+        ),
+        "write_zone_note": (
+            "更新对手推断笔记：player=1，zone 为 hand、spell，"
+            "或 main_monster 且 sequence 为 0–4；引用本视角 1–20 个真实事件 ID。"
+            "卡片离位或格子复用后需复核；笔记不改变权威隐藏状态。"
+        ),
         "client_inspect_zone": "向客户端查询目前可检查的一个区域。",
         "client_inspect_card": "向客户端查询一张目前可检查的卡。",
         "calculate": "确定性十进制加减乘除或大小比较；仅用于数字计算。",

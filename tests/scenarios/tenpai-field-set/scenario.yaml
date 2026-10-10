@@ -1,0 +1,222 @@
+schema_version: 1
+decks:
+  host: host.ydk
+  guest: guest.ydk
+pregame:
+  host:
+  - rock
+  guest:
+  - scissors
+  winner_chooses: go_first
+steps:
+  host:
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "39931513"
+    action:
+      kind: choice
+      match:
+        kind: normal_summon
+        card_id: "39931513"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 0
+  - expect:
+      prompt: effect_yes_no
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "39931513"
+          position: face_up_attack
+          sequence: 0
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+    action:
+      kind: choice
+      match:
+        kind: accept
+        card_id: "39931513"
+        description_id: 221
+        controller: 0
+        location: monster
+        sequence: 0
+  - expect:
+      prompt: select_cards
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: deck
+        count: 35
+    action:
+      kind: select_cards
+      matches:
+      - kind: card
+        card_id: "30336082"
+        controller: 0
+        location: deck
+  - expect:
+      prompt: option
+      turn: 1
+      phase: main_1
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: option
+        description_id: 1153
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "30336082"
+          position: face_down
+          sequence: 5
+    action:
+      kind: choice
+      match:
+        kind: end_turn
+  guest: []
+goal:
+  kind: duel_end
+  winner: host
+  expect:
+    host:
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "39931513"
+          position: face_up_attack
+          sequence: 0
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "30336082"
+          position: face_down
+          sequence: 5
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 6
+    guest:
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 6
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+          count: 3
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 4
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "39931513"
+          position: face_up_attack
+          sequence: 0
+      - player: 1
+        name: spell
+        count: 1
+        contains:
+        - position: face_down
+          sequence: 5
+  surrender:
+    role: guest
+    expect:
+      host: {}
+      guest:
+        turn: 2
+        phase: main_1
+        turn_player: 0
+event_assertions:
+  host:
+  - kind: card_set
+    player: self
+  - kind: cards_revealed
+    cards:
+    - {card_id: "30336082", player: self, location: 8, sequence: 5}
+  guest:
+  - kind: card_set
+    player: opponent
+  - kind: cards_revealed
+    cards:
+    - {card_id: "30336082", player: opponent, location: 8, sequence: 5}

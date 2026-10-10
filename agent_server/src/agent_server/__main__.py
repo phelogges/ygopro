@@ -24,8 +24,9 @@ from aiohttp import web
 from agent_server.codex_agent import CodexDecisionAgent
 from agent_server.codex_mcp_stdio import main as codex_mcp_main
 from agent_server.config import load_settings, profile_data_dir
+from agent_server.duel_tools import DecisionFailure
 from agent_server.http_service import HttpService, load_viewer_token, web_root
-from agent_server.model_agent import DecisionAgent, DecisionFailure
+from agent_server.model_agent import DecisionAgent
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
 

@@ -111,6 +111,10 @@
            {"player": 0, "location": 4, "sequence": 2}]}
 ```
 
+`MSG_CONFIRM_CARDS`（31）的 `cards_revealed` 事件保留报文公开展示的卡片 ID；对于可定位的场上魔陷区，还保留本方视角的 `player`、`location` 与 `sequence`。录制 `6aba04db61ae42fc8301a5165b60bb75` 中，对手盖放 `89023486` 时，`card_set` 与后续 `cards_revealed` 都指向魔陷区序号 3。当前快照仍把该盖卡标为 `known=false`，历史展示事实由 Agent 通过事件和独立笔记维护，不写回权威卡片身份。
+
+`MSG_CHAINING`（70）的 `effect_activated` 对场上怪兽（`location=4`）附上报文本身的本方可见 `sequence`；其他区域仍按可见性边界处理，不从隐藏手牌或牌库报告序号。`MSG_POS_CHANGE`（53）的 `position_changed` 保留本方视角的 `player`、`location`、`sequence` 与前后表示形式，事件自身不补卡片 ID。录制 `62e7b8fbe66b4bccab6db404a9b3c117` 中，观察方先见到死亡骆驼表侧身份，再收到同为主怪兽区序号 0 的 `effect_activated(card_id=2326738)` 和 `position_changed(face_up_attack -> face_down_defense)`；当前里侧快照仍为 `known=false`。历史身份只可写入独立的 Agent 推断笔记，不写回权威快照。
+
 快照比较生成的是**净状态差异**，与上述有序观测事件分开。相同卡片 ID 的多份副本、手牌重排及隐藏区进出不能凭快照推断为同一实体移动；只有已观测事件明确关联时才表达移动关系。
 
 ## 决策响应

@@ -11,6 +11,9 @@
 | [surrender-smoke](surrender-smoke/README.md) | 严格 | 投降、双端权威终局 | 2026-10-09 双端终局通过 | 真人 GUI 与模型取消时效 |
 | [duel-001](duel-001/README.md) | 严格 | 两回合展开、检索、连锁、Link/同调、投降 | 2026-10-09 双端终局通过 | 未观察到的效果因果 |
 | [duel-002](duel-002/README.md) | 严格 | 人工录制的长对局、公开展示事件、自然终局 | 2026-10-09 双端终局通过 | 未写入的规则因果 |
+| [snake-eye-deck-set](snake-eye-deck-set/README.md) | 严格 | 黑魔女从卡组盖放「原罪宝－蛇眼」、双方展示事件与盖卡可见性 | 2026-10-09 双端终局通过 | 真实模型写魔陷区笔记、Windows 回放 |
+| [tenpai-field-set](tenpai-field-set/README.md) | 严格 | 天杯龙从卡组盖放「杯满的灿幻庄」到场地区、双方展示事件与盖卡可见性 | 2026-10-10 双端终局通过 | 真实模型写场地区推断、Windows 回放 |
+| [death-camel-self-set](death-camel-self-set/README.md) | 严格 | 死亡骆驼自身变为里侧守备、双方公开事件及隐藏身份边界 | 2026-10-10 双端终局通过 | 真实模型写怪兽区推断、Windows 回放 |
 
 ## 待覆盖的协议情况
 

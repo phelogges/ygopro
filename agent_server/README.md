@@ -28,7 +28,7 @@ python3.12 tools/launch-agent-client.py
 
 该启动器使用当前 macOS Debug 客户端、`.agents/config.toml` 和本地 `.agents/data/agent.env`；完整准备步骤、普通客户端启动方式及观测入口见[手动对局说明](../docs/validation/agent-live-duel.md)。
 
-客户端通过随机启动令牌与 nonce 验证独占子进程。人类只读页面在 `http://127.0.0.1:<port>/view`，令牌由服务首次启动生成在 `.agents/data/<profile>/viewer-token`，在页面输入后仅保存在该浏览器标签页的会话存储中。页面和 API 只显示当前配置档的单方视角；令牌不能调用决策 API。场面、事件、净差异和模型/工具轨迹持续保存在 `.agents/data/<profile>/state.sqlite3`，使用 SQLite WAL 和周期检查点；模型摘要不取代权威观察记录。页面展示供应商实际提供的推理摘要或文本；若端点未提供，会明确标注。“Agent 推断”页签单独展示对手手牌认知说明及修订历史，不将其混入权威场面。
+客户端通过随机启动令牌与 nonce 验证独占子进程。人类只读页面在 `http://127.0.0.1:<port>/view`，令牌由服务首次启动生成在 `.agents/data/<profile>/viewer-token`，在页面输入后仅保存在该浏览器标签页的会话存储中。页面和 API 只显示当前配置档的单方视角；令牌不能调用决策 API。场面、事件、净差异和模型/工具轨迹持续保存在 `.agents/data/<profile>/state.sqlite3`，使用 SQLite WAL 和周期检查点；模型摘要不取代权威观察记录。页面展示供应商实际提供的推理摘要或文本；若端点未提供，会明确标注。“Agent 推断”页签分别展示对手手牌、魔陷区和主怪兽区五个格子的认知说明及修订历史，不将其混入权威场面。
 
 历史查看不需要客户端或模型端点：
 

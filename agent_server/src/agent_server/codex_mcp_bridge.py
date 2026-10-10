@@ -15,16 +15,17 @@ import secrets
 import sys
 import tempfile
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from agent_sdk.state import StateError
 
+from agent_server.duel_tools import DuelTools
+
 if TYPE_CHECKING:
     from agent_server.duel_context import DuelContext
-    from agent_server.hand_notes import HandNotes
-    from agent_server.model_agent import DecisionDeps
+    from agent_server.duel_tools import DecisionDeps
+    from agent_server.zone_notes import ZoneNotes
 
 MAX_MESSAGE_BYTES = 1_048_576
 
@@ -51,11 +52,12 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "zone_state": _schema({"player": INTEGER, "zone": STRING}, ["player", "zone"]),
     "card_state": _schema({"instance_id": STRING}, ["instance_id"]),
     "event_history": _schema({"after_event_id": INTEGER, "limit": INTEGER}),
-    "read_zone_note": _schema({"player": INTEGER, "zone": STRING}),
+    "read_zone_note": _schema({"player": INTEGER, "zone": STRING, "sequence": INTEGER}),
     "write_zone_note": _schema(
         {
             "player": INTEGER,
             "zone": STRING,
+            "sequence": INTEGER,
             "note": STRING,
             "evidence_event_ids": {"type": "array", "items": INTEGER},
         },
@@ -77,8 +79,7 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 @dataclass(slots=True)
 class _Active:
     deps: DecisionDeps
-    duel_context: DuelContext
-    hand_notes: HandNotes
+    tools: DuelTools
 
 
 class CodexMcpBridge:
@@ -116,11 +117,11 @@ class CodexMcpBridge:
         self._socket_path = None
 
     def activate(
-        self, deps: DecisionDeps, duel_context: DuelContext, hand_notes: HandNotes
+        self, deps: DecisionDeps, duel_context: DuelContext, zone_notes: ZoneNotes
     ) -> None:
         if self._server is None or self._active is not None:
             raise RuntimeError("MCP bridge is unavailable or a decision is already active")
-        self._active = _Active(deps, duel_context, hand_notes)
+        self._active = _Active(deps, DuelTools(duel_context, zone_notes))
 
     def deactivate(self) -> None:
         self._active = None
@@ -204,118 +205,4 @@ class CodexMcpBridge:
                 or any(type(item) is not int for item in cast(list[Any], value))
             ):
                 raise ValueError(f"{key} must be an integer array")
-        if name.startswith("client_inspect_"):
-            deps.client_tool(name, args)
-        else:
-            deps.tool(name, args)
-        session, duel, version = deps.identity
-        if name == "rulebook_index":
-            return deps.skills.rulebook_index()
-        if name == "rulebook_section":
-            return deps.skills.rulebook_section(cast(str, args["section"]))
-        if name == "card_by_id":
-            return deps.skills.card_by_id(cast(int, args["card_id"]))
-        if name == "cards_by_ids":
-            ids = cast(list[int], args["card_ids"])
-            if not 1 <= len(ids) <= deps.settings.limits.card_lookup_batch_size:
-                raise ValueError("card_ids exceeds configured batch size")
-            return deps.skills.cards_by_ids(ids)
-        if name == "search_cards":
-            return deps.skills.search_cards(
-                cast(str, args["keyword"]),
-                limit=cast(int, args.get("limit", 30)),
-                offset=cast(int, args.get("offset", 0)),
-            )
-        if name == "own_decklist":
-            return active.duel_context.catalog(session, duel)
-        if name == "current_state":
-            return deps.store.get_state(session, duel, version)
-        if name == "zone_state":
-            return deps.store.get_zone(
-                session, duel, version, cast(int, args["player"]), cast(str, args["zone"])
-            )
-        if name == "card_state":
-            state = deps.store.get_state(session, duel, version)
-            for zone in cast(list[dict[str, Any]], state["zones"]):
-                for card in zone["cards"]:
-                    if card["instance_id"] == args["instance_id"]:
-                        return card
-            raise StateError("card_not_found", "card position is not visible")
-        if name == "event_history":
-            after = cast(int, args.get("after_event_id", 0))
-            limit = cast(int, args.get("limit", 50))
-            if after < 0 or limit < 1:
-                raise ValueError("invalid history page")
-            events = deps.store.get_events(
-                session, duel, state_version=version, after_event_id=after, limit=min(limit, 100)
-            )
-            return {"state_version": version, "after_event_id": after, "events": events}
-        if name == "read_zone_note":
-            player = args.get("player", 1)
-            zone = args.get("zone", "hand")
-            if player != 1 or zone != "hand":
-                return {"ok": False, "error": "only the opponent hand is supported"}
-            return {
-                "ok": True,
-                **active.hand_notes.current(session, duel, deps.delta.ack_event_id),
-            }
-        if name == "write_zone_note":
-            try:
-                value = active.hand_notes.write(
-                    session,
-                    duel,
-                    version,
-                    deps.delta.ack_event_id,
-                    cast(int, args["player"]),
-                    cast(str, args["zone"]),
-                    cast(str, args["note"]),
-                    cast(list[int], args["evidence_event_ids"]),
-                )
-            except StateError as exc:
-                return {"ok": False, "error": exc.code, "message": str(exc)}
-            return {"ok": True, **value}
-        if name == "client_inspect_zone":
-            return await deps.query_client(
-                {"kind": "inspect_zone", "player": args["player"], "zone": args["zone"]}
-            )
-        if name == "client_inspect_card":
-            return await deps.query_client(
-                {"kind": "inspect_card", "instance_id": args["instance_id"]}
-            )
-        if name == "calculate":
-            return _calculate(args)
-        raise AssertionError("unreachable tool")
-
-
-def _calculate(args: dict[str, Any]) -> dict[str, str]:
-    values: list[Decimal] = []
-    for key in ("left", "right"):
-        raw = args[key]
-        if type(raw) not in (int, float, str):
-            raise ValueError(f"{key} must be a finite decimal")
-        if len(str(raw)) > 80:
-            raise ValueError(f"{key} decimal representation is too long")
-        try:
-            value = Decimal(str(raw))
-        except InvalidOperation as exc:
-            raise ValueError(f"{key} must be a finite decimal") from exc
-        if not value.is_finite() or abs(value) > 1_000_000_000:
-            raise ValueError(f"{key} outside supported range")
-        values.append(value)
-    left, right = values
-    op = args["operation"]
-    if op == "add":
-        result = left + right
-    elif op == "subtract":
-        result = left - right
-    elif op == "multiply":
-        result = left * right
-    elif op == "divide":
-        if right == 0:
-            raise ValueError("division by zero")
-        result = left / right
-    elif op == "compare":
-        return {"result": "-1" if left < right else "1" if left > right else "0"}
-    else:
-        raise ValueError("unknown calculation operation")
-    return {"result": format(result, "f")}
+        return await active.tools.invoke(deps, name, args)

@@ -603,6 +603,7 @@ void AgentController::RecordEvent(const std::uint8_t* bytes, std::size_t length,
 		event["kind"] = "effect_activated";
 		event["controller"] = mainGame->LocalPlayer(bytes[9]);
 		event["location"] = bytes[10];
+		if(bytes[10] == LOCATION_MZONE) event["sequence"] = bytes[11];
 		event["chain_index"] = bytes[16];
 		const auto code = ReadU32(bytes + 1) & 0x7fffffffU;
 		if(code) event["card_id"] = code;

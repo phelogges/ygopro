@@ -16,17 +16,15 @@ from openai_codex import ApprovalMode, AsyncCodex, CodexConfig, Sandbox, SkillIn
 from agent_server.codex_mcp_bridge import CodexMcpBridge
 from agent_server.config import ServiceSettings
 from agent_server.duel_context import DuelContext
-from agent_server.hand_notes import HandNotes
+from agent_server.duel_tools import ClientQuery, DecisionDeps, DecisionFailure
 from agent_server.model_agent import (
-    ClientQuery,
-    DecisionDeps,
-    DecisionFailure,
     DecisionOutput,
     intent_format,
 )
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
 from agent_server.trace import TraceWriter, safe_value
+from agent_server.zone_notes import ZoneNotes
 
 
 def decision_output_schema(request: DecisionRequest) -> dict[str, Any]:
@@ -175,7 +173,7 @@ class CodexDecisionAgent:
         self.store = store
         self.skills = skills
         self.context = DuelContext(skills.root, store, skills)
-        self.hand_notes = HandNotes(store)
+        self.zone_notes = ZoneNotes(store)
         self.home, self.workspace = _prepare_directories(skills.root, profile_dir)
         self.user_config = _validate_user_config(self.home)
         self.bridge = CodexMcpBridge()
@@ -423,7 +421,14 @@ class CodexDecisionAgent:
             "ack_event_id": delta.ack_event_id,
             "new_events": delta.events,
             "net_changes": delta.changes,
-            "opponent_hand_note": self.hand_notes.current(session, duel, delta.ack_event_id),
+            "opponent_hand_note": self.zone_notes.current(session, duel, delta.ack_event_id),
+            "opponent_spell_note": self.zone_notes.current(
+                session, duel, delta.ack_event_id, 1, "spell"
+            ),
+            "opponent_main_monster_notes": [
+                self.zone_notes.current(session, duel, delta.ack_event_id, 1, "main_monster", i)
+                for i in range(5)
+            ],
             "prompt": data["prompt"],
             "intent_format": intent_format(request),
             "budget": {
@@ -440,6 +445,7 @@ class CodexDecisionAgent:
         prompt = json.dumps(prompt_payload, ensure_ascii=False, separators=(",", ":"))
         turn_id = f"{data['prompt_id']}:{data['state_version']}"
         trace = TraceWriter(self.store, session, duel, turn_id)
+        deps.emit_tool_metric = trace.emit
         trace.emit(
             "model_request_started",
             {
@@ -469,7 +475,7 @@ class CodexDecisionAgent:
                     "codex_compaction_finished",
                     {"duration_ms": round((time.perf_counter() - compact_started) * 1000, 2)},
                 )
-        self.bridge.activate(deps, self.context, self.hand_notes)
+        self.bridge.activate(deps, self.context, self.zone_notes)
         started = time.perf_counter()
         try:
             for attempt in range(1, self.settings.limits.invalid_intent_attempts + 1):

@@ -19,6 +19,7 @@ from .contract import ContractError, DecisionRequest, Object, build_response, pa
 ROLES = ("host", "guest")
 CARD_FIELDS = {
     "card_id",
+    "known",
     "controller",
     "location",
     "sequence",
@@ -203,6 +204,8 @@ def _assertion(value: object, path: str, *, normalized: bool = False) -> dict[st
                     if not (set(c) - {"count"}):
                         raise ScenarioError(f"{cp}: expected at least one card field")
                     _normalize_card_id(c, cp, allow_int=normalized)
+                    if "known" in c and type(c["known"]) is not bool:
+                        raise ScenarioError(f"{cp}.known: expected boolean")
                     if "count" in c:
                         _integer(c["count"], f"{cp}.count", 1)
                     for field in (
@@ -289,8 +292,49 @@ def _card_match(value: Any, predicate: dict[str, Any]) -> bool:
 
 
 def _event_assertion(value: object, path: str) -> dict[str, Any]:
-    event = _dict(value, path, {"kind"}, {"kind", "player", "zone", "cards", "count"})
+    event = _dict(
+        value,
+        path,
+        {"kind"},
+        {
+            "kind",
+            "player",
+            "zone",
+            "cards",
+            "count",
+            "card_id",
+            "controller",
+            "location",
+            "sequence",
+            "from_position",
+            "to_position",
+        },
+    )
     _string(event["kind"], f"{path}.kind")
+    if "card_id" in event:
+        if event["kind"] != "effect_activated":
+            raise ScenarioError(f"{path}.card_id: only effect_activated supports this field")
+        _normalize_card_id(event, path)
+    if "controller" in event:
+        if event["kind"] != "effect_activated":
+            raise ScenarioError(f"{path}.controller: only effect_activated supports this field")
+        if event["controller"] in ("self", "opponent"):
+            event["controller"] = 0 if event["controller"] == "self" else 1
+        if type(event["controller"]) is not int or event["controller"] not in (0, 1):
+            raise ScenarioError(f"{path}.controller: expected self, opponent, 0, or 1")
+    for field in ("location", "sequence", "from_position", "to_position"):
+        if field not in event:
+            continue
+        if field in ("location", "sequence"):
+            allowed = ("position_changed", "effect_activated")
+        else:
+            allowed = ("position_changed",)
+        if event["kind"] not in allowed:
+            raise ScenarioError(f"{path}.{field}: unsupported for this event kind")
+        if field in ("location", "sequence"):
+            _integer(event[field], f"{path}.{field}")
+        else:
+            _string(event[field], f"{path}.{field}")
     if "count" in event:
         if event["kind"] != "cards_randomly_selected":
             raise ScenarioError(f"{path}.count: only cards_randomly_selected supports count")
@@ -311,7 +355,9 @@ def _event_assertion(value: object, path: str) -> dict[str, Any]:
         for index, card in enumerate(cards):
             card_path = f"{path}.cards[{index}]"
             if event["kind"] == "cards_revealed":
-                item = _dict(card, card_path, {"card_id"}, {"card_id", "player", "location"})
+                item = _dict(
+                    card, card_path, {"card_id"}, {"card_id", "player", "location", "sequence"}
+                )
                 _normalize_card_id(item, card_path)
             else:
                 item = _dict(
@@ -355,10 +401,7 @@ def _event_match(actual: object, expected: dict[str, Any]) -> bool:
                 if _card_match(card, wanted)
                 and (
                     expected["kind"] != "cards_randomly_selected"
-                    or (
-                        isinstance(card, dict)
-                        and set(cast(dict[str, Any], card)) == set(wanted)
-                    )
+                    or (isinstance(card, dict) and set(cast(dict[str, Any], card)) == set(wanted))
                 )
             ),
             None,

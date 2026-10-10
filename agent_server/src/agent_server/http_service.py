@@ -19,7 +19,7 @@ from aiohttp import web
 from agent_server.config import ServiceSettings
 from agent_server.decision_session import DecideFunction, DecisionManager
 from agent_server.duel_context import DuelContext
-from agent_server.model_agent import DecisionFailure
+from agent_server.duel_tools import DecisionFailure
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
 
@@ -410,7 +410,13 @@ class HttpService:
             after = self._page_int(request, "after_id", 0, 2**63 - 1)
             limit = self._page_int(request, "limit", 100, 1000)
             kind = request.query.get("kind")
-            if kind is not None and kind != "hand_note_revision":
+            note_kind = kind in ("hand_note_revision", "spell_note_revision") or (
+                isinstance(kind, str)
+                and len(kind) == len("main_monster_note_revision_0")
+                and kind.startswith("main_monster_note_revision_")
+                and kind[-1] in "01234"
+            )
+            if kind is not None and not note_kind:
                 raise DecisionFailure("invalid_request", "unsupported record kind filter")
             return self._response(
                 {
