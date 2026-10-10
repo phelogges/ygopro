@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "pending": [
+    {"message": "MSG_MATCH_KILL", "scope": "out_of_scope", "safe_observation": "三局赛结果；当前单局 1v1 保持显式失败"},
+    {"message": "MSG_TAG_SWAP", "scope": "out_of_scope", "safe_observation": "双打换人；当前单局 1v1 保持显式失败"},
+    {"message": "MSG_RELOAD_FIELD", "scope": "out_of_scope", "safe_observation": "调试或残局重建场面，不能当作无关消息丢弃"},
+    {"message": "MSG_UNEQUIP", "scope": "legacy", "safe_observation": "旧客户端兼容分支；引擎现行定义已注释且未找到发送处，若收到仍保持显式失败"}
+  ]
+}

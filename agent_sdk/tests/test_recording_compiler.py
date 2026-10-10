@@ -308,29 +308,33 @@ class RecordingCompilerTests(unittest.TestCase):
             self.assertIn("rejected_response", report["errors"][0])
 
     def test_random_mode_emits_review_only_candidate(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "capture"
-            source.mkdir()
-            for role in ("host", "guest"):
-                records = _capture(role)
-                terminal = records.pop()
-                records.append(
-                    {
-                        "kind": "visible_snapshot",
-                        "seq": len(records) + 1,
-                        "role": role,
-                        "message_type": 130,
-                    }
-                )
-                terminal["seq"] = len(records) + 1
-                records.append(terminal)
-                _write(source / f"{role}.jsonl", records)
-            output = Path(directory) / "draft"
-            report = compile_recording(source, output, scenario_kind="random")
-            self.assertEqual(report["status"], "draft_unverified")
-            self.assertEqual(report["random_target_message_type"], 130)
-            self.assertTrue((output / "scenario.unverified.yaml").is_file())
-            self.assertFalse((output / "scenario.yaml").exists())
+        for message_type in (36, 130):
+            with (
+                self.subTest(message_type=message_type),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                source = Path(directory) / "capture"
+                source.mkdir()
+                for role in ("host", "guest"):
+                    records = _capture(role)
+                    terminal = records.pop()
+                    records.append(
+                        {
+                            "kind": "visible_snapshot",
+                            "seq": len(records) + 1,
+                            "role": role,
+                            "message_type": message_type,
+                        }
+                    )
+                    terminal["seq"] = len(records) + 1
+                    records.append(terminal)
+                    _write(source / f"{role}.jsonl", records)
+                output = Path(directory) / "draft"
+                report = compile_recording(source, output, scenario_kind="random")
+                self.assertEqual(report["status"], "draft_unverified")
+                self.assertEqual(report["random_target_message_type"], message_type)
+                self.assertTrue((output / "scenario.unverified.yaml").is_file())
+                self.assertFalse((output / "scenario.yaml").exists())
 
     def test_latest_submitted_deck_and_auto_decline_are_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

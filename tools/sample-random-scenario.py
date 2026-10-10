@@ -22,6 +22,8 @@ def main() -> int:
     parser.add_argument("--client", type=Path)
     parser.add_argument("--cards-db", type=Path)
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--protocol", choices=("v2", "v3"), default="v3")
+    parser.add_argument("--report-output", type=Path, help=argparse.SUPPRESS)
     parser.add_argument(
         "--max-runs", type=int, help="override scenario random_target.max_runs"
     )
@@ -66,6 +68,8 @@ def main() -> int:
                 str(args.scenario.resolve()),
                 "--timeout",
                 str(args.timeout),
+                "--protocol",
+                args.protocol,
                 "--report-output",
                 str(report_path),
             ]
@@ -91,6 +95,8 @@ def main() -> int:
                 {
                     "run": index,
                     "exit_code": completed.returncode,
+                    "report": str(report_path),
+                    "diagnostic_dir": report.get("diagnostic_dir"),
                     "case": case,
                     "error": report.get("error"),
                 }
@@ -106,16 +112,19 @@ def main() -> int:
         result = {
             "schema_version": 1,
             "status": status,
+            "agent_http_protocol": args.protocol,
+            "diagnostic_dir": str(work),
             "scenario": str(args.scenario.resolve()),
             "expected_cases": sorted(expected),
             "observed_cases": sorted(observed),
             "max_runs": limit,
             "attempts": attempts,
         }
-        (work / "sampling-report.json").write_text(
+        output_path = args.report_output or work / "sampling-report.json"
+        output_path.write_text(
             json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        print(f"{status}: {work / 'sampling-report.json'}", flush=True)
+        print(f"{status}: {output_path}", flush=True)
     return 0 if status in ("covered", "single_passed") else 1
 
 

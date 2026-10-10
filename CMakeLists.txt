@@ -59,5 +59,8 @@ if(BUILD_TESTING)
                 "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/agent_sdk/src"
                 ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_codec_sdk.py
                 $<TARGET_FILE:agent_codec_test>)
+        add_test(NAME agent_message_coverage
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tools/check-agent-message-coverage.py)
     endif()
 endif()

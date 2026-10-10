@@ -59,6 +59,94 @@ def sync(events: list[dict[str, object]]) -> dict[str, object]:
 
 
 class StateTests(unittest.TestCase):
+    def test_game_events_and_deck_reversal_state(self) -> None:
+        observed: list[dict[str, object]] = [
+            {
+                "event_id": 1,
+                "kind": "deck_cards_revealed",
+                "message_type": 30,
+                "player": 1,
+                "zone": "deck",
+                "count": 1,
+                "cards": [{"player": 1, "location": 1, "card_id": 89023486}],
+            },
+            {
+                "event_id": 2,
+                "kind": "card_target_relation_added",
+                "message_type": 96,
+                "cards": [
+                    {"player": 0, "location": 8, "sequence": 1},
+                    {"player": 1, "location": 4, "sequence": 2},
+                ],
+            },
+            {
+                "event_id": 3,
+                "kind": "deck_reversal_changed",
+                "message_type": 37,
+                "deck_reversed": True,
+            },
+            {
+                "event_id": 4,
+                "kind": "hands_compared",
+                "message_type": 133,
+                "self_choice": "rock",
+                "opponent_choice": "scissors",
+            },
+        ]
+        store = StateStore()
+        self.assertEqual(store.apply_sync(sync(observed)), 4)
+        current = decision(1)
+        observation = cast(dict[str, object], current["observation"])
+        observation["deck_reversed"] = True
+        self.assertEqual(store.apply_decision(current).state_version, 1)
+        self.assertEqual(store.get_events("client-a", "duel-1"), tuple(observed))
+
+    def test_game_events_reject_hidden_identity(self) -> None:
+        relation: dict[str, object] = {
+            "event_id": 1,
+            "kind": "equip_relation_established",
+            "message_type": 93,
+            "cards": [
+                {"player": 0, "location": 8, "sequence": 1},
+                {"player": 1, "location": 2},
+            ],
+        }
+        invalid = [
+            {
+                "cards": [
+                    {"player": 0, "location": 8, "sequence": 1},
+                    {"player": 1, "location": 2, "sequence": 3},
+                ]
+            },
+            {
+                "cards": [
+                    {"player": 0, "location": 8, "sequence": 1},
+                    {"player": 1, "location": 2, "card_id": 123},
+                ]
+            },
+            {"message_type": 97},
+        ]
+        for change in invalid:
+            with self.subTest(change=change), self.assertRaises(StateError):
+                StateStore().apply_sync(sync([{**relation, **change}]))
+        visible_log: dict[str, object] = {
+            "event_id": 1,
+            "kind": "effect_timing_missed",
+            "message_type": 120,
+            "card_id": 98765432,
+            "cards": [{"player": 1, "location": 2}],
+        }
+        self.assertEqual(StateStore().apply_sync(sync([visible_log])), 1)
+        with self.assertRaises(StateError):
+            StateStore().apply_sync(
+                sync([{**visible_log, "cards": [{"player": 1, "location": 2, "sequence": 3}]}])
+            )
+        request = decision(1)
+        observation = cast(dict[str, object], request["observation"])
+        observation["deck_reversed"] = 1
+        with self.assertRaises(StateError):
+            StateStore().apply_decision(request)
+
     def test_known_card_hint_snapshot_and_hidden_rejection(self) -> None:
         request = decision(1)
         observation = cast(dict[str, object], request["observation"])
@@ -214,6 +302,30 @@ class StateTests(unittest.TestCase):
             StateStore().apply_sync(
                 sync([{**selected, "count": 256, "cards": many_cards + many_cards[:1]}])
             )
+
+    def test_set_shuffle_reports_count_without_card_mapping(self) -> None:
+        shuffled: dict[str, object] = {
+            "event_id": 1,
+            "kind": "set_cards_shuffled",
+            "message_type": 36,
+            "player": 1,
+            "zone": "monster",
+            "count": 3,
+        }
+        store = StateStore()
+        self.assertEqual(store.apply_sync(sync([shuffled])), 1)
+        self.assertEqual(store.get_events("client-a", "duel-1"), (shuffled,))
+        for change in (
+            {"message_type": 33},
+            {"player": 2},
+            {"zone": "hand"},
+            {"count": 1},
+            {"count": 6},
+            {"cards": [{"card_id": 81210420}]},
+            {"sequence": 2},
+        ):
+            with self.subTest(change=change), self.assertRaises(StateError):
+                StateStore().apply_sync(sync([{**shuffled, **change}]))
 
     def test_control_change_event(self) -> None:
         control: dict[str, object] = {

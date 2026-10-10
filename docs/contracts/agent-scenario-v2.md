@@ -2,7 +2,7 @@
 
 > 状态：现行随机结果场景 YAML 扩展，仅适用于 `schema_version: 2`、`scenario_kind: random`；确定性场景仍按 [YAML v1](agent-scenario-v1.md) 读取。本版本号与 Agent HTTP 协议版本无关。
 
-本扩展仅用于单局 1v1 的随机效果协议回归。保留 v1 的 `decks`、`pregame`、`steps`、`event_assertions` 和可见状态断言；`schema_version: 2` 必须搭配 `scenario_kind: random`。双方仍使用各自固定顺序的 YDK 和“不洗牌”房间。每个场景只聚焦一次随机操作，按 Host 和 Guest 各自可见的事件作断言，不合并隐藏信息。
+本扩展仅用于单局 1v1 的随机效果协议回归。保留 v1 的 `decks`、`pregame`、`steps`、`event_assertions` 和可见状态断言；`schema_version: 2` 必须搭配 `scenario_kind: random`。双方仍使用各自固定顺序的 YDK 和“不洗牌”房间。每个场景只聚焦一次随机操作，按 Host 和 Guest 各自可见的事件作断言，不合并隐藏信息。目标消息可为盖卡洗切（36）、随机选卡（81）、抛币（130）或掷骰（131）。
 
 执行器默认使用 [Agent HTTP v3](agent-http-v3.md) 的双端独立离线 Agent 服务和共享脚本协调器；YAML `schema_version: 2` 不要求 HTTP v2。历史 HTTP v2 回归须显式指定 `--protocol v2`。
 
@@ -22,7 +22,7 @@ goal:
     host: {turn: 1}
     guest: {turn: 1}
 random_target:
-  message_type: 130 # 81 随机选卡；130 抛币；131 掷骰
+  message_type: 130 # 36 盖卡洗切；81 随机选卡；130 抛币；131 掷骰
   max_runs: 20
   coverage: [[heads], [tails]] # 可省略；省略时只运行一次，不声称全结果覆盖
   expect: # 所有合法结果均须满足的效果完成后状态
@@ -35,6 +35,8 @@ random_target:
         guest: {life_points: [8000, 8000]}
 ```
 
-`expect` 和每个 `cases[].expect` 必须分别为双方写非空断言。抛币结果为 `heads`/`tails`，骰子为 1～6；多次投掷按报文顺序写列表。程序检查两端各自只收到一次目标事件、公开结果一致；目标事件之后的同一份可见快照须同时满足 `goal.expect`、通用 `random_target.expect` 与匹配结果的 `cases[].expect`。`MSG_RANDOM_SELECTED`（81）只可检查 `cards_randomly_selected` 的结构化位置与数量，不得按隐藏卡 ID 定义覆盖目标。`event_assertions` 可分别为双方指定该事件的 `count` 和 `cards`；每张只写本端可见的 `player`、`location`、可见时的 `sequence`，匹配时要求字段集合完全相同，从而检查隐藏序号没有泄露。不能从一次通过推论所有结果已覆盖。
+`expect` 和每个 `cases[].expect` 必须分别为双方写非空断言。抛币结果为 `heads`/`tails`，骰子为 1～6；多次投掷按报文顺序写列表。程序检查两端各自只收到一次目标事件、公开结果一致；目标事件之后的同一份可见快照须同时满足 `goal.expect`、通用 `random_target.expect` 与匹配结果的 `cases[].expect`。`MSG_RANDOM_SELECTED`（81）只可检查 `cards_randomly_selected` 的结构化位置与数量，不得按隐藏卡 ID 定义覆盖目标。`event_assertions` 可分别为双方指定该事件的 `count` 和 `cards`；每张只写本端可见的 `player`、`location`、可见时的 `sequence`，匹配时要求字段集合完全相同，从而检查隐藏序号没有泄露。`MSG_SHUFFLE_SET_CARD`（36）只可检查 `set_cards_shuffled` 的玩家、区域与数量，不暴露或断言盖卡排列；`cases[].count` 可以选择按洗切张数追加断言，`coverage` 必须为空，因为隐藏排列无法从双方事件证明覆盖。不能从一次通过推论所有结果已覆盖。
+
+无头回放在目标报文后请求客户端执行一次测试专用的后台事件同步，使没有后续决策的一方也能接受事件断言；该同步不产生玩家动作，正式对局的同步策略不受影响。
 
 运行单次：`uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario PATH`。按 `coverage` 采样：`uv run --project agent_sdk --extra scenario python tools/sample-random-scenario.py --scenario PATH`。有覆盖目标时最多运行 `max_runs`（默认 20）次；任何一次协议、脚本或断言失败立即停止并报告 `failed`。到上限仍缺目标结果报告 `coverage_incomplete`，与失败分开。没有覆盖目标时只运行一次并报告 `single_passed`，不声称覆盖所有结果。报告逐次保存结果和错误。随机结果本身不受客户端固定牌序选项控制。

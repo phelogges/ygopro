@@ -20,6 +20,7 @@
 | 服务与状态 | [二期服务总设计](design/agent-phase-2.md) · [现行状态数据流](design/agent-state.md) · [Codex 后端](design/agent-codex-backend.md) |
 | 人类观察 | [可观测性设计](design/agent-observability.md) |
 | 录制和回归 | [人工双端录制](design/manual-duel-capture.md) · [场景制作](design/duel-scenario-authoring.md) · [GUI 回放](design/agent-gui-e2e.md) |
+| 消息完整性 | [客户端游戏消息覆盖审计](design/agent-message-coverage.md) |
 
 ## 操作指南
 
@@ -31,12 +32,15 @@
 
 ## 验证与待办
 
-[验证总览](validation/README.md)按路径、平台与后端列出仓库内最近一次实际证据及未验证项；[默认 v3 场景回放记录](validation/agent-v3-scenario-replay.md)区分当前 3 个场景与已移除剧本的历史报告，[场景清单](../tests/scenarios/README.md)列现行各局的目标和报告。[现行待办](roadmap.md)只列尚未完成或尚待实测的工作。
+[验证总览](validation/README.md)按路径、平台与后端列出仓库内最近一次实际证据及未验证项；[默认 v3 场景回放记录](validation/agent-v3-scenario-replay.md)区分当前 4 个场景与已移除剧本的历史报告，[场景清单](../tests/scenarios/README.md)列现行各局的目标和报告。[现行待办](roadmap.md)只列尚未完成或尚待实测的工作。
 
 以下各页保留带日期或阶段范围的原始证据，旧测试数量与“当时未实现”的表述不代表今天的状态：
 
 - [一期状态](validation/phase-1-status.md) · [二期服务](validation/agent-phase-2.md) · [v3 场景回归](validation/agent-v3-scenario-replay.md) · [旧回归入口](validation/agent-e2e.md) · [GUI 真实对局入口](validation/agent-live-duel.md)
 - [人工录制](validation/manual-duel-capture.md) · [场景制作](validation/duel-scenario-authoring.md) · [随机结果消息](validation/agent-random-results.md) · [区域笔记](validation/agent-zone-notes.md)
+- [魔术礼帽盖卡洗切](validation/magical-hats-set-shuffle.md)：2026-10-10 的随机场景候选与双端回放证据。
+- [游戏消息覆盖审计](validation/agent-message-coverage.md)：2026-10-10 的静态分类、注入测试与 CTest 证据。
+- [当前单局消息解析](validation/agent-message-coverage-2026-10-11.md)：2026-10-11 的 14 类消息解析与回归证据。
 - [Codex 后端](validation/agent-codex-backend.md) · [可观测耗时](validation/agent-observability-timing.md) · [终局取消](validation/agent-terminal-cancellation.md) · [发行验证](validation/agent-release.md)
 
 ## 历史设计与兼容入口

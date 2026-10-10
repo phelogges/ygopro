@@ -1,7 +1,6 @@
 #undef NDEBUG
 #include "agent_client/decision_codec.h"
-#include "agent_client/random_result_event.h"
-#include "agent_client/random_selection_event.h"
+#include "agent_client/game_event_codec.h"
 #include "ocgcore/common.h"
 #include <cassert>
 #include <iostream>
@@ -11,6 +10,70 @@ using J = nlohmann::json;
 using B = std::vector<std::uint8_t>;
 void u32(B& b, unsigned n) { for(int i=0;i<4;++i)b.push_back(n>>(8*i)); }
 void card(B& b, unsigned code, bool extra=false, unsigned param=0) {u32(b,code); b.insert(b.end(),{0,4,0}); if(extra)b.push_back(param);}
+void game_events() {
+ auto parse=[](const B& bytes,bool first=true,bool grave=true,bool reversed=false) {
+   return ParseGameEvent(bytes.data(),bytes.size(),first,grave,reversed);
+ };
+ assert(GameEventMessage(MSG_TOSS_COIN) && GameEventMessage(MSG_RANDOM_SELECTED) &&
+   GameEventMessage(MSG_SHUFFLE_SET_CARD) && GameEventMessage(MSG_EQUIP));
+ assert(!GameEventMessage(MSG_NEW_TURN));
+ assert((*parse(B{MSG_TOSS_COIN,1,1,0}))["kind"]=="coin_tossed");
+ assert((*parse(B{MSG_RANDOM_SELECTED,1,1,0,LOCATION_MZONE,2,0}))["kind"]==
+   "cards_randomly_selected");
+ B reveal={MSG_CONFIRM_DECKTOP,1,2};
+ u32(reveal,123);reveal.insert(reveal.end(),{1,LOCATION_DECK,7});
+ u32(reveal,456);reveal.insert(reveal.end(),{1,LOCATION_DECK,6});
+ auto shown=parse(reveal);assert(shown && (*shown)["kind"]=="deck_cards_revealed" &&
+   (*shown)["cards"]==J::array({J{{"player",1},{"location",LOCATION_DECK},{"card_id",123}},
+                                J{{"player",1},{"location",LOCATION_DECK},{"card_id",456}}}));
+ assert((*parse(reveal,false))["player"]==0);
+ B extra=reveal;extra[0]=MSG_CONFIRM_EXTRATOP;extra[8]=LOCATION_EXTRA;extra[15]=LOCATION_EXTRA;
+ assert((*parse(extra))["zone"]=="extra");
+ B deck_top={MSG_DECK_TOP,1,2};u32(deck_top,0x80000000U|123U);
+ assert((*parse(deck_top))["card_id"]==123 && (*parse(deck_top))["card_reversed"]==true &&
+   (*parse(deck_top))["top_offset"]==2);
+ assert((*parse(B{MSG_REVERSE_DECK},true,true,true))["deck_reversed"]==true);
+ assert((*parse(B{MSG_SWAP_GRAVE_DECK,1}))["kind"]=="grave_deck_swapped");
+ B swapped={MSG_SWAP};u32(swapped,123);swapped.insert(swapped.end(),{0,LOCATION_MZONE,2,POS_FACEDOWN_DEFENSE});
+ u32(swapped,456);swapped.insert(swapped.end(),{1,LOCATION_SZONE,3,POS_FACEDOWN_DEFENSE});
+ auto swap_event=parse(swapped);assert(swap_event && (*swap_event)["cards"].size()==2 &&
+   !(*swap_event).contains("card_id") && !(*swap_event)["cards"][0].contains("card_id"));
+ B disabled={MSG_FIELD_DISABLED};u32(disabled,0x12345678);
+ assert((*parse(disabled))["value"]==0x12345678);
+ assert((*parse(disabled,false))["value"]==0x56781234);
+ for(auto type:{MSG_EQUIP,MSG_CARD_TARGET,MSG_CANCEL_TARGET}) {
+   B relation={static_cast<std::uint8_t>(type),0,LOCATION_SZONE,2,0,1,LOCATION_MZONE,3,0};
+   auto event=parse(relation);assert(event && (*event)["cards"].size()==2);
+   assert((*event)["cards"][0]["sequence"]==2 && (*event)["cards"][1]["sequence"]==3);
+   relation[6]=LOCATION_HAND;
+   auto private_relation=parse(relation);assert(private_relation &&
+     !(*private_relation)["cards"][1].contains("sequence"));
+ }
+ for(auto type:{MSG_ADD_COUNTER,MSG_REMOVE_COUNTER}) {
+   B counter_event={static_cast<std::uint8_t>(type),0x34,0x12,1,LOCATION_MZONE,2,3,0};
+   auto event=parse(counter_event);assert(event && (*event)["counter_type"]==0x1234 &&
+     (*event)["count"]==3 && (*event)["cards"][0]["sequence"]==2);
+ }
+ B missed={MSG_MISSED_EFFECT,1,LOCATION_HAND,7,0};u32(missed,98765432);
+ auto missed_event=parse(missed);assert(missed_event &&
+   (*missed_event)["kind"]=="effect_timing_missed" &&
+   !(*missed_event)["cards"][0].contains("sequence") &&
+   (*missed_event)["card_id"]==98765432);
+ B hands={MSG_HAND_RES,static_cast<std::uint8_t>(1|(3<<2))};
+ assert((*parse(hands))["self_choice"]=="rock" &&
+   (*parse(hands,false))["self_choice"]=="scissors");
+ for(const B& packet:{reveal,extra,deck_top,B{MSG_REVERSE_DECK},B{MSG_SWAP_GRAVE_DECK,1},
+   swapped,disabled,B{MSG_EQUIP,0,8,0,0,1,4,0,0},
+   B{MSG_CARD_TARGET,0,8,0,0,1,4,0,0},B{MSG_CANCEL_TARGET,0,8,0,0,1,4,0,0},
+   B{MSG_ADD_COUNTER,1,0,0,4,0,1,0},B{MSG_REMOVE_COUNTER,1,0,0,4,0,1,0},missed,hands}) {
+   assert(parse(packet));
+   for(std::size_t length=0;length<packet.size();++length)
+     assert(!ParseGameEvent(packet.data(),length,true,true,false));
+   auto trailing=packet;trailing.push_back(0);assert(!parse(trailing));
+ }
+ assert(!parse(B{MSG_HAND_RES,0}));
+ assert(!parse(B{MSG_DECK_TOP,2,0,1,0,0,0}));
+}
 ParseDecisionResult p(const B& b) { auto x=ParseDecision(b.data(),b.size()); if(!x.decision)std::cerr<<x.error.message<<"\n"; assert(x.decision); return x; }
 B response(const B& b, const J& a) {auto x=p(b); auto e=EncodeDecision(*x.decision,a); if(!e.response)std::cerr<<e.error.message<<"\n"; assert(e.response);return e.response->payload;}
 J choice(const char* c) {return {{"kind","choice"},{"candidate_id",c}};}
@@ -28,6 +91,7 @@ void roundtrip(const B &b, const J &action) {
   assert(decoded.action && *decoded.action == action);
 }
 int main(int argc, char** argv){
+ game_events();
  auto hand=ParseDecision(nullptr,0,DecisionSource::select_hand);assert(hand.decision);auto e=EncodeDecision(*hand.decision,choice("c0"));assert(e.response->packet_type==3&&e.response->payload==B{2});
  auto tp=ParseDecision(nullptr,0,DecisionSource::select_turn_player);assert(tp.decision);assert(EncodeDecision(*tp.decision,choice("c0")).response->payload==B{1});
  B yes={MSG_SELECT_YESNO,0};u32(yes,123);assert(response(yes,choice("c0"))==B({1,0,0,0}));reject(yes,{{"kind","choice"},{"candidate_id","c0"},{"response",1}});
@@ -188,6 +252,28 @@ int main(int argc, char** argv){
        B{MSG_RANDOM_SELECTED, 0, 1, 2, LOCATION_HAND, 0, 0},
        B{MSG_RANDOM_SELECTED, 0, 1, 0, 0, 0, 0}})
    assert(!ParseRandomSelectionEvent(invalid.data(), invalid.size(), true, true));
+ B set_shuffle = {MSG_SHUFFLE_SET_CARD, LOCATION_MZONE, 3,
+                  0, LOCATION_MZONE, 3, 8,
+                  0, LOCATION_MZONE, 2, 8,
+                  0, LOCATION_MZONE, 0, 8};
+ set_shuffle.insert(set_shuffle.end(), 12, 0);
+ const auto shuffled_first = ParseSetShuffleEvent(
+     set_shuffle.data(), set_shuffle.size(), true);
+ assert(shuffled_first && *shuffled_first ==
+     J({{"kind", "set_cards_shuffled"}, {"player", 0},
+        {"zone", "monster"}, {"count", 3}}));
+ assert(ParseGameEvent(set_shuffle.data(), set_shuffle.size(), true, true, false)==shuffled_first);
+ const auto shuffled_second = ParseSetShuffleEvent(
+     set_shuffle.data(), set_shuffle.size(), false);
+ assert(shuffled_second && (*shuffled_second)["player"] == 1);
+ for(std::size_t length = 0; length < set_shuffle.size(); ++length)
+   assert(!ParseSetShuffleEvent(set_shuffle.data(), length, true));
+ B extra_shuffle = set_shuffle;
+ extra_shuffle.push_back(0);
+ assert(!ParseSetShuffleEvent(extra_shuffle.data(), extra_shuffle.size(), true));
+ B mixed_shuffle = set_shuffle;
+ mixed_shuffle[7] = 1;
+ assert(!ParseSetShuffleEvent(mixed_shuffle.data(), mixed_shuffle.size(), true));
  if (argc == 2 && std::string(argv[1]) == "--dump-prompts") {
    J prompts = J::array({hand.decision->prompt(), tp.decision->prompt(),
                          announcement.decision->prompt()});

@@ -239,6 +239,49 @@ class ScenarioTests(unittest.TestCase):
         with self.assertRaisesRegex(ScenarioError, "hidden identity coverage"):
             Scenario(data)
 
+    def test_set_shuffle_random_target_checks_both_perspectives(self) -> None:
+        data: dict[str, Any] = scene()
+        data["schema_version"] = 2
+        data["scenario_kind"] = "random"
+        data["random_target"] = {
+            "message_type": 36,
+            "expect": {"host": {"phase": "main_1"}, "guest": {"phase": "main_1"}},
+            "cases": [
+                {
+                    "count": 3,
+                    "expect": {"host": {"turn": 1}, "guest": {"turn": 1}},
+                }
+            ],
+        }
+        data["event_assertions"] = {
+            "host": [
+                {"kind": "set_cards_shuffled", "player": "self", "zone": "monster", "count": 3}
+            ],
+            "guest": [
+                {
+                    "kind": "set_cards_shuffled",
+                    "player": "opponent",
+                    "zone": "monster",
+                    "count": 3,
+                }
+            ],
+        }
+        scenario = Scenario(data)
+        host_event = {"kind": "set_cards_shuffled", "player": 0, "zone": "monster", "count": 3}
+        guest_event = {"kind": "set_cards_shuffled", "player": 1, "zone": "monster", "count": 3}
+        scenario.assert_events("host", [host_event])
+        scenario.assert_events("guest", [guest_event])
+        key, case = scenario.match_random_case({"host": [host_event], "guest": [guest_event]})
+        self.assertEqual(key, "count:3")
+        self.assertEqual(case["expect"]["host"], {"turn": 1})
+        with self.assertRaisesRegex(ScenarioError, "zone or player differs"):
+            scenario.match_random_case(
+                {"host": [host_event], "guest": [{**guest_event, "player": 0}]}
+            )
+        cast(dict[str, Any], data["random_target"])["coverage"] = [[0, 2, 3]]
+        with self.assertRaisesRegex(ScenarioError, "hidden identity coverage"):
+            Scenario(data)
+
     def test_semantic_choice_and_visible_assertions(self) -> None:
         scenario = Scenario(scene())
         self.assertEqual(scenario.first_player_role, "host")
@@ -537,9 +580,9 @@ class ScenarioTests(unittest.TestCase):
 
     def test_full_duel_fixture_parses(self) -> None:
         root = Path(__file__).resolve().parents[2]
-        scenario = Scenario.load(root / "tests/scenarios/duel-001/scenario.yaml")
+        scenario = Scenario.load(root / "tests/scenarios/snake-eye-deck-set/scenario.yaml")
         self.assertEqual(scenario.goal["winner"], "guest")
-        self.assertEqual(scenario.allowed_random_messages, {33})
+        self.assertEqual(scenario.allowed_random_messages, set())
 
     def test_ordered_event_assertions_validate_reveals_and_shuffle(self) -> None:
         data = scene()
@@ -577,11 +620,11 @@ class ScenarioTests(unittest.TestCase):
         with self.assertRaisesRegex(ScenarioError, "quoted decimal"):
             Scenario(data)
 
-    def test_duel_002_event_assertions_parse(self) -> None:
+    def test_current_reveal_event_assertions_parse(self) -> None:
         root = Path(__file__).resolve().parents[2]
-        scenario = Scenario.load(root / "tests/scenarios/duel-002/scenario.yaml")
-        self.assertEqual(len(scenario.event_assertions["host"]), 2)
-        self.assertEqual(scenario.event_assertions["host"][0]["cards"][0]["card_id"], 5318639)
+        scenario = Scenario.load(root / "tests/scenarios/snake-eye-deck-set/scenario.yaml")
+        self.assertEqual(len(scenario.event_assertions["guest"]), 2)
+        self.assertEqual(scenario.event_assertions["guest"][1]["cards"][0]["card_id"], 89023486)
 
     def test_revealed_field_card_can_assert_public_sequence(self) -> None:
         data = scene()

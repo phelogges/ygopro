@@ -25,6 +25,7 @@ _OBSERVATION_FIELDS = {
     "zones",
     "events",
     "disabled_field",
+    "deck_reversed",
     "graveyard_inspection_allowed",
     "chain_depth",
     "test_role",
@@ -92,17 +93,22 @@ _EVENT_FIELDS = {
     "chain_index",
     "controller",
     "count",
+    "counter_type",
+    "deck_reversed",
     "description_id",
     "from_location",
     "from_player",
     "from_position",
     "from_sequence",
+    "card_reversed",
     "hint_type",
     "location",
     "phase",
     "player",
     "reason_flags",
     "reason",
+    "self_choice",
+    "opponent_choice",
     "results",
     "sequence",
     "target_attack",
@@ -115,12 +121,23 @@ _EVENT_FIELDS = {
     "to_player",
     "to_position",
     "to_sequence",
+    "top_offset",
     "turn",
     "value",
     "winner",
     "zone",
 }
-_EVENT_TEXT_FIELDS = {"kind", "source", "phase", "zone", "from_position", "to_position", "option"}
+_EVENT_TEXT_FIELDS = {
+    "kind",
+    "source",
+    "phase",
+    "zone",
+    "from_position",
+    "to_position",
+    "option",
+    "self_choice",
+    "opponent_choice",
+}
 _CARD_NUMERIC_FIELDS = {
     "attack",
     "defense",
@@ -140,20 +157,37 @@ _CARD_NUMERIC_FIELDS = {
     "hint_value",
 }
 _CARD_SIGNED_FIELDS = {"attack", "defense", "base_attack", "base_defense"}
-_EVENT_SIGNED_FIELDS = {
-    "attacker_attack", "attacker_defense", "target_attack", "target_defense"
-}
+_EVENT_SIGNED_FIELDS = {"attacker_attack", "attacker_defense", "target_attack", "target_defense"}
 _PHASES = {
-    "draw", "standby", "main_1", "battle_start", "battle_step", "damage",
-    "damage_calculation", "battle", "main_2", "end", "unknown",
+    "draw",
+    "standby",
+    "main_1",
+    "battle_start",
+    "battle_step",
+    "damage",
+    "damage_calculation",
+    "battle",
+    "main_2",
+    "end",
+    "unknown",
 }
 _POSITIONS = {
-    "face_up_attack", "face_up_defense", "face_down_attack", "face_down_defense",
-    "face_up", "face_down", "unknown",
+    "face_up_attack",
+    "face_up_defense",
+    "face_down_attack",
+    "face_down_defense",
+    "face_up",
+    "face_down",
+    "unknown",
 }
 _LOCATION_CODES = {
-    "deck": 1, "hand": 2, "monster": 4, "spell": 8, "graveyard": 16,
-    "banished": 32, "extra": 64,
+    "deck": 1,
+    "hand": 2,
+    "monster": 4,
+    "spell": 8,
+    "graveyard": 16,
+    "banished": 32,
+    "extra": 64,
 }
 
 
@@ -273,6 +307,22 @@ def _validate_events(value: object) -> list[JSONObject]:
             or (event.get("value"), event["option"]) not in ((60, "heads"), (61, "tails"))
         ):
             raise StateError("invalid_state", "event.option: invalid selected coin face")
+        for flag in ("deck_reversed", "card_reversed"):
+            if flag in event:
+                _boolean(event[flag], f"event.{flag}")
+        if event["kind"] == "hands_compared":
+            _only_fields(
+                event,
+                {"event_id", "kind", "message_type", "self_choice", "opponent_choice"},
+                "hands_compared",
+            )
+            if event.get("message_type") != 133 or any(
+                event.get(choice) not in {"rock", "paper", "scissors"}
+                for choice in ("self_choice", "opponent_choice")
+            ):
+                raise StateError("invalid_state", "hands_compared: invalid choices")
+        elif "self_choice" in event or "opponent_choice" in event:
+            raise StateError("invalid_state", "hand choices require hands_compared")
         random_kind = event["kind"] in {"coin_tossed", "dice_rolled"}
         if random_kind:
             coin = event["kind"] == "coin_tossed"
@@ -294,6 +344,20 @@ def _validate_events(value: object) -> list[JSONObject]:
                     raise StateError("invalid_state", "event.results: invalid die face")
         elif "results" in event:
             raise StateError("invalid_state", "event.results requires a random result event")
+        if event["kind"] == "set_cards_shuffled":
+            _only_fields(
+                event,
+                {"event_id", "kind", "message_type", "player", "zone", "count"},
+                "set_cards_shuffled",
+            )
+            if event.get("message_type") != 36:
+                raise StateError("invalid_state", "set shuffle message type mismatch")
+            if _integer(event.get("player"), "event.player") > 1:
+                raise StateError("invalid_state", "event.player: expected 0 or 1")
+            if event.get("zone") not in ("monster", "spell"):
+                raise StateError("invalid_state", "set shuffle zone must be monster or spell")
+            if _integer(event.get("count"), "event.count", 2) > 5:
+                raise StateError("invalid_state", "set shuffle count exceeds five")
         if event["kind"] == "cards_randomly_selected":
             if event.get("message_type") != 81:
                 raise StateError("invalid_state", "random selection message type mismatch")
@@ -315,20 +379,117 @@ def _validate_events(value: object) -> list[JSONObject]:
                 if (
                     player > 1
                     or location > 255
-                    or (location & 0x7f) not in (1, 2, 4, 8, 16, 32, 64)
-                    or (location & 0x80 and (location & 0x7f) != 4)
+                    or (location & 0x7F) not in (1, 2, 4, 8, 16, 32, 64)
+                    or (location & 0x80 and (location & 0x7F) != 4)
                 ):
                     raise StateError("invalid_state", "event.cards: invalid location")
                 if "sequence" in card:
                     sequence = _integer(card["sequence"], "event.cards.sequence")
                     if sequence > 255:
                         raise StateError("invalid_state", "event.cards: invalid sequence")
-                    if (location & 0x7f) == 1 or (
-                        player == 1 and (location & 0x7f) in (2, 32, 64)
-                    ):
+                    if (location & 0x7F) == 1 or (player == 1 and (location & 0x7F) in (2, 32, 64)):
                         raise StateError("invalid_state", "event.cards: hidden sequence")
+        game_message_types = {
+            "deck_cards_revealed": (30, 42),
+            "grave_deck_swapped": (35,),
+            "deck_reversal_changed": (37,),
+            "deck_top_observed": (38,),
+            "cards_swapped": (55,),
+            "field_disabled_changed": (56,),
+            "equip_relation_established": (93,),
+            "card_target_relation_added": (96,),
+            "card_target_relation_removed": (97,),
+            "counter_added": (101,),
+            "counter_removed": (102,),
+            "effect_timing_missed": (120,),
+        }
+        kind = event["kind"]
+        if kind in game_message_types:
+            if event.get("message_type") not in game_message_types[kind]:
+                raise StateError("invalid_state", "game event message type mismatch")
+            common = {"event_id", "kind", "message_type"}
+            fields = {
+                "deck_cards_revealed": {"player", "zone", "count", "cards"},
+                "grave_deck_swapped": {"player"},
+                "deck_reversal_changed": {"deck_reversed"},
+                "deck_top_observed": {"player", "top_offset", "card_reversed", "card_id"},
+                "cards_swapped": {"cards"},
+                "field_disabled_changed": {"value"},
+                "equip_relation_established": {"cards"},
+                "card_target_relation_added": {"cards"},
+                "card_target_relation_removed": {"cards"},
+                "counter_added": {"counter_type", "count", "cards"},
+                "counter_removed": {"counter_type", "count", "cards"},
+                "effect_timing_missed": {"cards", "card_id"},
+            }
+            _only_fields(event, common | fields[kind], kind)
+            if kind in {"deck_cards_revealed", "grave_deck_swapped", "deck_top_observed"}:
+                if _integer(event.get("player"), "event.player") > 1:
+                    raise StateError("invalid_state", "event.player: expected 0 or 1")
+            if kind == "deck_cards_revealed":
+                zone = "deck" if event["message_type"] == 30 else "extra"
+                count = _integer(event.get("count"), "event.count")
+                if (
+                    event.get("zone") != zone
+                    or not isinstance(event.get("cards"), list)
+                    or len(event["cards"]) != count
+                ):
+                    raise StateError("invalid_state", "deck reveal zone/count mismatch")
+                for card in event["cards"]:
+                    visible = _object(card, "revealed card")
+                    _only_fields(visible, {"player", "location", "card_id"}, "revealed card")
+                    if visible.get("player") != event["player"] or visible.get("location") != (
+                        1 if zone == "deck" else 64
+                    ):
+                        raise StateError("invalid_state", "deck reveal card location mismatch")
+            if kind == "deck_reversal_changed" and "deck_reversed" not in event:
+                raise StateError("invalid_state", "deck reversal state required")
+            if kind == "deck_top_observed" and (
+                "top_offset" not in event or "card_reversed" not in event
+            ):
+                raise StateError("invalid_state", "deck top offset and face are required")
+            if kind in {"counter_added", "counter_removed"}:
+                _integer(event.get("counter_type"), "event.counter_type")
+                _integer(event.get("count"), "event.count", 1)
+            if "cards" in fields[kind] and kind != "deck_cards_revealed":
+                cards = event.get("cards")
+                expected = (
+                    2
+                    if kind
+                    in {
+                        "cards_swapped",
+                        "equip_relation_established",
+                        "card_target_relation_added",
+                        "card_target_relation_removed",
+                    }
+                    else 1
+                )
+                if not isinstance(cards, list) or len(cast(list[object], cards)) != expected:
+                    raise StateError("invalid_state", "event.cards: wrong endpoint count")
+                for card in cast(list[object], cards):
+                    endpoint = _object(card, "event endpoint")
+                    _only_fields(endpoint, {"player", "location", "sequence"}, "event endpoint")
+                    player = _integer(endpoint.get("player"), "event endpoint player")
+                    location = _integer(endpoint.get("location"), "event endpoint location")
+                    if player > 1 or (location & 0x7F) not in (1, 2, 4, 8, 16, 32, 64):
+                        raise StateError("invalid_state", "event endpoint: invalid location")
+                    if kind == "cards_swapped" and (
+                        location not in (4, 8) or "sequence" not in endpoint
+                    ):
+                        raise StateError("invalid_state", "swapped card must have a field slot")
+                    if "sequence" in endpoint and (
+                        (location & 0x7F) == 1 or (player == 1 and (location & 0x7F) in (2, 32, 64))
+                    ):
+                        raise StateError("invalid_state", "event endpoint: hidden sequence")
         for name, field_value in event.items():
-            if name in {"event_id", "cards", "targets", "results"}:
+            if name in {
+                "event_id",
+                "cards",
+                "targets",
+                "results",
+                "deck_reversed",
+                "card_reversed",
+            }:
                 continue
             if name == "agent":
                 _boolean(field_value, "event.agent")
@@ -395,6 +556,8 @@ def _validate_snapshot(value: object) -> JSONObject:
     for key in ("disabled_field", "chain_depth"):
         if key in observation:
             _integer(observation[key], key)
+    if "deck_reversed" in observation:
+        _boolean(observation["deck_reversed"], "deck_reversed")
     if "test_role" in observation:
         role = _string(observation["test_role"], "test_role")
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", role):
@@ -508,8 +671,11 @@ def _validate_snapshot(value: object) -> JSONObject:
                     )
             if "card_id" in card:
                 _integer(card["card_id"], "card.card_id", 1)
-            if (card.keys() & _CARD_DYNAMIC and not position.startswith("face_up")
-                    and not (name == "graveyard" and position == "unknown")):
+            if (
+                card.keys() & _CARD_DYNAMIC
+                and not position.startswith("face_up")
+                and not (name == "graveyard" and position == "unknown")
+            ):
                 raise StateError("hidden_identity", "face-down card includes public dynamic data")
             if "owner" in card and _integer(card["owner"], "card.owner") > 1:
                 raise StateError("invalid_state", "card.owner must be 0 or 1")
@@ -517,8 +683,10 @@ def _validate_snapshot(value: object) -> JSONObject:
                 materials = card["overlay_cards"]
                 if not isinstance(materials, list):
                     raise StateError("invalid_state", "overlay_cards must be an array")
-                if (type(card.get("overlay_count")) is int
-                        and len(cast(list[object], materials)) > card["overlay_count"]):
+                if (
+                    type(card.get("overlay_count")) is int
+                    and len(cast(list[object], materials)) > card["overlay_count"]
+                ):
                     raise StateError("invalid_state", "overlay_cards exceed overlay_count")
                 for material in cast(list[object], materials):
                     overlay = _object(material, "overlay card")

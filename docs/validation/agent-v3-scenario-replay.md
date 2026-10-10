@@ -6,7 +6,9 @@
 
 ## 当前入库场景
 
-用户移除旧剧本后，2026-10-10 运行 `agent_sdk/.venv/bin/python tools/agent-e2e.py --scenario-dir`，当前三个场景的汇总报告位于 `out/agent-e2e-runs/batch-1791624070-47995/batch-report.json`：`total: 3`、`passed: 3`、`failed: 0`、`unsupported: 0`。分别是 `death-camel-self-set`、`snake-eye-deck-set` 和 `tenpai-field-set`；每场都有独立双端诊断和 `scenario-report.json`。批量入口检查场景包五个必需文件，机器通过只证明场景内已写的断言成立。
+收录「魔术礼帽」后，2026-10-10 运行 `agent_sdk/.venv/bin/python tools/agent-e2e.py --scenario-dir --timeout 180`，当前四个场景的汇总报告位于 `out/agent-e2e-runs/batch-1791646840-63179/batch-report.json`：`total: 4`、`passed: 4`、`failed: 0`、`unsupported: 0`。三个严格场景分别完成独立双端回放；`magical-hats-set-shuffle` 通过随机采样入口完成一次双端 checkpoint，状态为 `single_passed`、结果为 `count:3`。批量入口检查场景包五个必需文件，机器通过只证明场景内已写的断言成立。
+
+较早删减后的三场景报告位于 `out/agent-e2e-runs/batch-1791624070-47995/batch-report.json`，当时 `total: 3`、`passed: 3`。该报告保留为历史证据，不代表新增场景的结果。
 
 ## 已移除剧本的历史基线
 
@@ -27,4 +29,4 @@
 
 同日运行默认 `--games 3 --deck deck/test/test.ydk`，目录为 `out/agent-e2e-runs/1791619419-64253/`。三局的 `game-{1,2,3}-{host,guest}.json` 都记录 `status: finished`、`duel_end: true`，每局双方看到相同的胜者。该入口使用 v3 双端独立服务，但无 YAML 场景断言。另以显式 `--protocol v2` 回放 `fixed-opening`，`out/agent-e2e-runs/1791619914-73111/scenario-report.json` 为 `passed`，证明历史兼容入口仍可运行。
 
-当前三个入库场景在 macOS 默认 v3 无头离线链路中通过；较早的八场景结果仅保留历史证据。v3 GUI 播放、真实模型及 Windows 均须单独记录结果。
+当前四个入库场景在 macOS 默认 v3 无头离线链路中通过；较早的八场景结果仅保留历史证据。随机场景的 `single_passed` 不表示隐藏排列全覆盖。v3 GUI 播放、真实模型及 Windows 均须单独记录结果。

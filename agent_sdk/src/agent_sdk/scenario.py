@@ -336,8 +336,10 @@ def _event_assertion(value: object, path: str) -> dict[str, Any]:
         else:
             _string(event[field], f"{path}.{field}")
     if "count" in event:
-        if event["kind"] != "cards_randomly_selected":
-            raise ScenarioError(f"{path}.count: only cards_randomly_selected supports count")
+        if event["kind"] not in ("cards_randomly_selected", "set_cards_shuffled"):
+            raise ScenarioError(
+                f"{path}.count: only random selection or set shuffle supports count"
+            )
         _integer(event["count"], f"{path}.count", 1)
     if "player" in event:
         if event["player"] in ("self", "opponent"):
@@ -448,8 +450,8 @@ class Scenario:
                 {"message_type", "expect"},
                 {"message_type", "expect", "cases", "coverage", "max_runs"},
             )
-            if target["message_type"] not in (81, 130, 131):
-                raise ScenarioError("random_target.message_type: expected 81, 130, or 131")
+            if target["message_type"] not in (36, 81, 130, 131):
+                raise ScenarioError("random_target.message_type: expected 36, 81, 130, or 131")
             _integer(target.get("max_runs", 20), "random_target.max_runs", 1)
             if target.get("max_runs", 20) > 100:
                 raise ScenarioError("random_target.max_runs: maximum is 100")
@@ -479,7 +481,7 @@ class Scenario:
                 else:
                     if "results" in case:
                         raise ScenarioError(
-                            f"{path}.results: random selection has no public identity"
+                            f"{path}.results: selection or set shuffle has no public identity"
                         )
                     _integer(case.get("count"), f"{path}.count", 1)
                 expect = _dict(case["expect"], f"{path}.expect", set(ROLES), set(ROLES))
@@ -494,8 +496,10 @@ class Scenario:
             if len(set(identities)) != len(identities):
                 raise ScenarioError("random_target.cases: duplicate result case")
             coverage = _list(target.get("coverage", []), "random_target.coverage")
-            if target["message_type"] == 81 and coverage:
-                raise ScenarioError("random selection cannot claim hidden identity coverage")
+            if target["message_type"] in (36, 81) and coverage:
+                raise ScenarioError(
+                    "hidden identity coverage is unavailable for random selection or set shuffle"
+                )
             coverage_keys: list[tuple[Any, ...]] = []
             for index, result in enumerate(coverage):
                 values = _list(result, f"random_target.coverage[{index}]")
@@ -811,9 +815,12 @@ class Scenario:
         target = self.random_target
         if target is None:
             raise ScenarioError("random case requested for deterministic scenario")
-        kind = {81: "cards_randomly_selected", 130: "coin_tossed", 131: "dice_rolled"}[
-            target["message_type"]
-        ]
+        kind = {
+            36: "set_cards_shuffled",
+            81: "cards_randomly_selected",
+            130: "coin_tossed",
+            131: "dice_rolled",
+        }[target["message_type"]]
         found: dict[str, dict[str, Any]] = {}
         for role in ROLES:
             matches = [event for event in events.get(role, []) if event.get("kind") == kind]
@@ -826,6 +833,12 @@ class Scenario:
         guest = found["guest"]
         if host.get("count") != guest.get("count"):
             raise ScenarioError("random event count differs by perspective")
+        if target["message_type"] == 36 and (
+            host.get("zone") != guest.get("zone")
+            or host.get("player") not in (0, 1)
+            or guest.get("player") != 1 - host["player"]
+        ):
+            raise ScenarioError("set shuffle zone or player differs by perspective")
         if target["message_type"] in (130, 131):
             results = host.get("results")
             if results != guest.get("results") or not isinstance(results, list):

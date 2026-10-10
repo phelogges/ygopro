@@ -24,10 +24,11 @@ EXTRA_DECK_TYPES = 0x40 | 0x2000 | 0x800000 | 0x4000000
 TOKEN_TYPE = 0x4000
 OBSERVABLE_RANDOM_MESSAGES = {
     33,
+    36,
     81,
     130,
     131,
-}  # hand shuffle, random select, coin, dice
+}  # hand shuffle, set shuffle, random select, coin, dice
 
 
 def opening_from_deck(deck: Path, cards_db: Path) -> tuple[int, ...]:
@@ -751,7 +752,7 @@ def write_scenario_report(
 def run_scenario_batch(
     args: argparse.Namespace, root: Path, parser: argparse.ArgumentParser
 ) -> int:
-    """Run each deterministic YAML scenario in an isolated child invocation."""
+    """Run each reviewed YAML scenario in an isolated child invocation."""
     if args.gui or args.step_delay is not None or args.record_output:
         parser.error("--scenario-dir supports headless replay only")
     if (
@@ -837,46 +838,55 @@ def run_scenario_batch(
                     f"incomplete scenario package: missing {', '.join(missing)}"
                 )
             scenario = Scenario.load(path)
-            if scenario.random_target is not None:
-                entry["status"] = "unsupported"
-                entry["error"] = (
-                    "random scenario requires tools/sample-random-scenario.py"
-                )
-                log_path.write_text(entry["error"] + "\n", encoding="utf-8")
-            else:
-                command = [
-                    sys.executable,
-                    str(root / "tools/agent-e2e.py"),
-                    "--scenario",
-                    str(path),
-                    "--protocol",
-                    args.protocol,
-                    "--client",
-                    str(args.client),
-                    "--cards-db",
-                    str(args.cards_db),
-                    "--timeout",
-                    str(args.timeout),
-                    "--report-output",
-                    str(report_path),
-                ]
-                with log_path.open("wb") as output:
-                    completed = subprocess.run(
-                        command,
-                        cwd=root,
-                        stdout=output,
-                        stderr=subprocess.STDOUT,
-                        check=False,
+            command = [
+                sys.executable,
+                str(
+                    root
+                    / "tools"
+                    / (
+                        "sample-random-scenario.py"
+                        if scenario.random_target is not None
+                        else "agent-e2e.py"
                     )
-                entry["exit_code"] = completed.returncode
-                if report_path.is_file():
-                    report = json.loads(report_path.read_text(encoding="utf-8"))
-                    entry["diagnostic_dir"] = report.get("diagnostic_dir")
-                    entry["error"] = report.get("error")
-                    if completed.returncode == 0 and report.get("status") == "passed":
-                        entry["status"] = "passed"
-                if entry["status"] != "passed" and not entry["error"]:
-                    entry["error"] = "child failed or did not produce a passing report"
+                ),
+                "--scenario",
+                str(path),
+                "--protocol",
+                args.protocol,
+                "--client",
+                str(args.client),
+                "--cards-db",
+                str(args.cards_db),
+                "--timeout",
+                str(args.timeout),
+                "--report-output",
+                str(report_path),
+            ]
+            with log_path.open("wb") as output:
+                completed = subprocess.run(
+                    command,
+                    cwd=root,
+                    stdout=output,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                )
+            entry["exit_code"] = completed.returncode
+            if report_path.is_file():
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                entry["diagnostic_dir"] = report.get("diagnostic_dir")
+                entry["error"] = report.get("error")
+                expected_status = (
+                    ("covered", "single_passed")
+                    if scenario.random_target is not None
+                    else ("passed",)
+                )
+                if (
+                    completed.returncode == 0
+                    and report.get("status") in expected_status
+                ):
+                    entry["status"] = "passed"
+            if entry["status"] != "passed" and not entry["error"]:
+                entry["error"] = "child failed or did not produce a passing report"
         except (OSError, ValueError, KeyError) as exc:
             entry["error"] = str(exc)
             if not log_path.exists():
@@ -1128,6 +1138,10 @@ def main() -> int:
                             )
                             if scenario:
                                 child_env["YGOPRO_AGENT_E2E_FIXED_DECK"] = "1"
+                                if scenario.random_target is not None:
+                                    child_env["YGOPRO_AGENT_E2E_SYNC_MESSAGE_TYPE"] = (
+                                        str(scenario.random_target["message_type"])
+                                    )
                                 if record_dir:
                                     child_env["YGOPRO_DUEL_RECORD_ID"] = record_id or ""
                                     child_env["YGOPRO_DUEL_RECORD_ROLE"] = role

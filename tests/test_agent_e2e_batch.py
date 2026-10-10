@@ -56,11 +56,21 @@ class BatchReplayTests(unittest.TestCase):
                 scenario = Path(command[command.index("--scenario") + 1])
                 commands.append(scenario.parent.name)
                 report_path = Path(command[command.index("--report-output") + 1])
-                passed = scenario.parent.name == "a-passed"
+                random = scenario.parent.name == "m-random"
+                passed = scenario.parent.name == "a-passed" or random
+                if random:
+                    self.assertEqual(Path(command[1]).name, "sample-random-scenario.py")
+                    self.assertEqual(command[command.index("--protocol") + 1], "v3")
                 report_path.write_text(
                     json.dumps(
                         {
-                            "status": "passed" if passed else "failed",
+                            "status": (
+                                "single_passed"
+                                if random
+                                else "passed"
+                                if passed
+                                else "failed"
+                            ),
                             "error": None if passed else "scenario mismatch",
                             "diagnostic_dir": str(
                                 root / "diagnostics" / scenario.parent.name
@@ -79,7 +89,7 @@ class BatchReplayTests(unittest.TestCase):
                     args, root, argparse.ArgumentParser()
                 )
             self.assertEqual(result, 1)
-            self.assertEqual(commands, ["a-passed", "z-failed"])
+            self.assertEqual(commands, ["a-passed", "m-random", "z-failed"])
             reports = list(
                 (root / "out" / "agent-e2e-runs").glob("batch-*/batch-report.json")
             )
@@ -87,7 +97,7 @@ class BatchReplayTests(unittest.TestCase):
             summary = json.loads(reports[0].read_text(encoding="utf-8"))
             self.assertEqual(summary["status"], "failed")
             self.assertEqual(
-                summary["counts"], {"passed": 1, "failed": 2, "unsupported": 1}
+                summary["counts"], {"passed": 2, "failed": 2, "unsupported": 0}
             )
             self.assertEqual(
                 [item["scenario"] for item in summary["scenarios"]],
@@ -100,7 +110,7 @@ class BatchReplayTests(unittest.TestCase):
             )
             self.assertEqual(summary["scenarios"][0]["exit_code"], 0)
             self.assertIn("missing host.ydk", summary["scenarios"][1]["error"])
-            self.assertEqual(summary["scenarios"][2]["status"], "unsupported")
+            self.assertEqual(summary["scenarios"][2]["status"], "passed")
             self.assertEqual(summary["scenarios"][3]["error"], "scenario mismatch")
 
 

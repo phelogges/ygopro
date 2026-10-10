@@ -21,15 +21,15 @@ uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario
 
 场景模式单局运行，双方分别加载场景指定的 YDK；`#main` 前五张成为预期起手。默认 v3 路径由共享脚本协调器为两个独立 Agent 服务提供动作，同时走首次牌表、客户端查询、动作回执、终局同步与本视角事件持久化链路。它检查实际双端起手，按角色执行严格语义动作和可见状态断言，并在 `scenario-report.json` 中记录 `agent_http_protocol`、成功或失败诊断。`--host-deck`、`--guest-deck` 可覆盖场景卡组路径。写场景时遵循[场景契约](../contracts/agent-scenario-v1.md)；YAML `schema_version` 与 HTTP 版本独立。房间“不洗牌”同时抑制后续卡组洗牌；其他引擎随机事件不能完全控制。三局随机回归继续保留。
 
-批量回放当前入库的确定性场景：
+批量回放当前入库的全部场景：
 
 ```bash
 uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario-dir
 ```
 
-`--scenario-dir` 不带路径时扫描 `tests/scenarios/`，也可指定其他目录；递归查找 `scenario.yaml`，按相对路径排序，逐局启动独立无头回放。每个场景包须包含两副独立 YDK、`goal.md` 和 `README.md`；文件缺失记为失败。单局失败后仍继续其他场景，最终在 `out/agent-e2e-runs/batch-<时间戳>-<进程号>/batch-report.json` 汇总状态、逐局报告、日志和诊断目录；任一场景失败或不支持则命令返回非零。可传 `--protocol v2`、`--client`、`--cards-db`、`--timeout`；批量模式不接受 `--gui`、`--games`、卡组覆盖或录制选项。随机结果场景会在汇总中标为 `unsupported` 并导致批次失败，须用下述采样入口按覆盖目标运行。场景能否证明自然语言测试目标，仍须按[制作技能](../../.agents/skills/duel-scenario-authoring/SKILL.md)审查，批量通过只证明机器断言成立。
+`--scenario-dir` 不带路径时扫描 `tests/scenarios/`，也可指定其他目录；递归查找 `scenario.yaml`，按相对路径排序，逐局启动独立无头回放。随机场景调用采样入口，按场景的覆盖目标与次数上限执行；没有公开覆盖目标时只运行一次，并将 `single_passed` 汇总为该场景通过，不宣称所有隐藏结果已覆盖。每个场景包须包含两副独立 YDK、`goal.md` 和 `README.md`；文件缺失记为失败。单局失败后仍继续其他场景，最终在 `out/agent-e2e-runs/batch-<时间戳>-<进程号>/batch-report.json` 汇总状态、逐局报告、日志和诊断目录；任一场景失败或覆盖不足则命令返回非零。可传 `--protocol v2`、`--client`、`--cards-db`、`--timeout`；批量模式不接受 `--gui`、`--games`、卡组覆盖或录制选项。场景能否证明自然语言测试目标，仍须按[制作技能](../../.agents/skills/duel-scenario-authoring/SKILL.md)审查，批量通过只证明机器断言成立。
 
-经人工审阅的随机效果场景使用 [v2 场景契约](../contracts/agent-scenario-v2.md)，运行 `python3.12 tools/sample-random-scenario.py --scenario <路径>`。它每次启动一局独立双客户端回放并保存结果；一次协议或断言失败立即停止，达到采样次数仍缺目标结果时报告覆盖不足。入库场景的当前清单见[场景索引](../../tests/scenarios/README.md)；随机模式真实对局仍待录制验证。
+经人工审阅的随机效果场景使用 [v2 场景契约](../contracts/agent-scenario-v2.md)，可单独运行 `python3.12 tools/sample-random-scenario.py --scenario <路径>`。它每次启动一局独立双客户端回放并保存结果；一次协议或断言失败立即停止，达到采样次数仍缺目标结果时报告覆盖不足。入库场景的当前清单见[场景索引](../../tests/scenarios/README.md)。
 
 `--gui` 使用两个正常渲染的客户端窗口观看同一剧本；`--step-delay` 指定每个明确脚本动作前的额外等待秒数，默认 1，范围 0～10。正常动画先由客户端处理，然后场景服务等待并返回下一动作；自动放弃的无关提示不增加等待。GUI 模式临时关闭快速动画，自动增加测试总超时预算，窗口在报告产生后保留到手动关闭。无 `--gui` 时仍使用无界面快速回归。详细设计见 [可视化场景验证](../design/agent-gui-e2e.md)。
 

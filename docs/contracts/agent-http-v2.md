@@ -79,7 +79,7 @@
 
 | 层级 | 字段 | 可见性与有效性 |
 | --- | --- | --- |
-| 全局 | `self_player`, `turn_player`, `turn`, `phase`, `life_points[2]`, `disabled_field`, `graveyard_inspection_allowed`, `chain_depth` | 以本方视角映射双方；未知阶段用 `unknown`。禁用区域位掩码、当前是否可查看墓地及连锁深度只报告客户端此刻已知的值。 |
+| 全局 | `self_player`, `turn_player`, `turn`, `phase`, `life_points[2]`, `disabled_field`, `deck_reversed`, `graveyard_inspection_allowed`, `chain_depth` | 以本方视角映射双方；未知阶段用 `unknown`。禁用区域位掩码、牌库是否倒置、当前是否可查看墓地及连锁深度只报告客户端此刻已知的值。 |
 | 区域 | `player`, `name`, `count`, `hidden_count`, `cards` | `deck`, `hand`, `monster`, `spell`, `graveyard`, `banished`, `extra`。`hidden_count = count - cards.length`；它统计未展开为单卡对象的数量，不表示卡片具有某种固定身份。双方牌组和对方手牌只给数量；不可查看墓地时该区域只给数量；对手额外和除外区域只列出身份已公开的单卡，其余计入 `hidden_count`。 |
 | 卡片定位 | `instance_id`, `controller`, `location`, `sequence`, `position`, `known` | `instance_id` 是区域位置键，换区会变且可复用；不能当跨区稳定实体 ID。未知位置或表示不得凭内部缓存补全。 |
 | 卡片身份 | `card_id`, `owner` | `card_id` 只在本方此刻有权查看且客户端确实知道身份时发送；`known=false` 时不得有 `card_id`。`owner` 还需当前区域内有效的对应查询。 |
@@ -112,6 +112,30 @@
  "cards": [{"player": 1, "location": 2},
            {"player": 0, "location": 4, "sequence": 2}]}
 ```
+
+`MSG_SHUFFLE_SET_CARD`（36）生成 `set_cards_shuffled`，只含本方视角的 `player`、`zone`（`monster` 或 `spell`）及 `count`（2–5）。事件不含卡片 ID、洗切前后格子序号或对应关系；洗切后的身份以随后各自可见的快照为准。消息长度、区域、数量或参与卡片位置非法时置为解析不完整。例如：
+
+```json
+{"event_id": 11, "kind": "set_cards_shuffled", "message_type": 36,
+ "player": 1, "zone": "monster", "count": 3}
+```
+
+牌库、场地关系和猜拳消息按以下表格转换；所有 `player` 均为本方视角（自己为 0），报文长度或字段非法时按解析不完整处理。事件中的 `cards` 按报文顺序排列。位置项只含 `player`、`location`，在该位置可查看时才含 `sequence`；关系与交换事件不附原始卡片 ID。
+
+| 游戏消息 | 事件 `kind` | 可观测字段 |
+| --- | --- | --- |
+| `MSG_CONFIRM_DECKTOP`（30）、`MSG_CONFIRM_EXTRATOP`（42） | `deck_cards_revealed` | `player`、`zone`（`deck`／`extra`）、`count`、`cards`。每项含本次公开展示的 `card_id`（若报文非零），按牌顶至牌底的展示顺序排列，不含隐藏区域序号；以后常规牌库快照仍不保留身份。 |
+| `MSG_SWAP_GRAVE_DECK`（35） | `grave_deck_swapped` | `player`；只报告区域交换，不据此推断单卡身份、牌序或额外卡组移动细节。 |
+| `MSG_REVERSE_DECK`（37） | `deck_reversal_changed` | `deck_reversed`；当前倒置状态也写入快照，供中途接管。 |
+| `MSG_DECK_TOP`（38） | `deck_top_observed` | `player`、`top_offset`、`card_reversed`；报文公开了卡片 ID 时带 `card_id`。`top_offset` 相对牌顶，不作为内部绝对序号；高位标记只表示原生客户端的单卡倒置状态。 |
+| `MSG_SWAP`（55） | `cards_swapped` | 两个场上原位置组成的 `cards`；即使报文携带卡片 ID，事件也不输出，以免泄露里侧卡身份。 |
+| `MSG_FIELD_DISABLED`（56） | `field_disabled_changed` | `value` 是已转换成本方坐标的禁用区域位掩码，与快照 `disabled_field` 一致。 |
+| `MSG_EQUIP`（93）、`MSG_CARD_TARGET`（96）、`MSG_CANCEL_TARGET`（97） | `equip_relation_established`、`card_target_relation_added`、`card_target_relation_removed` | 两个位置组成的 `cards`，依次为关系来源和对象；持续关系与一次性的 `MSG_BECOME_TARGET` 有别。 |
+| `MSG_ADD_COUNTER`（101）、`MSG_REMOVE_COUNTER`（102） | `counter_added`、`counter_removed` | `counter_type`、`count` 和含单个位置的 `cards`；卡片身份不从 GUI 缓存补出。 |
+| `MSG_MISSED_EFFECT`（120） | `effect_timing_missed` | 含关联位置的 `cards`，不可查看的位置省略序号。原生 GUI 会把该消息的卡名写进可见日志，因此报文非零的 `card_id` 也是本次公开展示信息。 |
+| `MSG_HAND_RES`（133） | `hands_compared` | `self_choice`、`opponent_choice`，取值 `rock`、`paper`、`scissors`。它也可能由对局中的卡片效果触发。 |
+
+例如，对方额外牌组展示一张卡的事件仅记录这次展示；对方手牌或里侧场上卡的关系事件不得附隐藏序号或身份。静态消息分类见[客户端游戏消息覆盖审计](../design/agent-message-coverage.md)。
 
 `MSG_CONFIRM_CARDS`（31）的 `cards_revealed` 事件保留报文公开展示的卡片 ID；对于可定位的场上魔陷区，还保留本方视角的 `player`、`location` 与 `sequence`。录制 `6aba04db61ae42fc8301a5165b60bb75` 中，对手盖放 `89023486` 时，`card_set` 与后续 `cards_revealed` 都指向魔陷区序号 3。当前快照仍把该盖卡标为 `known=false`，历史展示事实由 Agent 通过事件和独立笔记维护，不写回权威卡片身份。
 

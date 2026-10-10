@@ -17,7 +17,13 @@ import yaml  # pyright: ignore[reportMissingModuleSource]
 from .scenario import Scenario, ScenarioError
 
 ROLES = ("host", "guest")
-RANDOM_MESSAGES = {33: "hand_shuffle", 81: "random_select", 130: "coin", 131: "dice"}
+RANDOM_MESSAGES = {
+    33: "hand_shuffle",
+    36: "set_shuffle",
+    81: "random_select",
+    130: "coin",
+    131: "dice",
+}
 PUBLIC_ANCHORS = {5: "win", 40: "new_turn", 41: "new_phase"}
 PUBLIC_ZONES = {"monster", "spell", "graveyard", "banished"}
 ZONE_LABELS = {
@@ -762,7 +768,7 @@ def _compile(
         role: [
             r.get("message_type")
             for r in captures[role]
-            if r.get("kind") == "visible_snapshot" and r.get("message_type") in (81, 130, 131)
+            if r.get("kind") == "visible_snapshot" and r.get("message_type") in (36, 81, 130, 131)
         ]
         for role in ROLES
     }

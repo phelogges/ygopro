@@ -1,8 +1,7 @@
 #include "agent_controller.h"
 
 #include "sha256_file.h"
-#include "random_result_event.h"
-#include "random_selection_event.h"
+#include "game_event_codec.h"
 #include "../client_card.h"
 #include "../data_manager.h"
 #include "../bufferio.h"
@@ -555,20 +554,12 @@ void AgentController::RecordEvent(const std::uint8_t* bytes, std::size_t length,
 			if(const auto* face = CoinFaceForSelectedOption(ReadU32(bytes + 3)))
 				event["option"] = face;
 		}
-	} else if(type == MSG_TOSS_COIN || type == MSG_TOSS_DICE) {
-		const auto random_event = ParseRandomResultEvent(bytes, length,
-			length >= 2 && bytes[1] <= 1 ? mainGame->LocalPlayer(bytes[1]) : -1);
-		if(random_event) {
-			event.update(*random_event);
-		} else {
-			parsed = false;
-			event["kind"] = "unparsed_game_message";
-		}
-	} else if(type == MSG_RANDOM_SELECTED) {
-		const auto selected = ParseRandomSelectionEvent(bytes, length,
-			mainGame->dInfo.isFirst, !mainGame->dField.cant_check_grave);
-		if(selected) {
-			event.update(*selected);
+	} else if(GameEventMessage(type)) {
+		const auto decoded = ParseGameEvent(bytes, length,
+			mainGame->dInfo.isFirst, !mainGame->dField.cant_check_grave,
+			mainGame->dField.deck_reversed);
+		if(decoded) {
+			event.update(*decoded);
 		} else {
 			parsed = false;
 			event["kind"] = "unparsed_game_message";
@@ -713,6 +704,7 @@ nlohmann::json AgentController::BuildObservation() const {
 	snapshot["turn"] = mainGame->dInfo.turn;
 	snapshot["life_points"] = {mainGame->dInfo.lp[0], mainGame->dInfo.lp[1]};
 	snapshot["disabled_field"] = mainGame->dField.disabled_field;
+	snapshot["deck_reversed"] = mainGame->dField.deck_reversed;
 	snapshot["graveyard_inspection_allowed"] = !mainGame->dField.cant_check_grave;
 	snapshot["chain_depth"] = mainGame->dField.chains.size();
 	snapshot["zones"] = nlohmann::json::array();
@@ -735,6 +727,9 @@ void AgentController::OnGameMessage(const std::uint8_t* bytes, std::size_t lengt
 	bool automatic_empty_chain = false;
 	bool background_sync = false;
 	bool card_hint_visible = false;
+	const char* e2e_sync_type = std::getenv("YGOPRO_AGENT_E2E_SYNC_MESSAGE_TYPE");
+	const bool e2e_sync_target = e2e_sync_type && bytes && length &&
+		std::to_string(bytes[0]) == e2e_sync_type;
 	if(bytes && length >= 10 && bytes[0] == MSG_CARD_HINT) {
 		std::lock_guard<std::mutex> field_lock(mainGame->gMutex);
 		const int player = mainGame->LocalPlayer(bytes[1]);
@@ -751,7 +746,7 @@ void AgentController::OnGameMessage(const std::uint8_t* bytes, std::size_t lengt
 			&& bytes[0] == MSG_SELECT_CHAIN && bytes[2] == 0;
 		if(!automatic_empty_chain)
 			RecordEvent(bytes, length, card_hint_visible);
-		background_sync = events_.size() >= max_pending_events / 2 &&
+		background_sync = (events_.size() >= max_pending_events / 2 || e2e_sync_target) &&
 			!pending_ && !in_flight_prompt_id_ && history_complete_;
 		phase = phase_;
 		turn_player = turn_player_;
