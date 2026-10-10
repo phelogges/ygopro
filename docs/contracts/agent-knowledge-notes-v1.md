@@ -1,6 +1,6 @@
 # Agent 对手已观察信息认知笔记契约 v1
 
-> 状态：现行 Agent 推断笔记契约。覆盖对手手牌、魔陷区和主怪兽区 0–4 号格；笔记不是权威快照。旧路径 [agent-hand-note-v1.md](agent-hand-note-v1.md) 仅作迁移指引。工具接入与共同执行语义见[工具契约](agent-tools-v1.md)。
+> 状态：历史契约；适用范围为 2026-10-11 之前实现的 Agent 推断笔记工具。当前 Pydantic AI、CodeMode 与 Codex MCP 均不再提供读写工具，也不向模型注入笔记。已有 SQLite 记录保留供人类页面只读查看。旧路径 [agent-hand-note-v1.md](agent-hand-note-v1.md) 仅作迁移指引；现行查询能力见[工具契约](agent-tools-v1.md)。下文均描述旧版行为，不定义当前决策路径。
 
 ## 事实边界
 

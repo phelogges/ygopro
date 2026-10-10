@@ -1,6 +1,6 @@
 # Agent 可观测性契约 v1
 
-> 状态：现行正式 Agent 服务的人类只读视图契约，补充 [HTTP v3](agent-http-v3.md)。本页的 v1 是可观测性契约版本，不是客户端 HTTP 版本；认知笔记见[独立契约](agent-knowledge-notes-v1.md)。
+> 状态：现行正式 Agent 服务的人类只读视图契约，补充 [HTTP v3](agent-http-v3.md)。本页的 v1 是可观测性契约版本，不是客户端 HTTP 版本；旧版认知笔记的只读归档见[历史契约](agent-knowledge-notes-v1.md)。
 
 ## 范围与授权
 
@@ -63,7 +63,7 @@
 
 页面以游戏提示为大轮、以模型响应为消息组织时间线，工具调用和结果附在触发它的消息下。每条消息可展开安全原始字段、耗时、错误及校验结果。独立场面/历史页签继续使用 v3 已确认状态接口，并分别标示快照版本、事件截止点和更新时间。
 
-“Agent 推断”页签分别显示本视角当前的对手手牌、魔陷区，以及主怪兽区 0–4 号格的认知说明和完整修订历史，明确区分说明与已确认场面。每次修订显示写入时间、所引事件 ID 和写入时已观察到的事件序号；若当前已确认事件序号更大，页面标注“此说明之后已有新事件，可能需要复核”，不自行改写或判定说明失效。没有说明时显示“尚未建立”，不得解释为区域为空。页面通过 `GET /v3/view/records?session_id=...&duel_id=...&kind=hand_note_revision&after_id=0&limit=100`、`kind=spell_note_revision` 或 `kind=main_monster_note_revision_<0..4>` 按持久记录 ID 分页读取；`kind` 过滤仅接受这七种笔记记录，不允许借此读取 `model_context` 等内部记录。读取和单局导出仍使用本视角 viewer 授权。
+“历史推断笔记”页签只读展示旧版 Agent 曾写入的对手手牌、魔陷区及主怪兽区 0–4 号格说明与修订历史；当前 Agent 不再读写这些记录，也不在决策输入中接收它们。页面须将其标成旧版推断，不能称作当前场面或当前 Agent 判断。每次修订显示写入时间、所引事件 ID 和写入时已观察到的事件序号；若当前已确认事件序号更大，页面标注“此说明之后已有新事件，可能需要复核”，不自行改写或判定说明失效。没有记录时显示“无历史笔记”，不得解释为区域为空。页面通过 `GET /v3/view/records?session_id=...&duel_id=...&kind=hand_note_revision&after_id=0&limit=100`、`kind=spell_note_revision` 或 `kind=main_monster_note_revision_<0..4>` 按持久记录 ID 分页读取；`kind` 过滤仅接受这七种旧版记录，不允许借此读取 `model_context` 等内部记录。读取和单局导出仍使用本视角 viewer 授权。
 
 ## 卡名、导出与保留
 

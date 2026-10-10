@@ -30,9 +30,9 @@ gframe ── HTTP v3 ── agent_server ── 官方 Python SDK ── 本地
 
 ## 决策、工具与验证
 
-首轮输入沿用既有系统指令、已确认完整状态及本方卡组目录；后续输入沿用有序新事件、状态差异、当前提示和完整合法候选。Codex 可以经 MCP 查询当前场面、区域、卡片、分页历史、规则、卡库、本方牌表和对手手牌、魔陷区及主怪兽区格子的认知说明；需要时可请求既有 `inspect_zone` / `inspect_card` 客户端只读查询。另提供受限的确定性算术和数值比较工具，不开放任意 Python 执行。MCP stdio 进程只作转发，通过本地鉴权 IPC 请求父服务的工具执行器；IPC 凭据、决策绑定和期限均由父服务核验。客户端查询仍走 HTTP v3 的 `kind=query` 往返，不引入服务端主动连接客户端的协议。
+首轮输入沿用既有系统指令、已确认完整状态及本方卡组目录；后续输入沿用有序新事件、状态差异、当前提示和完整合法候选。Codex 可以经 MCP 查询当前场面、区域、卡片、分页历史、规则、卡库与本方牌表；这些场面和历史工具读取服务端已确认镜像。旧版推断笔记不再作为独立字段注入新决策，也不提供读写工具。另提供受限的确定性算术和数值比较工具，不开放任意 Python 执行。MCP stdio 进程只作转发，通过本地鉴权 IPC 请求父服务的工具执行器；IPC 凭据、决策绑定和期限均由父服务核验。HTTP v3 的 `inspect_zone` / `inspect_card` 客户端往返保留作兼容和诊断，当前不向 Codex 暴露。
 
-Codex 只配置一个 `ygopro_duel` MCP 服务，而不是每个业务工具各启动一个服务。该 MCP 的 `tools/list` 公布工具名称、描述和参数格式；其调用适配层与 Pydantic AI 的 `@agent.tool` 函数共用服务端资源、状态与笔记实现，不把 Pydantic AI 的函数直接注册到 Codex。两端均暴露同一受限 `calculate` 工具，其十进制实现位于共用执行层；Pydantic AI 还可以通过本地 CodeMode 在受限 Python 表达式中做计算。共用能力的语义与校验应保持一致，新增能力时按[二期工具约定](agent-phase-2.md#工具与沙盒)检查双端入口。
+Codex 只配置一个 `ygopro_duel` MCP 服务，而不是每个业务工具各启动一个服务。该 MCP 的 `tools/list` 公布工具名称、描述和参数格式；其调用适配层与 Pydantic AI 的 `@agent.tool` 函数共用服务端资源与状态实现，不把 Pydantic AI 的函数直接注册到 Codex。两端均暴露同一受限 `calculate` 工具，其十进制实现位于共用执行层；Pydantic AI 还可以通过本地 CodeMode 在受限 Python 表达式中做计算。共用能力的语义与校验应保持一致，新增能力时按[二期工具约定](agent-phase-2.md#工具与沙盒)检查双端入口。
 
 共用的工具执行类为 `agent_server/duel_tools.py` 中的 `DuelTools`。MCP 桥接层保留工具公布、传输鉴权和参数类型检查；所有工具经 `DuelTools` 执行，与 Pydantic AI 注册函数走相同的方法。每次调用显式传入当前决策上下文，避免持久 MCP 连接误用其他提示或对局的状态。
 

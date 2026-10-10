@@ -9,7 +9,7 @@
 | 范围 | 文档 |
 | --- | --- |
 | 客户端与正式服务 | [HTTP v3](contracts/agent-http-v3.md) · [动作映射](contracts/duel-actions.md) |
-| Agent 共用能力 | [工具语义](contracts/agent-tools-v1.md) · [对手已观察信息笔记](contracts/agent-knowledge-notes-v1.md) · [人类只读可观测性](contracts/agent-observability-v1.md) |
+| Agent 共用能力 | [工具语义](contracts/agent-tools-v1.md) · [人类只读可观测性](contracts/agent-observability-v1.md) |
 | 对局录制与回归 | [双端录制](contracts/duel-recording-v1.md) · [确定性场景 YAML v1](contracts/agent-scenario-v1.md) · [随机结果场景 YAML v2](contracts/agent-scenario-v2.md) |
 | 历史兼容测试端 | [HTTP v2](contracts/agent-http-v2.md)，显式指定 `--protocol v2` |
 
@@ -45,12 +45,13 @@
 - [天子的指轮②自动无效](validation/angel-ring-mandatory-spell-negation.md)：2026-10-11 的双端录制、效果无效与非连锁断言证据。
 - [连续速攻魔法卡连锁](validation/quick-play-ten-link-chain.md)：2026-10-11 的十项连锁双端录制、候选回放及入库证据。
 - [俱舍怒威族·独角兽③额外卡组里侧除外](validation/kashtira-unicorn-extra-face-down-banish.md)：2026-10-11 的双端录制、可见性校验修正及入库回放证据。
+- [Agent 镜像与旧版笔记工具](validation/agent-mirror-tools-2026-10-11.md)：2026-10-11 的 Pydantic AI 与 Codex MCP 工具清单、历史笔记只读视图及协议兼容回归证据。
 - [Codex 后端](validation/agent-codex-backend.md) · [可观测耗时](validation/agent-observability-timing.md) · [终局取消](validation/agent-terminal-cancellation.md) · [发行验证](validation/agent-release.md)
 
 ## 历史设计与兼容入口
 
 - [HTTP v1](contracts/agent-http-v1.md)：一期原始请求；正式服务与默认确定性测试均使用 v3。
-- [旧手牌笔记路径](contracts/agent-hand-note-v1.md)：迁移页；完整现行契约见上方通用笔记文档。
+- [旧版认知笔记](contracts/agent-knowledge-notes-v1.md) · [旧手牌笔记路径](contracts/agent-hand-note-v1.md)：历史工具契约与迁移页；当前 Agent 通过事件历史重建判断。
 - [一期设计](design/agent-phase-1.md) · [v2 状态设计](design/agent-state-v2.md) · [duel-001 制作记录](design/duel-001-e2e.md)：保留阶段背景和原始取舍。
 
 更新接口或工具时，先改对应现行契约和测试，再核对设计、指南与验证证据。若代码和契约出现新的行为差异，先列出差异与影响，与用户讨论处理方式。文档相对链接、索引覆盖和状态标记可从仓库根运行 `python3 tools/check-docs.py` 检查；语义一致性仍需人工对照代码。

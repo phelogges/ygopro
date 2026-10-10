@@ -48,7 +48,7 @@ function node(tag, className, text) {
 for (let sequence = 0; sequence < 5; sequence += 1) {
   const key = `main_monster_${sequence}`;
   const section = node("section", "note-current");
-  section.append(node("h4", "", `主怪兽区 ${sequence + 1} 号格 · Agent 推断`));
+  section.append(node("h4", "", `主怪兽区 ${sequence + 1} 号格 · 旧版 Agent 推断`));
   const text = node("p", "note-text", "选择对局后加载。");
   const meta = node("p", "note-meta");
   const history = node("div", "note-history");
@@ -164,11 +164,11 @@ function renderZoneNotes(zone) {
   const elements = noteElements[zone];
   const revisions = [...noteRevisions[zone].values()].sort((a, b) => Number(b.id) - Number(a.id));
   const latest = revisions[0];
-  elements.text.textContent = latest ? String(latest.payload?.text ?? "") : "尚未建立认知说明。";
-  elements.meta.textContent = latest ? noteMetadata(latest) : "无修订记录；不表示该区域为空。";
+  elements.text.textContent = latest ? String(latest.payload?.text ?? "") : "无历史笔记。";
+  elements.meta.textContent = latest ? noteMetadata(latest) : "无历史修订记录；不表示该区域为空。";
   elements.history.replaceChildren();
   if (!latest) {
-    elements.history.append(node("p", "empty", "Agent 尚未写入说明。"));
+    elements.history.append(node("p", "empty", "旧版 Agent 未写入说明。"));
     return;
   }
   for (const record of revisions) {

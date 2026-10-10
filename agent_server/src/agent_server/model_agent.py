@@ -38,11 +38,16 @@ from agent_server.budget_model import (
 )
 from agent_server.config import ServiceSettings, model_api_key
 from agent_server.duel_context import DuelContext
-from agent_server.duel_tools import ClientQuery, DecisionDeps, DecisionFailure, DuelTools
+from agent_server.duel_tools import (
+    TOOLSET_VERSION,
+    ClientQuery,
+    DecisionDeps,
+    DecisionFailure,
+    DuelTools,
+)
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
 from agent_server.trace import TraceWriter
-from agent_server.zone_notes import ZoneNotes
 
 
 def intent_format(request: DecisionRequest) -> dict[str, Any]:
@@ -136,10 +141,9 @@ class DecisionAgent:
         self.settings = settings
         self.model_settings = settings.model
         self.store = store
-        self.zone_notes = ZoneNotes(store)
         self.skills = skills
         self.context = DuelContext(skills.root, store, skills)
-        self.tools = DuelTools(self.context, self.zone_notes)
+        self.tools = DuelTools(self.context)
         self._stream_capable = (
             not isinstance(model, FunctionModel) or model.stream_function is not None
         )
@@ -209,9 +213,6 @@ class DecisionAgent:
                         "zone_state",
                         "card_state",
                         "event_history",
-                        "read_zone_note",
-                        "client_inspect_zone",
-                        "client_inspect_card",
                         "calculate",
                     ],
                     max_tool_calls=settings.limits.host_tool_attempts,
@@ -337,49 +338,6 @@ class DecisionAgent:
             return self.tools.event_history(ctx.deps, after_event_id, limit)
 
         @agent.tool
-        def read_zone_note(
-            ctx: RunContext[DecisionDeps],
-            player: int = 1,
-            zone: str = "hand",
-            sequence: int | None = None,
-        ) -> dict[str, Any]:
-            """Read an opponent inference note: hand or spell, or main_monster with sequence 0–4."""
-            return self.tools.read_zone_note(ctx.deps, player, zone, sequence)
-
-        @agent.tool
-        def write_zone_note(
-            ctx: RunContext[DecisionDeps],
-            player: int,
-            zone: str,
-            note: str,
-            evidence_event_ids: list[int],
-            sequence: int | None = None,
-        ) -> dict[str, Any]:
-            """Replace an opponent inference note.
-
-            Use player=1 and zone=hand or spell; main_monster requires sequence 0–4.
-            Cite 1–20 real event IDs visible in this view. Reassess after card movement
-            or slot reuse. Notes never change authoritative hidden state.
-            """
-            return self.tools.write_zone_note(
-                ctx.deps, player, zone, note, evidence_event_ids, sequence
-            )
-
-        @agent.tool
-        async def client_inspect_zone(
-            ctx: RunContext[DecisionDeps], player: int, zone: str
-        ) -> dict[str, Any]:
-            """Ask the client for a currently inspectable zone missing from the mirror."""
-            return await self.tools.client_inspect_zone(ctx.deps, player, zone)
-
-        @agent.tool
-        async def client_inspect_card(
-            ctx: RunContext[DecisionDeps], instance_id: str
-        ) -> dict[str, Any]:
-            """Ask the client for currently inspectable fields of one position key."""
-            return await self.tools.client_inspect_card(ctx.deps, instance_id)
-
-        @agent.tool
         def calculate(
             ctx: RunContext[DecisionDeps],
             operation: str,
@@ -429,7 +387,11 @@ class DecisionAgent:
             after_id = cast(int, page[-1]["id"])
             if len(page) < 100:
                 break
-        history = ModelMessagesTypeAdapter.validate_python(latest["messages"]) if latest else []
+        history = (
+            ModelMessagesTypeAdapter.validate_python(latest["messages"])
+            if latest and latest.get("toolset_version") == TOOLSET_VERSION
+            else []
+        )
         self._histories[key] = history
         return history
 
@@ -470,20 +432,11 @@ class DecisionAgent:
             "ack_event_id": delta.ack_event_id,
             "new_events": delta.events,
             "net_changes": delta.changes,
-            "opponent_hand_note": self.zone_notes.current(session, duel, delta.ack_event_id),
-            "opponent_spell_note": self.zone_notes.current(
-                session, duel, delta.ack_event_id, 1, "spell"
-            ),
-            "opponent_main_monster_notes": [
-                self.zone_notes.current(session, duel, delta.ack_event_id, 1, "main_monster", i)
-                for i in range(5)
-            ],
             "prompt": data["prompt"],
             "intent_format": intent_format(request),
             "budget": {
                 "model_requests": self.settings.limits.model_requests,
                 "host_tool_attempts": self.settings.limits.host_tool_attempts,
-                "client_queries": self.settings.limits.client_queries,
                 "deadline_unix_ms": deadline_ms,
             },
         }
@@ -601,7 +554,13 @@ class DecisionAgent:
             },
         )
         compacted = ModelMessagesTypeAdapter.dump_python(result.all_messages(), mode="json")
-        self.store.append_record(session, duel, "model_context", record_id, {"messages": compacted})
+        self.store.append_record(
+            session,
+            duel,
+            "model_context",
+            record_id,
+            {"toolset_version": TOOLSET_VERSION, "messages": compacted},
+        )
         trace.emit(
             "model_decision",
             {

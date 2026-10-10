@@ -25,7 +25,6 @@ from agent_server.duel_tools import DuelTools
 if TYPE_CHECKING:
     from agent_server.duel_context import DuelContext
     from agent_server.duel_tools import DecisionDeps
-    from agent_server.zone_notes import ZoneNotes
 
 MAX_MESSAGE_BYTES = 1_048_576
 
@@ -52,19 +51,6 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "zone_state": _schema({"player": INTEGER, "zone": STRING}, ["player", "zone"]),
     "card_state": _schema({"instance_id": STRING}, ["instance_id"]),
     "event_history": _schema({"after_event_id": INTEGER, "limit": INTEGER}),
-    "read_zone_note": _schema({"player": INTEGER, "zone": STRING, "sequence": INTEGER}),
-    "write_zone_note": _schema(
-        {
-            "player": INTEGER,
-            "zone": STRING,
-            "sequence": INTEGER,
-            "note": STRING,
-            "evidence_event_ids": {"type": "array", "items": INTEGER},
-        },
-        ["player", "zone", "note", "evidence_event_ids"],
-    ),
-    "client_inspect_zone": _schema({"player": INTEGER, "zone": STRING}, ["player", "zone"]),
-    "client_inspect_card": _schema({"instance_id": STRING}, ["instance_id"]),
     "calculate": _schema(
         {
             "operation": {"enum": ["add", "subtract", "multiply", "divide", "compare"]},
@@ -116,12 +102,10 @@ class CodexMcpBridge:
             self._directory = None
         self._socket_path = None
 
-    def activate(
-        self, deps: DecisionDeps, duel_context: DuelContext, zone_notes: ZoneNotes
-    ) -> None:
+    def activate(self, deps: DecisionDeps, duel_context: DuelContext) -> None:
         if self._server is None or self._active is not None:
             raise RuntimeError("MCP bridge is unavailable or a decision is already active")
-        self._active = _Active(deps, DuelTools(duel_context, zone_notes))
+        self._active = _Active(deps, DuelTools(duel_context))
 
     def deactivate(self) -> None:
         self._active = None

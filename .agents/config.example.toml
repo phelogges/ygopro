@@ -38,7 +38,7 @@ invalid_intent_attempts = 3
 model_requests = 8
 # 一次决策内宿主工具调用上限。
 host_tool_attempts = 64
-# 一次决策内向客户端发起只读查询的上限。
+# 保留的 HTTP v3 客户端只读查询协议上限；常规模型工具不发起客户端查询。
 client_queries = 4
 # cards_by_ids 一次最多查询多少个不同卡片 ID；一次批量调用算一次宿主工具调用。
 card_lookup_batch_size = 12

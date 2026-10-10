@@ -16,10 +16,10 @@ from agent_server.config import ServiceSettings
 from agent_server.duel_context import DuelContext
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
-from agent_server.zone_notes import ZoneNotes
 
 type ClientQuery = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 type MetricSink = Callable[[str, dict[str, Any]], None]
+TOOLSET_VERSION = 2  # Discard pre-removal conversations containing injected notes.
 
 
 class DecisionFailure(RuntimeError):
@@ -81,9 +81,8 @@ class DecisionDeps:
 class DuelTools:
     """Execute one perspective's tools with a fresh decision context per call."""
 
-    def __init__(self, context: DuelContext, zone_notes: ZoneNotes) -> None:
+    def __init__(self, context: DuelContext) -> None:
         self.context = context
-        self.zone_notes = zone_notes
 
     def rulebook_index(self, deps: DecisionDeps) -> str:
         deps.tool("rulebook_index", {})
@@ -160,54 +159,6 @@ class DuelTools:
         )
         return {"state_version": version, "after_event_id": after_event_id, "events": events}
 
-    def read_zone_note(
-        self, deps: DecisionDeps, player: int = 1, zone: str = "hand", sequence: int | None = None
-    ) -> dict[str, Any]:
-        deps.tool("read_zone_note", {"player": player, "zone": zone, "sequence": sequence})
-        session, duel, _ = deps.identity
-        try:
-            note = self.zone_notes.current(
-                session, duel, deps.delta.ack_event_id, player, zone, sequence
-            )
-        except StateError as exc:
-            return {"ok": False, "error": exc.code, "message": str(exc)}
-        return {"ok": True, **note}
-
-    def write_zone_note(
-        self,
-        deps: DecisionDeps,
-        player: int,
-        zone: str,
-        note: str,
-        evidence_event_ids: list[int],
-        sequence: int | None = None,
-    ) -> dict[str, Any]:
-        deps.tool(
-            "write_zone_note",
-            {
-                "player": player,
-                "zone": zone,
-                "sequence": sequence,
-                "evidence_event_ids": evidence_event_ids,
-            },
-        )
-        session, duel, version = deps.identity
-        try:
-            value = self.zone_notes.write(
-                session,
-                duel,
-                version,
-                deps.delta.ack_event_id,
-                player,
-                zone,
-                note,
-                evidence_event_ids,
-                sequence,
-            )
-        except StateError as exc:
-            return {"ok": False, "error": exc.code, "message": str(exc)}
-        return {"ok": True, **value}
-
     async def client_inspect_zone(
         self, deps: DecisionDeps, player: int, zone: str
     ) -> dict[str, Any]:
@@ -278,22 +229,6 @@ class DuelTools:
         if name == "event_history":
             return self.event_history(
                 deps, cast(int, args.get("after_event_id", 0)), cast(int, args.get("limit", 50))
-            )
-        if name == "read_zone_note":
-            return self.read_zone_note(
-                deps,
-                cast(int, args.get("player", 1)),
-                cast(str, args.get("zone", "hand")),
-                cast(int | None, args.get("sequence")),
-            )
-        if name == "write_zone_note":
-            return self.write_zone_note(
-                deps,
-                cast(int, args["player"]),
-                cast(str, args["zone"]),
-                cast(str, args["note"]),
-                cast(list[int], args["evidence_event_ids"]),
-                cast(int | None, args.get("sequence")),
             )
         if name == "client_inspect_zone":
             return await self.client_inspect_zone(

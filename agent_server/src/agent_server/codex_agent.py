@@ -16,7 +16,7 @@ from openai_codex import ApprovalMode, AsyncCodex, CodexConfig, Sandbox, SkillIn
 from agent_server.codex_mcp_bridge import CodexMcpBridge
 from agent_server.config import ServiceSettings
 from agent_server.duel_context import DuelContext
-from agent_server.duel_tools import ClientQuery, DecisionDeps, DecisionFailure
+from agent_server.duel_tools import TOOLSET_VERSION, ClientQuery, DecisionDeps, DecisionFailure
 from agent_server.model_agent import (
     DecisionOutput,
     intent_format,
@@ -24,7 +24,6 @@ from agent_server.model_agent import (
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
 from agent_server.trace import TraceWriter, safe_value
-from agent_server.zone_notes import ZoneNotes
 
 
 def decision_output_schema(request: DecisionRequest) -> dict[str, Any]:
@@ -173,7 +172,6 @@ class CodexDecisionAgent:
         self.store = store
         self.skills = skills
         self.context = DuelContext(skills.root, store, skills)
-        self.zone_notes = ZoneNotes(store)
         self.home, self.workspace = _prepare_directories(skills.root, profile_dir)
         self.user_config = _validate_user_config(self.home)
         self.bridge = CodexMcpBridge()
@@ -207,7 +205,7 @@ class CodexDecisionAgent:
         """Archive the native thread after the authority reports a terminal duel."""
         async with self._decision_lock:
             key = (session, duel)
-            record = self.store.get_record(session, duel, "codex_thread", "initial")
+            record = self.store.get_latest_record(session, duel, "codex_thread")
             if record is None or self.codex is None:
                 return
             thread_id = cast(dict[str, Any], record["payload"]).get("thread_id")
@@ -237,8 +235,11 @@ class CodexDecisionAgent:
             return self.threads[key], False
         if self.codex is None:
             raise DecisionFailure("provider_unavailable", "Codex has not started")
-        record = self.store.get_record(session, duel, "codex_thread", "initial")
-        if record is not None:
+        record = self.store.get_latest_record(session, duel, "codex_thread")
+        if (
+            record is not None
+            and cast(dict[str, Any], record["payload"]).get("toolset_version") == TOOLSET_VERSION
+        ):
             thread_id = cast(dict[str, Any], record["payload"]).get("thread_id")
             if not isinstance(thread_id, str) or not thread_id:
                 raise DecisionFailure("storage_error", "Codex thread record is invalid")
@@ -257,7 +258,11 @@ class CodexDecisionAgent:
                 sandbox=Sandbox.read_only,
             )
             self.store.append_record(
-                session, duel, "codex_thread", "initial", {"thread_id": thread.id}
+                session,
+                duel,
+                "codex_thread",
+                f"toolset-v{TOOLSET_VERSION}",
+                {"thread_id": thread.id, "toolset_version": TOOLSET_VERSION},
             )
             first = True
         self.threads[key] = thread
@@ -404,8 +409,8 @@ class CodexDecisionAgent:
             raise DecisionFailure("timeout", "decision deadline expired")
         self.context.ensure(request)
         pinned = self.context.prompt(session, duel)
-        thread, _created = await self._thread(session, duel, pinned["text"])
-        first = self.store.get_latest_record(session, duel, "model_exchange") is None
+        thread, created = await self._thread(session, duel, pinned["text"])
+        first = created or self.store.get_latest_record(session, duel, "model_exchange") is None
         deps = DecisionDeps(
             request,
             delta,
@@ -421,19 +426,10 @@ class CodexDecisionAgent:
             "ack_event_id": delta.ack_event_id,
             "new_events": delta.events,
             "net_changes": delta.changes,
-            "opponent_hand_note": self.zone_notes.current(session, duel, delta.ack_event_id),
-            "opponent_spell_note": self.zone_notes.current(
-                session, duel, delta.ack_event_id, 1, "spell"
-            ),
-            "opponent_main_monster_notes": [
-                self.zone_notes.current(session, duel, delta.ack_event_id, 1, "main_monster", i)
-                for i in range(5)
-            ],
             "prompt": data["prompt"],
             "intent_format": intent_format(request),
             "budget": {
                 "host_tool_attempts": self.settings.limits.host_tool_attempts,
-                "client_queries": self.settings.limits.client_queries,
                 "deadline_unix_ms": deadline_ms,
             },
         }
@@ -475,7 +471,7 @@ class CodexDecisionAgent:
                     "codex_compaction_finished",
                     {"duration_ms": round((time.perf_counter() - compact_started) * 1000, 2)},
                 )
-        self.bridge.activate(deps, self.context, self.zone_notes)
+        self.bridge.activate(deps, self.context)
         started = time.perf_counter()
         try:
             for attempt in range(1, self.settings.limits.invalid_intent_attempts + 1):

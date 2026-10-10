@@ -51,43 +51,10 @@ def test_bridge_rejects_unauthorized_and_stale_calls() -> None:
 
             deps = SimpleNamespace(
                 tool=record_tool,
-                client_tool=record_tool,
                 check_deadline=lambda: None,
-                identity=("s", "d", 1),
-                delta=SimpleNamespace(ack_event_id=2),
             )
 
-            def current_note(
-                _session: str,
-                _duel: str,
-                _ack: int,
-                player: int,
-                zone: str,
-                sequence: int | None = None,
-            ) -> dict[str, Any]:
-                return {"status": "unwritten", "player": player, "zone": zone, "sequence": sequence}
-
-            def write_note(
-                _session: str,
-                _duel: str,
-                _version: int,
-                _ack: int,
-                player: int,
-                zone: str,
-                note: str,
-                _evidence: list[int],
-                sequence: int | None = None,
-            ) -> dict[str, Any]:
-                return {
-                    "status": "agent_inference",
-                    "player": player,
-                    "zone": zone,
-                    "sequence": sequence,
-                    "note": note,
-                }
-
-            notes = SimpleNamespace(current=current_note, write=write_note)
-            bridge.activate(cast(Any, deps), cast(Any, None), cast(Any, notes))
+            bridge.activate(cast(Any, deps), cast(Any, None))
             response = await _exchange(
                 reader,
                 writer,
@@ -101,61 +68,11 @@ def test_bridge_rejects_unauthorized_and_stale_calls() -> None:
             response = await _exchange(
                 reader,
                 writer,
-                {
-                    "token": token,
-                    "name": "write_zone_note",
-                    "arguments": {
-                        "player": 1,
-                        "zone": "spell",
-                        "note": "序号3曾展示原罪宝－蛇眼",
-                        "evidence_event_ids": [1, 2],
-                    },
-                },
+                {"token": token, "name": "read_zone_note", "arguments": {}},
             )
-            assert response["result"]["zone"] == "spell"
-            response = await _exchange(
-                reader,
-                writer,
-                {
-                    "token": token,
-                    "name": "read_zone_note",
-                    "arguments": {"player": 1, "zone": "spell"},
-                },
-            )
-            assert response["result"]["zone"] == "spell"
-            response = await _exchange(
-                reader,
-                writer,
-                {
-                    "token": token,
-                    "name": "write_zone_note",
-                    "arguments": {
-                        "player": 1,
-                        "zone": "main_monster",
-                        "sequence": 0,
-                        "note": "序号0曾是死亡骆驼",
-                        "evidence_event_ids": [1, 2],
-                    },
-                },
-            )
-            assert response["result"]["sequence"] == 0
-            response = await _exchange(
-                reader,
-                writer,
-                {
-                    "token": token,
-                    "name": "read_zone_note",
-                    "arguments": {"player": 1, "zone": "main_monster", "sequence": 0},
-                },
-            )
-            assert response["result"]["sequence"] == 0
-            assert records == [
-                "calculate",
-                "write_zone_note",
-                "read_zone_note",
-                "write_zone_note",
-                "read_zone_note",
-            ]
+            assert response["ok"] is False
+            assert "unknown tool" in response["error"]
+            assert records == ["calculate"]
             bridge.deactivate()
             response = await _exchange(
                 reader,
@@ -167,13 +84,7 @@ def test_bridge_rejects_unauthorized_and_stale_calls() -> None:
                 },
             )
             assert response["ok"] is False
-            assert records == [
-                "calculate",
-                "write_zone_note",
-                "read_zone_note",
-                "write_zone_note",
-                "read_zone_note",
-            ]
+            assert records == ["calculate"]
         finally:
             writer.close()
             await writer.wait_closed()
@@ -210,7 +121,7 @@ def test_bridge_batch_lookup_records_shared_metrics() -> None:
             skills=SimpleNamespace(cards_by_ids=cards_by_ids),
             emit_tool_metric=emit_metric,
         )
-        bridge.activate(cast(Any, deps), cast(Any, None), cast(Any, None))
+        bridge.activate(cast(Any, deps), cast(Any, None))
         try:
             response = await _exchange(
                 reader,
@@ -249,7 +160,7 @@ def test_mcp_stdio_round_trip() -> None:
             check_deadline=lambda: None,
             identity=("s", "d", 1),
         )
-        bridge.activate(cast(Any, deps), cast(Any, None), cast(Any, None))
+        bridge.activate(cast(Any, deps), cast(Any, None))
         env = {**os.environ, **config["env"]}
         process = await asyncio.create_subprocess_exec(
             config["command"],
@@ -275,11 +186,18 @@ def test_mcp_stdio_round_trip() -> None:
             response = await rpc("initialize", {"protocolVersion": "2025-03-26"})
             assert response["result"]["capabilities"] == {"tools": {}}
             response = await rpc("tools/list")
-            assert {tool["name"] for tool in response["result"]["tools"]} >= {
+            exposed = {tool["name"] for tool in response["result"]["tools"]}
+            assert exposed >= {
                 "current_state",
-                "client_inspect_zone",
+                "zone_state",
+                "card_state",
+                "event_history",
                 "calculate",
             }
+            assert "client_inspect_zone" not in exposed
+            assert "client_inspect_card" not in exposed
+            assert "read_zone_note" not in exposed
+            assert "write_zone_note" not in exposed
             response = await rpc(
                 "tools/call",
                 {

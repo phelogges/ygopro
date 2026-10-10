@@ -27,7 +27,7 @@ class FakeBridge:
     def mcp_config(self) -> dict[str, Any]:
         return {"command": "/fake/mcp", "args": ["--stdio"], "env": {"TOKEN": "fixture"}}
 
-    def activate(self, _deps: Any, _context: Any, _notes: Any) -> None:
+    def activate(self, _deps: Any, _context: Any) -> None:
         assert not self.active
         self.active = True
 
@@ -110,6 +110,12 @@ class CodexAgentTests(unittest.IsolatedAsyncioTestCase):
                 agent = CodexDecisionAgent(settings, storage, SkillResources(root), Path(directory))
                 agent.codex = fake
                 agent.bridge = FakeBridge()  # type: ignore[assignment]
+                storage.append_record(
+                    "client-a", "duel-1", "codex_thread", "initial", {"thread_id": "old-thread"}
+                )
+                storage.append_record(
+                    "client-a", "duel-1", "model_exchange", "legacy", {"backend": "codex"}
+                )
                 parsed = parse_request(request())
                 delta = storage.apply_decision(parsed.data)
 
@@ -123,8 +129,13 @@ class CodexAgentTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(fake.thread.inputs), 2)
                 self.assertEqual(len(fake.thread.inputs[0]), 3)  # state plus two explicit skills
                 self.assertEqual(len(fake.thread.inputs[1]), 1)
-                record = storage.get_record("client-a", "duel-1", "codex_thread", "initial")
+                self.assertIn("initial_state", json.loads(fake.thread.inputs[0][0].text))
+                self.assertFalse(
+                    any("note" in key for key in json.loads(fake.thread.inputs[0][0].text))
+                )
+                record = storage.get_record("client-a", "duel-1", "codex_thread", "toolset-v2")
                 self.assertEqual(record["payload"]["thread_id"], "thread-fixture")  # type: ignore[index]
+                self.assertEqual(record["payload"]["toolset_version"], 2)  # type: ignore[index]
                 exchange = storage.get_record("client-a", "duel-1", "model_exchange", "1:1")
                 self.assertEqual(exchange["payload"]["backend"], "codex")  # type: ignore[index]
 
