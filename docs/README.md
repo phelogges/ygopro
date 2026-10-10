@@ -1,6 +1,6 @@
 # Agent 文档总索引
 
-> 状态：现行文档入口；截至 2026-10-10。每页标题后的状态说明其适用范围。现行契约定义行为，设计解释取舍，指南提供操作步骤，验证记录只证明当时实际执行的路径。
+> 状态：现行文档入口；截至 2026-10-11。每页标题后的状态说明其适用范围。现行契约定义行为，设计解释取舍，指南提供操作步骤，验证记录只证明当时实际执行的路径。
 
 当前正式客户端与 Agent 服务使用 **HTTP v3**。`tools/agent-e2e.py` 的三局回归和 YAML 场景回放默认也使用 **HTTP v3**：每个客户端启动独立的离线 Agent 服务，场景模式另由共享脚本协调器提供动作。`--protocol v2` 仅用于历史兼容回归；场景 YAML 自身的 v1/v2 版本与 HTTP 版本独立。旧版协议和阶段设计保留用于兼容测试及理解演进，不能直接套到正式服务。
 
@@ -32,7 +32,7 @@
 
 ## 验证与待办
 
-[验证总览](validation/README.md)按路径、平台与后端列出仓库内最近一次实际证据及未验证项；[默认 v3 场景回放记录](validation/agent-v3-scenario-replay.md)区分当前 4 个场景与已移除剧本的历史报告，[场景清单](../tests/scenarios/README.md)列现行各局的目标和报告。[现行待办](roadmap.md)只列尚未完成或尚待实测的工作。
+[验证总览](validation/README.md)按路径、平台与后端列出仓库内最近一次实际证据及未验证项；[默认 v3 场景回放记录](validation/agent-v3-scenario-replay.md)区分当前入库场景与已移除剧本的历史报告，[场景清单](../tests/scenarios/README.md)列现行各局的目标和报告。[现行待办](roadmap.md)只列尚未完成或尚待实测的工作。
 
 以下各页保留带日期或阶段范围的原始证据，旧测试数量与“当时未实现”的表述不代表今天的状态：
 
@@ -41,6 +41,10 @@
 - [魔术礼帽盖卡洗切](validation/magical-hats-set-shuffle.md)：2026-10-10 的随机场景候选与双端回放证据。
 - [游戏消息覆盖审计](validation/agent-message-coverage.md)：2026-10-10 的静态分类、注入测试与 CTest 证据。
 - [当前单局消息解析](validation/agent-message-coverage-2026-10-11.md)：2026-10-11 的 14 类消息解析与回归证据。
+- [雷火沸动交界机③非连锁无效](validation/raikasen-nonchain-negation.md)：2026-10-11 的双端录制、区间计数断言与候选回放证据。
+- [天子的指轮②自动无效](validation/angel-ring-mandatory-spell-negation.md)：2026-10-11 的双端录制、效果无效与非连锁断言证据。
+- [连续速攻魔法卡连锁](validation/quick-play-ten-link-chain.md)：2026-10-11 的十项连锁双端录制、候选回放及入库证据。
+- [俱舍怒威族·独角兽③额外卡组里侧除外](validation/kashtira-unicorn-extra-face-down-banish.md)：2026-10-11 的双端录制、可见性校验修正及入库回放证据。
 - [Codex 后端](validation/agent-codex-backend.md) · [可观测耗时](validation/agent-observability-timing.md) · [终局取消](validation/agent-terminal-cancellation.md) · [发行验证](validation/agent-release.md)
 
 ## 历史设计与兼容入口

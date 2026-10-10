@@ -221,14 +221,18 @@ def assert_recorded_events(
     scenario: Any, work: Path, *, protocol: str = "v2"
 ) -> dict[str, list[dict[str, Any]]]:
     """Check each perspective's durably accepted event history."""
-    if not any(scenario.event_assertions.values()) and scenario.random_target is None:
+    if (
+        not any(scenario.event_assertions.values())
+        and not any(scenario.event_count_assertions.values())
+        and scenario.random_target is None
+    ):
         return {}
     if protocol == "v3":
         accepted = {
             role: load_v3_duel(work, role)["events"] for role in ("host", "guest")
         }
         for role, expected in scenario.event_assertions.items():
-            if expected:
+            if expected or scenario.event_count_assertions[role]:
                 scenario.assert_events(role, accepted[role])
         return accepted
     from agent_sdk.state_journal import StateJournal
@@ -259,7 +263,7 @@ def assert_recorded_events(
             after = batch[-1]["event_id"]
         accepted[role] = events
     for role, expected in scenario.event_assertions.items():
-        if not expected:
+        if not expected and not scenario.event_count_assertions[role]:
             continue
         if role not in accepted:
             raise RuntimeError(f"{role}: accepted event journal missing")

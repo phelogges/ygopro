@@ -54,7 +54,9 @@ uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario
 
 `allowed_random_events` 默认空列表，目前只允许唯一值 `hand_shuffle`。手牌洗切不会改变按卡片 ID 匹配的脚本动作，但它仍是可观测随机事件；场景须显式声明该例外。掷骰、抛币及随机选卡不受此例外覆盖。
 
-`event_assertions` 是可选的本地测试断言，按 `host`、`guest` 分别给出有序事件子序列。断言读取各自 Agent 服务已经接受并持久化的本视角事件，包括通过默认 `/v3/sync`（或历史兼容路径的 `/v2/sync`）在决策之间送达的事件；它不是 CTOS/STOC 或客户端与 Agent 服务协议的新字段。每个事件须指定 `kind`，可按 `player`（`self`／`opponent`／`0`／`1`）和 `zone` 匹配。`effect_activated` 可匹配带引号的 `card_id`、`controller` 和数字 `location`、`sequence`；序号只在客户端确实可定位的场上位置出现。`position_changed` 可匹配数字 `location`、`sequence` 及 `from_position`、`to_position`，但它本身没有卡片 ID。`cards_revealed` 还可指定非空 `cards`：每张须有带引号的 `card_id`，可附 `player`、数字 `location` 和客户端确实收到的 `sequence`；卡片列表与实际展示数量相等，忽略列表顺序及未指定的字段。断言按事件先后匹配，不固定一次运行产生的 `event_id`，允许中间存在其他事件。例如：
+`event_assertions` 是可选的本地测试断言，按 `host`、`guest` 分别给出有序事件子序列。断言读取各自 Agent 服务已经接受并持久化的本视角事件，包括通过默认 `/v3/sync`（或历史兼容路径的 `/v2/sync`）在决策之间送达的事件；它不是 CTOS/STOC 或客户端与 Agent 服务协议的新字段。每个事件须指定 `kind`，可按 `player`（`self`／`opponent`／`0`／`1`）和 `zone` 匹配。`effect_activated` 可匹配带引号的 `card_id`、`controller` 和数字 `location`、`sequence`；序号只在客户端确实可定位的场上位置出现。`effect_activated` 及 `chain_link_added`、`chain_link_solving`、`chain_link_solved`、`chain_link_negated`、`chain_link_disabled` 可指定从 1 开始的 `chain_index`，用于核对同一连锁的加入顺序和逆序处理；该字段来自本方实际收到的连锁消息。`position_changed` 可匹配数字 `location`、`sequence` 及 `from_position`、`to_position`，但它本身没有卡片 ID。`cards_revealed` 还可指定非空 `cards`：每张须有带引号的 `card_id`，可附 `player`、数字 `location` 和客户端确实收到的 `sequence`；卡片列表与实际展示数量相等，忽略列表顺序及未指定的字段。断言按事件先后匹配，不固定一次运行产生的 `event_id`，允许中间存在其他事件。例如：
+
+`card_moved` 可按本方视角匹配 `from_player`、`to_player`（`self`／`opponent`／`0`／`1`），以及数字 `from_location`、`from_sequence`、`to_location`、`to_sequence`。里侧移动的事件不因此获得卡片 ID；身份只用实际收到的展示事件或可见快照断言。
 
 ```yaml
 event_assertions:
@@ -69,6 +71,19 @@ event_assertions:
 ```
 
 这验证 Host 接收到两张卡的展示，之后接收到对手洗手消息；不推断对手当前仍持有哪张卡，也不让当前隐藏手牌快照带出卡片 ID。
+
+`event_count_assertions` 是可选的本地测试断言，按双端分别计数已接受事件。每条断言须有 `after`、`until`、`match` 三个事件选择器及非负整数 `exactly`。三个选择器采用上文 `event_assertions` 的字段与可见性规则。`after` 必须在该端整场事件中**恰好匹配一次**；从这个事件之后，到第一个匹配 `until` 的事件之前，匹配 `match` 的事件数必须等于 `exactly`。两个边界事件自身不计入。起点不唯一、终点缺失或计数不符均失败；此断言只读各端 Agent 服务已接受的本视角事件。该可选字段不改变现有 v1 剧本的行为。例如验证一张怪兽效果所在连锁只有一个连锁项：
+
+```yaml
+event_count_assertions:
+  host:
+    - after: {kind: effect_activated, card_id: "35844557", controller: self}
+      until: {kind: chain_ended}
+      match: {kind: chain_link_added}
+      exactly: 1
+```
+
+若在效果处理时另有卡片入连锁，第二次 `chain_link_added` 会使该断言失败。计数断言可与有序 `event_assertions` 并用：前者检查区间内不多不少，后者检查应有事件的顺序。一次对局若同一张卡多次发动相同效果，`after` 须用该端实际可见的字段限定到唯一事件；不能借另一端日志补充隐藏身份。
 
 `chain` 是客户端对 `MSG_SELECT_CHAIN` 响应窗口的协议名称，不表示已有卡片效果组成了连锁。服务端可能询问一个没有可发动效果的响应窗口；此时客户端自动回复“放弃”，不向 Agent 服务发送决策请求，也不把该窗口记入后续 Agent 观测的事件流，场景同样不写这一步。诊断 JSONL 保留 `automatic_pass` 及原始网络帧供核查。只有存在可发动候选时，Agent 才看到 `chain` 提示。例如召唤通常怪兽「圣精灵」后有四次空响应窗口，均由客户端自动处理；真正的效果连锁发生在随后「强欲之壶」发动、「灰流丽」响应时。
 

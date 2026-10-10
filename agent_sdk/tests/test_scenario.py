@@ -143,6 +143,105 @@ def finish_pregame(scenario: Scenario) -> None:
 
 
 class ScenarioTests(unittest.TestCase):
+    def test_card_moved_assertion_checks_visible_route_without_identity(self) -> None:
+        data = scene()
+        data["event_assertions"] = {
+            "guest": [
+                {
+                    "kind": "card_moved",
+                    "from_player": "opponent",
+                    "from_location": 64,
+                    "from_sequence": 0,
+                    "to_player": "opponent",
+                    "to_location": 32,
+                    "to_sequence": 0,
+                }
+            ]
+        }
+        scenario = Scenario(data)
+        event = dict(scenario.event_assertions["guest"][0])
+        scenario.assert_events("guest", [event])
+        with self.assertRaisesRegex(ScenarioError, "event_assertions"):
+            scenario.assert_events("guest", [{**event, "to_location": 16}])
+        cast(dict[str, Any], data["event_assertions"])["guest"][0]["from_player"] = 2
+        with self.assertRaisesRegex(ScenarioError, "from_player"):
+            Scenario(data)
+
+    def test_chain_index_assertion_checks_reverse_resolution_order(self) -> None:
+        data = scene()
+        data["event_assertions"] = {
+            "host": [
+                {"kind": "chain_link_added", "chain_index": 1},
+                {"kind": "chain_link_added", "chain_index": 2},
+                {"kind": "chain_link_solving", "chain_index": 2},
+                {"kind": "chain_link_solved", "chain_index": 2},
+                {"kind": "chain_link_solving", "chain_index": 1},
+                {"kind": "chain_link_solved", "chain_index": 1},
+                {"kind": "chain_ended"},
+            ]
+        }
+        scenario = Scenario(data)
+        events = list(scenario.event_assertions["host"])
+        scenario.assert_events("host", events)
+        swapped = events[:2] + events[4:6] + events[2:4] + events[6:]
+        with self.assertRaisesRegex(ScenarioError, "event_assertions"):
+            scenario.assert_events("host", swapped)
+        cast(dict[str, Any], data["event_assertions"])["host"][0]["chain_index"] = 0
+        with self.assertRaisesRegex(ScenarioError, "chain_index"):
+            Scenario(data)
+
+    def test_event_count_assertion_rejects_extra_chain_link(self) -> None:
+        data = scene()
+        data["event_count_assertions"] = {
+            "host": [
+                {
+                    "after": {
+                        "kind": "effect_activated",
+                        "card_id": "35844557",
+                        "controller": "self",
+                    },
+                    "until": {"kind": "chain_ended"},
+                    "match": {"kind": "chain_link_added"},
+                    "exactly": 1,
+                }
+            ]
+        }
+        scenario = Scenario(data)
+        events = [
+            {"kind": "effect_activated", "card_id": 35844557, "controller": 0},
+            {"kind": "chain_link_added", "chain_index": 1},
+            {"kind": "chain_link_solving", "chain_index": 1},
+            {"kind": "chain_link_disabled", "chain_index": 1},
+            {"kind": "chain_ended"},
+        ]
+        scenario.assert_events("host", events)
+        with self.assertRaisesRegex(ScenarioError, "found 2"):
+            scenario.assert_events(
+                "host",
+                events[:2] + [{"kind": "chain_link_added", "chain_index": 2}] + events[2:],
+            )
+        with self.assertRaisesRegex(ScenarioError, "found 0"):
+            scenario.assert_events("host", events[:1] + events[2:])
+        with self.assertRaisesRegex(ScenarioError, "until event missing"):
+            scenario.assert_events("host", events[:-1])
+        with self.assertRaisesRegex(ScenarioError, "after must match exactly one"):
+            scenario.assert_events("host", events + events)
+
+    def test_event_count_assertion_requires_valid_shape(self) -> None:
+        data = scene()
+        data["event_count_assertions"] = {
+            "host": [
+                {
+                    "after": {"kind": "effect_activated", "card_id": "35844557"},
+                    "until": {"kind": "chain_ended"},
+                    "match": {"kind": "chain_link_added"},
+                    "exactly": -1,
+                }
+            ]
+        }
+        with self.assertRaisesRegex(ScenarioError, "event_count_assertions.host\\[0\\].exactly"):
+            Scenario(data)
+
     def test_random_selection_event_asserts_each_view_without_hidden_sequence(self) -> None:
         data = scene()
         data["schema_version"] = 2

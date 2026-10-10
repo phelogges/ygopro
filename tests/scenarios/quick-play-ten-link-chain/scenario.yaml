@@ -1,0 +1,1420 @@
+schema_version: 1
+decks:
+  host: host.ydk
+  guest: guest.ydk
+pregame:
+  host:
+  - scissors
+  guest:
+  - rock
+  winner_chooses: go_first
+steps:
+  host:
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: draw
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: draw
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: standby
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 6
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+        - card_id: "08842266"
+        - card_id: "33112041"
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: idle_command
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 6
+        contains:
+        - card_id: "08842266"
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "08842266"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 0
+  - expect:
+      prompt: option
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+        - card_id: "33112041"
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: option
+        description_id: 141476256
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+      - player: 1
+        name: spell
+        count: 5
+        contains:
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "05318639"
+        controller: 0
+        location: hand
+        ordinal: 1
+        expected_matches: 2
+  - expect:
+      prompt: select_place
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 1
+  - expect:
+      prompt: select_cards
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 1
+        name: spell
+        count: 5
+        contains:
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "05318639"
+        - card_id: "08267140"
+          count: 2
+        - card_id: "33112041"
+      - player: 0
+        name: spell
+        count: 2
+        contains:
+        - card_id: "05318639"
+          position: face_up
+          sequence: 1
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_cards
+      matches:
+      - kind: card
+        controller: 1
+        location: spell
+        sequence: 0
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "05318639"
+      - player: 1
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          position: face_up
+          sequence: 1
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "05318639"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 2
+        contains:
+        - card_id: "05318639"
+          position: face_up
+          sequence: 1
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 2
+  - expect:
+      prompt: select_cards
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 1
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          position: face_up
+          sequence: 1
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+      - player: 0
+        name: hand
+        count: 3
+        contains:
+        - card_id: "08267140"
+          count: 2
+        - card_id: "33112041"
+      - player: 0
+        name: spell
+        count: 3
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_cards
+      matches:
+      - kind: card
+        controller: 1
+        location: spell
+        sequence: 0
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 3
+        contains:
+        - card_id: "08267140"
+          count: 2
+      - player: 1
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "08267140"
+        controller: 0
+        location: hand
+        ordinal: 1
+        expected_matches: 2
+  - expect:
+      prompt: select_place
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 3
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 3
+  - expect:
+      prompt: select_cards
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 1
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+      - player: 0
+        name: hand
+        count: 2
+        contains:
+        - card_id: "08267140"
+        - card_id: "33112041"
+      - player: 0
+        name: spell
+        count: 4
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          position: face_up
+          sequence: 3
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_cards
+      matches:
+      - kind: card
+        controller: 1
+        location: spell
+        sequence: 3
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 2
+        contains:
+        - card_id: "08267140"
+      - player: 1
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          position: face_up
+          sequence: 3
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "08267140"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 4
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          position: face_up
+          sequence: 3
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 4
+  - expect:
+      prompt: select_cards
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 1
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          position: face_up
+          sequence: 3
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+      - player: 0
+        name: hand
+        count: 1
+        contains:
+        - card_id: "33112041"
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_cards
+      matches:
+      - kind: card
+        controller: 1
+        location: spell
+        sequence: 3
+  - expect:
+      prompt: idle_command
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 0
+      - player: 0
+        name: graveyard
+        count: 3
+        contains:
+        - card_id: "05318639"
+        - card_id: "08267140"
+        - card_id: "08842266"
+      - player: 0
+        name: banished
+        count: 2
+        contains:
+        - card_id: "05318639"
+        - card_id: "08267140"
+      - player: 1
+        name: spell
+        count: 0
+      - player: 1
+        name: graveyard
+        count: 4
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+        - card_id: "08842266"
+      - player: 1
+        name: banished
+        count: 1
+        contains:
+        - card_id: "08267140"
+    action:
+      kind: choice
+      match:
+        kind: battle_phase
+  - expect:
+      prompt: battle_command
+      turn: 2
+      phase: battle_start
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: main_phase_2
+  guest:
+  - expect:
+      prompt: chain
+      turn: 1
+      phase: draw
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 1
+      phase: standby
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "08842266"
+    action:
+      kind: choice
+      match:
+        kind: set_spell_trap
+        card_id: "08842266"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 0
+  - expect:
+      prompt: chain
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "08842266"
+          position: face_down
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "05318639"
+          count: 2
+    action:
+      kind: choice
+      match:
+        kind: set_spell_trap
+        card_id: "05318639"
+        controller: 0
+        location: hand
+        ordinal: 1
+        expected_matches: 2
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "08842266"
+          position: face_down
+          sequence: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 1
+  - expect:
+      prompt: chain
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 3
+        contains:
+        - card_id: "05318639"
+        - card_id: "08267140"
+          count: 2
+      - player: 0
+        name: spell
+        count: 2
+        contains:
+        - card_id: "05318639"
+          position: face_down
+          sequence: 1
+        - card_id: "08842266"
+          position: face_down
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 3
+        contains:
+        - card_id: "05318639"
+    action:
+      kind: choice
+      match:
+        kind: set_spell_trap
+        card_id: "05318639"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 2
+        contains:
+        - card_id: "05318639"
+          position: face_down
+          sequence: 1
+        - card_id: "08842266"
+          position: face_down
+          sequence: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 2
+  - expect:
+      prompt: chain
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 2
+        contains:
+        - card_id: "08267140"
+          count: 2
+      - player: 0
+        name: spell
+        count: 3
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08842266"
+          position: face_down
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 2
+        contains:
+        - card_id: "08267140"
+          count: 2
+    action:
+      kind: choice
+      match:
+        kind: set_spell_trap
+        card_id: "08267140"
+        controller: 0
+        location: hand
+        ordinal: 1
+        expected_matches: 2
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 3
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08842266"
+          position: face_down
+          sequence: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 3
+  - expect:
+      prompt: chain
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 1
+        contains:
+        - card_id: "08267140"
+      - player: 0
+        name: spell
+        count: 4
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          position: face_down
+          sequence: 3
+        - card_id: "08842266"
+          position: face_down
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 1
+        contains:
+        - card_id: "08267140"
+    action:
+      kind: choice
+      match:
+        kind: set_spell_trap
+        card_id: "08267140"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 4
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          position: face_down
+          sequence: 3
+        - card_id: "08842266"
+          position: face_down
+          sequence: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 4
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 0
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+        - card_id: "08842266"
+          position: face_down
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: end_turn
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: draw
+      turn_player: 1
+      zones:
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 6
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: draw
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: standby
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "08842266"
+          position: face_down
+          sequence: 0
+      - player: 1
+        name: hand
+        count: 5
+      - player: 1
+        name: spell
+        count: 1
+        contains:
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "08842266"
+        controller: 0
+        location: spell
+        sequence: 0
+  - expect:
+      prompt: option
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: option
+        description_id: 141476256
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+      - player: 1
+        name: hand
+        count: 4
+      - player: 1
+        name: spell
+        count: 2
+        contains:
+        - card_id: "05318639"
+          position: face_up
+          sequence: 1
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "05318639"
+        controller: 0
+        location: spell
+        sequence: 1
+  - expect:
+      prompt: select_cards
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 1
+        name: spell
+        count: 2
+        contains:
+        - card_id: "05318639"
+          position: face_up
+          sequence: 1
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_cards
+      matches:
+      - kind: card
+        controller: 1
+        location: spell
+        sequence: 0
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+      - player: 1
+        name: hand
+        count: 3
+      - player: 1
+        name: spell
+        count: 3
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "05318639"
+        controller: 0
+        location: spell
+        sequence: 2
+  - expect:
+      prompt: select_cards
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 1
+        name: spell
+        count: 3
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_cards
+      matches:
+      - kind: card
+        controller: 1
+        location: spell
+        sequence: 1
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "08267140"
+          count: 2
+      - player: 1
+        name: hand
+        count: 2
+      - player: 1
+        name: spell
+        count: 4
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          position: face_up
+          sequence: 3
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "08267140"
+        controller: 0
+        location: spell
+        sequence: 3
+  - expect:
+      prompt: select_cards
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 1
+        name: spell
+        count: 4
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          position: face_up
+          sequence: 3
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_cards
+      matches:
+      - kind: card
+        controller: 1
+        location: spell
+        sequence: 1
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "08267140"
+          count: 2
+      - player: 1
+        name: hand
+        count: 1
+      - player: 1
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "08267140"
+        controller: 0
+        location: spell
+        sequence: 4
+  - expect:
+      prompt: select_cards
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 1
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+      - player: 0
+        name: spell
+        count: 5
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+          count: 2
+        - card_id: "08842266"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_cards
+      matches:
+      - kind: card
+        controller: 1
+        location: spell
+        sequence: 4
+goal:
+  kind: duel_end
+  winner: guest
+  expect:
+    host:
+      turn: 2
+      phase: main_2
+      turn_player: 0
+      life_points:
+      - 7200
+      - 7200
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 1
+        contains:
+        - card_id: "33112041"
+      - player: 0
+        name: graveyard
+        count: 3
+        contains:
+        - card_id: "05318639"
+        - card_id: "08267140"
+        - card_id: "08842266"
+      - player: 0
+        name: banished
+        count: 2
+        contains:
+        - card_id: "05318639"
+        - card_id: "08267140"
+      - player: 1
+        name: hand
+        count: 0
+      - player: 1
+        name: graveyard
+        count: 4
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+        - card_id: "08842266"
+      - player: 1
+        name: banished
+        count: 1
+        contains:
+        - card_id: "08267140"
+    guest:
+      turn: 2
+      phase: main_2
+      turn_player: 1
+      life_points:
+      - 7200
+      - 7200
+      zones:
+      - player: 0
+        name: hand
+        count: 0
+      - player: 0
+        name: graveyard
+        count: 4
+        contains:
+        - card_id: "05318639"
+          count: 2
+        - card_id: "08267140"
+        - card_id: "08842266"
+      - player: 0
+        name: banished
+        count: 1
+        contains:
+        - card_id: "08267140"
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 1
+      - player: 1
+        name: graveyard
+        count: 3
+        contains:
+        - card_id: "05318639"
+        - card_id: "08267140"
+        - card_id: "08842266"
+      - player: 1
+        name: banished
+        count: 2
+        contains:
+        - card_id: "05318639"
+        - card_id: "08267140"
+  surrender:
+    role: host
+    expect:
+      host:
+        turn: 2
+        phase: main_2
+        turn_player: 0
+      guest: {}
+event_assertions:
+  host:
+  - {kind: effect_activated, card_id: "08842266", controller: self, chain_index: 1}
+  - {kind: chain_link_added, chain_index: 1}
+  - {kind: effect_activated, card_id: "08842266", controller: opponent, chain_index: 2}
+  - {kind: chain_link_added, chain_index: 2}
+  - {kind: effect_activated, card_id: "05318639", controller: self, chain_index: 3}
+  - {kind: chain_link_added, chain_index: 3}
+  - {kind: effect_activated, card_id: "05318639", controller: opponent, chain_index: 4}
+  - {kind: chain_link_added, chain_index: 4}
+  - {kind: effect_activated, card_id: "05318639", controller: self, chain_index: 5}
+  - {kind: chain_link_added, chain_index: 5}
+  - {kind: effect_activated, card_id: "05318639", controller: opponent, chain_index: 6}
+  - {kind: chain_link_added, chain_index: 6}
+  - {kind: effect_activated, card_id: "08267140", controller: self, chain_index: 7}
+  - {kind: chain_link_added, chain_index: 7}
+  - {kind: effect_activated, card_id: "08267140", controller: opponent, chain_index: 8}
+  - {kind: chain_link_added, chain_index: 8}
+  - {kind: effect_activated, card_id: "08267140", controller: self, chain_index: 9}
+  - {kind: chain_link_added, chain_index: 9}
+  - {kind: effect_activated, card_id: "08267140", controller: opponent, chain_index: 10}
+  - {kind: chain_link_added, chain_index: 10}
+  - {kind: chain_link_solving, chain_index: 10}
+  - {kind: chain_link_solved, chain_index: 10}
+  - {kind: chain_link_solving, chain_index: 9}
+  - {kind: chain_link_solved, chain_index: 9}
+  - {kind: chain_link_solving, chain_index: 8}
+  - {kind: chain_link_solved, chain_index: 8}
+  - {kind: chain_link_solving, chain_index: 7}
+  - {kind: chain_link_solved, chain_index: 7}
+  - {kind: chain_link_solving, chain_index: 6}
+  - {kind: chain_link_solved, chain_index: 6}
+  - {kind: chain_link_solving, chain_index: 5}
+  - {kind: chain_link_solved, chain_index: 5}
+  - {kind: chain_link_solving, chain_index: 4}
+  - {kind: chain_link_solved, chain_index: 4}
+  - {kind: chain_link_solving, chain_index: 3}
+  - {kind: chain_link_solved, chain_index: 3}
+  - {kind: chain_link_solving, chain_index: 2}
+  - {kind: chain_link_solved, chain_index: 2}
+  - {kind: chain_link_solving, chain_index: 1}
+  - {kind: chain_link_solved, chain_index: 1}
+  - {kind: chain_ended}
+  guest:
+  - {kind: effect_activated, card_id: "08842266", controller: opponent, chain_index: 1}
+  - {kind: chain_link_added, chain_index: 1}
+  - {kind: effect_activated, card_id: "08842266", controller: self, chain_index: 2}
+  - {kind: chain_link_added, chain_index: 2}
+  - {kind: effect_activated, card_id: "05318639", controller: opponent, chain_index: 3}
+  - {kind: chain_link_added, chain_index: 3}
+  - {kind: effect_activated, card_id: "05318639", controller: self, chain_index: 4}
+  - {kind: chain_link_added, chain_index: 4}
+  - {kind: effect_activated, card_id: "05318639", controller: opponent, chain_index: 5}
+  - {kind: chain_link_added, chain_index: 5}
+  - {kind: effect_activated, card_id: "05318639", controller: self, chain_index: 6}
+  - {kind: chain_link_added, chain_index: 6}
+  - {kind: effect_activated, card_id: "08267140", controller: opponent, chain_index: 7}
+  - {kind: chain_link_added, chain_index: 7}
+  - {kind: effect_activated, card_id: "08267140", controller: self, chain_index: 8}
+  - {kind: chain_link_added, chain_index: 8}
+  - {kind: effect_activated, card_id: "08267140", controller: opponent, chain_index: 9}
+  - {kind: chain_link_added, chain_index: 9}
+  - {kind: effect_activated, card_id: "08267140", controller: self, chain_index: 10}
+  - {kind: chain_link_added, chain_index: 10}
+  - {kind: chain_link_solving, chain_index: 10}
+  - {kind: chain_link_solved, chain_index: 10}
+  - {kind: chain_link_solving, chain_index: 9}
+  - {kind: chain_link_solved, chain_index: 9}
+  - {kind: chain_link_solving, chain_index: 8}
+  - {kind: chain_link_solved, chain_index: 8}
+  - {kind: chain_link_solving, chain_index: 7}
+  - {kind: chain_link_solved, chain_index: 7}
+  - {kind: chain_link_solving, chain_index: 6}
+  - {kind: chain_link_solved, chain_index: 6}
+  - {kind: chain_link_solving, chain_index: 5}
+  - {kind: chain_link_solved, chain_index: 5}
+  - {kind: chain_link_solving, chain_index: 4}
+  - {kind: chain_link_solved, chain_index: 4}
+  - {kind: chain_link_solving, chain_index: 3}
+  - {kind: chain_link_solved, chain_index: 3}
+  - {kind: chain_link_solving, chain_index: 2}
+  - {kind: chain_link_solved, chain_index: 2}
+  - {kind: chain_link_solving, chain_index: 1}
+  - {kind: chain_link_solved, chain_index: 1}
+  - {kind: chain_ended}
+event_count_assertions:
+  host:
+  - after: {kind: effect_activated, card_id: "08842266", controller: self, chain_index: 1}
+    until: {kind: chain_ended}
+    match: {kind: chain_link_added}
+    exactly: 10
+  guest:
+  - after: {kind: effect_activated, card_id: "08842266", controller: opponent, chain_index: 1}
+    until: {kind: chain_ended}
+    match: {kind: chain_link_added}
+    exactly: 10

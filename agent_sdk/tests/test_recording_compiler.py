@@ -7,6 +7,7 @@ from typing import Any
 
 from agent_sdk.recording_compiler import (
     RecordingError,
+    _check_public_pair,  # pyright: ignore[reportPrivateUsage]
     _expect,  # pyright: ignore[reportPrivateUsage]
     _normalize_places,  # pyright: ignore[reportPrivateUsage]
     _public_change_summary,  # pyright: ignore[reportPrivateUsage]
@@ -101,6 +102,49 @@ def _write(path: Path, records: list[dict[str, Any]]) -> None:
 
 
 class RecordingCompilerTests(unittest.TestCase):
+    def test_public_pair_allows_owner_only_face_down_banished_card(self) -> None:
+        def snapshot(role: str, owner: str) -> dict[str, Any]:
+            zones: list[dict[str, Any]] = [
+                {"player": player, "name": name, "count": 0, "cards": []}
+                for player in (0, 1)
+                for name in ("monster", "spell", "graveyard", "banished")
+            ]
+            zone = next(
+                zone
+                for zone in zones
+                if zone["name"] == "banished" and zone["player"] == (0 if role == owner else 1)
+            )
+            zone["count"] = 1
+            if role == owner:
+                zone["cards"] = [{"sequence": 0, "card_id": 49389523, "position": "face_down"}]
+            else:
+                zone["hidden_count"] = 1
+            return {"observation": {"turn": 2, "life_points": [8000, 8000], "zones": zones}}
+
+        for owner in ("host", "guest"):
+            with self.subTest(owner=owner):
+                host, guest = snapshot("host", owner), snapshot("guest", owner)
+                _check_public_pair(host, guest, "win")
+                other = guest if owner == "host" else host
+                hidden_zone = next(
+                    zone
+                    for zone in other["observation"]["zones"]
+                    if zone["name"] == "banished" and zone.get("hidden_count") == 1
+                )
+                hidden_zone["hidden_count"] = 0
+                with self.assertRaisesRegex(RecordingError, "visibility mismatch"):
+                    _check_public_pair(host, guest, "win")
+                hidden_zone["hidden_count"] = 1
+                owned = host if owner == "host" else guest
+                owned_zone = next(
+                    zone
+                    for zone in owned["observation"]["zones"]
+                    if zone["name"] == "banished" and zone["player"] == 0
+                )
+                owned_zone["cards"][0]["position"] = "face_up_attack"
+                with self.assertRaisesRegex(RecordingError, "visibility mismatch"):
+                    _check_public_pair(host, guest, "win")
+
     def test_visible_expect_uses_card_without_hand_slot_and_field_result(self) -> None:
         previous: dict[str, Any] = {
             "zones": [{"player": 0, "name": "monster", "count": 0, "cards": []}]

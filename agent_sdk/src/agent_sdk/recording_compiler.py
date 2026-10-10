@@ -586,9 +586,24 @@ def _check_public_pair(host: dict[str, Any], guest: dict[str, Any], label: str) 
             raise RecordingError(f"{label}: public zone {key} missing cards")
         by_seq_a = {c.get("sequence"): c for c in cards_a if _is_object(c)}
         by_seq_b = {c.get("sequence"): c for c in cards_b if _is_object(c)}
-        if by_seq_a.keys() != by_seq_b.keys():
+        if key[1] == "banished":
+            owner_cards, other_cards = (
+                (by_seq_a, by_seq_b) if key[0] == "host" else (by_seq_b, by_seq_a)
+            )
+            other_zone = zb if key[0] == "host" else za
+            hidden = owner_cards.keys() - other_cards.keys()
+            if (
+                not other_cards.keys() <= owner_cards.keys()
+                or other_zone.get("hidden_count", 0) != len(hidden)
+                or any(
+                    not str(owner_cards[seq].get("position", "")).startswith("face_down")
+                    for seq in hidden
+                )
+            ):
+                raise RecordingError(f"{label}: public zone {key} visibility mismatch")
+        elif by_seq_a.keys() != by_seq_b.keys():
             raise RecordingError(f"{label}: public zone {key} sequence mismatch")
-        for seq in by_seq_a:
+        for seq in by_seq_a.keys() & by_seq_b.keys():
             ca, cb = by_seq_a[seq], by_seq_b[seq]
             if ca.get("position") != cb.get("position"):
                 raise RecordingError(f"{label}: public zone {key}/{seq} position mismatch")

@@ -308,6 +308,13 @@ def _event_assertion(value: object, path: str) -> dict[str, Any]:
             "sequence",
             "from_position",
             "to_position",
+            "from_player",
+            "from_location",
+            "from_sequence",
+            "to_player",
+            "to_location",
+            "to_sequence",
+            "chain_index",
         },
     )
     _string(event["kind"], f"{path}.kind")
@@ -335,6 +342,36 @@ def _event_assertion(value: object, path: str) -> dict[str, Any]:
             _integer(event[field], f"{path}.{field}")
         else:
             _string(event[field], f"{path}.{field}")
+    for field in (
+        "from_player",
+        "from_location",
+        "from_sequence",
+        "to_player",
+        "to_location",
+        "to_sequence",
+    ):
+        if field not in event:
+            continue
+        if str(event["kind"]) != "card_moved":
+            raise ScenarioError(f"{path}.{field}: only card_moved supports this field")
+        if field.endswith("_player") and event[field] in ("self", "opponent"):
+            event[field] = 0 if event[field] == "self" else 1
+        if field.endswith("_player"):
+            if type(event[field]) is not int or event[field] not in (0, 1):
+                raise ScenarioError(f"{path}.{field}: expected self, opponent, 0, or 1")
+        else:
+            _integer(event[field], f"{path}.{field}")
+    if "chain_index" in event:
+        if event["kind"] not in (
+            "effect_activated",
+            "chain_link_added",
+            "chain_link_solving",
+            "chain_link_solved",
+            "chain_link_negated",
+            "chain_link_disabled",
+        ):
+            raise ScenarioError(f"{path}.chain_index: unsupported for this event kind")
+        _integer(event["chain_index"], f"{path}.chain_index", 1)
     if "count" in event:
         if event["kind"] not in ("cards_randomly_selected", "set_cards_shuffled"):
             raise ScenarioError(
@@ -414,6 +451,19 @@ def _event_match(actual: object, expected: dict[str, Any]) -> bool:
     return True
 
 
+def _event_count_assertion(value: object, path: str) -> dict[str, Any]:
+    assertion = _dict(
+        value,
+        path,
+        {"after", "until", "match", "exactly"},
+        {"after", "until", "match", "exactly"},
+    )
+    for field in ("after", "until", "match"):
+        assertion[field] = _event_assertion(assertion[field], f"{path}.{field}")
+    _integer(assertion["exactly"], f"{path}.exactly")
+    return assertion
+
+
 class Scenario:
     """One in-memory, fail-fast duel fixture with separate role cursors."""
 
@@ -431,6 +481,7 @@ class Scenario:
                 "defaults",
                 "allowed_random_events",
                 "event_assertions",
+                "event_count_assertions",
                 "scenario_kind",
                 "random_target",
             },
@@ -540,6 +591,22 @@ class Scenario:
                 _event_assertion(item, f"event_assertions.{role}[{i}]")
                 for i, item in enumerate(
                     _list(self.event_assertions.get(role, []), f"event_assertions.{role}")
+                )
+            ]
+        self.event_count_assertions = _dict(
+            root.get("event_count_assertions", {}),
+            "event_count_assertions",
+            set(),
+            set(ROLES),
+        )
+        for role in ROLES:
+            self.event_count_assertions[role] = [
+                _event_count_assertion(item, f"event_count_assertions.{role}[{i}]")
+                for i, item in enumerate(
+                    _list(
+                        self.event_count_assertions.get(role, []),
+                        f"event_count_assertions.{role}",
+                    )
                 )
             ]
         self.ignored_decisions: list[dict[str, Any]] = []
@@ -807,6 +874,34 @@ class Scenario:
                     f"after accepted event offset {cursor}"
                 )
             cursor = match + 1
+        for index, assertion in enumerate(self.event_count_assertions[role]):
+            label = f"{role} event_count_assertions[{index}]"
+            starts = [
+                i for i, event in enumerate(accepted) if _event_match(event, assertion["after"])
+            ]
+            if len(starts) != 1:
+                raise ScenarioError(
+                    f"{label}: after must match exactly one accepted event, found {len(starts)}"
+                )
+            start = starts[0]
+            end = next(
+                (
+                    i
+                    for i in range(start + 1, len(accepted))
+                    if _event_match(accepted[i], assertion["until"])
+                ),
+                None,
+            )
+            if end is None:
+                raise ScenarioError(f"{label}: until event missing after offset {start}")
+            actual = sum(
+                _event_match(event, assertion["match"]) for event in accepted[start + 1 : end]
+            )
+            if actual != assertion["exactly"]:
+                raise ScenarioError(
+                    f"{label}: expected exactly {assertion['exactly']} {assertion['match']} "
+                    f"between offsets {start} and {end}, found {actual}"
+                )
 
     def match_random_case(
         self, events: dict[str, list[dict[str, Any]]]
