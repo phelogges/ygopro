@@ -71,7 +71,7 @@ cq.close()
   "pendulum_scales": {"左": 6, "右": 6},
   "link_markers": null,
   "archetypes": ["DD", "魔导"],
-  "effect_categories": ["回卡组效果", "把自己装备效果", "回额外卡组效果"],
+  "effect_categories": ["返回手卡", "特殊召唤", "效果无效"],
   "non_effect_text": "「DD 魔导贤者 托马斯」的怪兽效果1回合只能使用1次。",
   "effect_text": "①：以自己的灵摆区域1张「DD」卡为对象才能发动。...",
   "card_text": null,
@@ -100,7 +100,7 @@ cq.close()
 | `pendulum_scales` | object\|null | P刻度，`{"左": N, "右": N}` |
 | `link_markers` | array\|null | 连接箭头方向 |
 | `archetypes` | array | 字段名（系列） |
-| `effect_categories` | array | 效果分类 |
+| `effect_categories` | array | `cards.cdb` 的卡组编辑器效果筛选分类；按 `strings.conf` 中 `!system 1100`–`1131` 的位序解码，不是游戏引擎的 `effect_category`，也不是逐条效果的规则判定 |
 | `availability` | array | 登场地区（需 `include_availability=True`） |
 | `effect_text` | string\|null | 效果文本（新卡格式） |
 | `non_effect_text` | string\|null | 效果以外文本 |
