@@ -1,5 +1,7 @@
 # Codex Agent 后端设计
 
+> 状态：现行设计。适用于可选 Codex 后端；共用服务设计见[二期服务设计](agent-phase-2.md)，协议以 [HTTP v3 契约](../contracts/agent-http-v3.md)为准。
+
 ## 背景与边界
 
 在现有 [二期服务](agent-phase-2.md)中增加可选 `codex` 后端；未指定后端时继续使用 Pydantic AI。两种后端共用客户端 [HTTP v3](../contracts/agent-http-v3.md)、权威状态镜像、事件日志、人类观察页面和 `agent_sdk` 语义动作校验。一次客户端进程只选一种后端。客户端与游戏服务端的联网协议、游戏服务端实现、`ocgcore` 和卡片脚本均不因后端选择而改变。

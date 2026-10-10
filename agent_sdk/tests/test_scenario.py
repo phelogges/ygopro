@@ -1,8 +1,15 @@
+import hashlib
+import http.client
+import json
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
+
+import yaml
 
 from agent_sdk.scenario import Scenario, ScenarioError
 from agent_sdk.scenario_server import ScenarioDecisionServer
@@ -695,6 +702,7 @@ class ScenarioTests(unittest.TestCase):
             server.last_action_unix_ms = 0
             server.failure = None
             server.step_delay = 1
+            server._lock = threading.RLock()  # pyright: ignore[reportPrivateUsage]
             optional = fixture("chain")
             optional["prompt"]["candidates"] = [
                 {"id": "a", "kind": "activate", "description": "发动"},
@@ -708,6 +716,87 @@ class ScenarioTests(unittest.TestCase):
                 sleep.assert_not_called()
                 server.decide(scripted)
                 sleep.assert_called_once_with(1)
+
+    def test_v3_scenario_action_is_idempotent_and_rejects_conflict(self) -> None:
+        scenario = Scenario(scene())
+        finish_pregame(scenario)
+        with tempfile.TemporaryDirectory() as directory:
+            server = ScenarioDecisionServer.__new__(ScenarioDecisionServer)
+            server.scenario = scenario
+            server.digest = "a" * 64
+            server.status_path = Path(directory) / "status.json"
+            server.decisions = 0
+            server.last_action_unix_ms = 0
+            server.failure = None
+            server.step_delay = 0
+            server._lock = threading.RLock()  # pyright: ignore[reportPrivateUsage]
+            server._v3_results = {}  # pyright: ignore[reportPrivateUsage]
+            request = fixture()
+            request.update(
+                schema_version=3,
+                state_version=1,
+                history_complete=True,
+                deadline_unix_ms=int(time.time() * 1000) + 10_000,
+            )
+            request["observation"]["test_role"] = "host"
+            first = server.decide_v3(request)
+            self.assertEqual(first["schema_version"], 3)
+            self.assertEqual(cast(dict[str, Any], first["action"])["kind"], "choice")
+            self.assertEqual(server.decisions, 1)
+            self.assertEqual(server.decide_v3(request), first)
+            self.assertEqual(server.decisions, 1)
+            conflicting = {**request, "deadline_unix_ms": request["deadline_unix_ms"] + 1}
+            with self.assertRaisesRegex(ValueError, "Decision identity reused"):
+                server.decide_v3(conflicting)
+
+    def test_v3_scenario_http_requires_token_and_returns_action(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cards_db = root / "cards.cdb"
+            cards_db.write_bytes(b"test database")
+            scenario_path = root / "scenario.yaml"
+            scenario_path.write_text(yaml.safe_dump(scene()), encoding="utf-8")
+            with ScenarioDecisionServer(
+                0, cards_db, scenario_path, root / "status.json", token="test-secret"
+            ) as server:
+                worker = threading.Thread(target=server.serve_forever, daemon=True)
+                worker.start()
+                try:
+                    request = fixture("rock_paper_scissors")
+                    request.update(
+                        schema_version=3,
+                        state_version=1,
+                        history_complete=True,
+                        database_sha256=hashlib.sha256(cards_db.read_bytes()).hexdigest(),
+                        deadline_unix_ms=int(time.time() * 1000) + 10_000,
+                    )
+                    request["observation"]["test_role"] = "host"
+                    request["prompt"]["candidates"] = [
+                        {"id": "r", "kind": "rock", "description": ""},
+                        {"id": "p", "kind": "paper", "description": ""},
+                    ]
+                    body = json.dumps(request).encode("utf-8")
+
+                    def post(token: str | None) -> tuple[int, dict[str, Any]]:
+                        connection = http.client.HTTPConnection("127.0.0.1", server.server_port)
+                        headers = {"Content-Type": "application/json"}
+                        if token is not None:
+                            headers["Authorization"] = f"Bearer {token}"
+                        connection.request("POST", "/v3/scenario-action", body, headers)
+                        response = connection.getresponse()
+                        result = response.status, json.loads(response.read())
+                        connection.close()
+                        return result
+
+                    self.assertEqual(post(None)[0], 401)
+                    status, response = post("test-secret")
+                    self.assertEqual(status, 200)
+                    self.assertEqual(response["action"], {"kind": "choice", "candidate_id": "r"})
+                    self.assertEqual(post("test-secret"), (status, response))
+                    self.assertEqual(server.decisions, 1)
+                finally:
+                    server.shutdown()
+                    worker.join(timeout=3)
 
 
 if __name__ == "__main__":

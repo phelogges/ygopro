@@ -1,8 +1,10 @@
 # 固定牌序对局场景契约 v1
 
+> 状态：现行确定性场景 YAML 契约。这里的 v1 是**场景文件版本**，与 Agent HTTP 的版本无关；随机结果场景使用 [YAML v2 扩展](agent-scenario-v2.md)。
+
 随机效果场景使用 [v2 扩展](agent-scenario-v2.md)。v1 剧本的解析和严格回放语义保持不变。
 
-本契约定义本地双客户端回归的 YAML 场景文件。它是测试输入，不是客户端与 Agent 服务的 HTTP 协议。客户端仍只接受 `docs/contracts/agent-http-v1.md` 的语义动作，场景执行器通过 `agent_sdk` 翻译并验证动作。游戏服务端、`ocgcore` 和 CTOS/STOC 协议不变。
+本契约定义本地双客户端回归的 YAML 场景文件。它是测试输入，不是客户端与 Agent 服务的 HTTP 协议。`tools/agent-e2e.py` 默认使用 [HTTP v3](agent-http-v3.md)：两个客户端各自连接独立的离线 Agent 子服务，共享脚本协调器按 YAML 给出动作；Agent 服务仍通过 `agent_sdk` 校验并翻译[语义动作](duel-actions.md)。`--protocol v2` 保留[HTTP v2 测试服务](agent-http-v2.md)的历史兼容路径。游戏服务端、`ocgcore` 和 CTOS/STOC 协议不变。
 
 同一场景也可用 `tools/agent-e2e.py --scenario ... --gui` 在双窗口中播放。GUI 观看节奏和窗口生命周期见 [设计说明](../design/agent-gui-e2e.md)；场景字段及动作语义在两种模式下相同。
 
@@ -52,7 +54,7 @@ uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario
 
 `allowed_random_events` 默认空列表，目前只允许唯一值 `hand_shuffle`。手牌洗切不会改变按卡片 ID 匹配的脚本动作，但它仍是可观测随机事件；场景须显式声明该例外。掷骰、抛币及随机选卡不受此例外覆盖。
 
-`event_assertions` 是可选的本地测试断言，按 `host`、`guest` 分别给出有序事件子序列。断言读取测试 Agent 服务已经接受并持久化的本视角事件，包括通过 `/v2/sync` 在决策之间送达的事件；它不是 CTOS/STOC 或客户端与 Agent 服务协议的新字段。每个事件须指定 `kind`，可按 `player`（`self`／`opponent`／`0`／`1`）和 `zone` 匹配。`effect_activated` 可匹配带引号的 `card_id`、`controller` 和数字 `location`、`sequence`；序号只在客户端确实可定位的场上位置出现。`position_changed` 可匹配数字 `location`、`sequence` 及 `from_position`、`to_position`，但它本身没有卡片 ID。`cards_revealed` 还可指定非空 `cards`：每张须有带引号的 `card_id`，可附 `player`、数字 `location` 和客户端确实收到的 `sequence`；卡片列表与实际展示数量相等，忽略列表顺序及未指定的字段。断言按事件先后匹配，不固定一次运行产生的 `event_id`，允许中间存在其他事件。例如：
+`event_assertions` 是可选的本地测试断言，按 `host`、`guest` 分别给出有序事件子序列。断言读取各自 Agent 服务已经接受并持久化的本视角事件，包括通过默认 `/v3/sync`（或历史兼容路径的 `/v2/sync`）在决策之间送达的事件；它不是 CTOS/STOC 或客户端与 Agent 服务协议的新字段。每个事件须指定 `kind`，可按 `player`（`self`／`opponent`／`0`／`1`）和 `zone` 匹配。`effect_activated` 可匹配带引号的 `card_id`、`controller` 和数字 `location`、`sequence`；序号只在客户端确实可定位的场上位置出现。`position_changed` 可匹配数字 `location`、`sequence` 及 `from_position`、`to_position`，但它本身没有卡片 ID。`cards_revealed` 还可指定非空 `cards`：每张须有带引号的 `card_id`，可附 `player`、数字 `location` 和客户端确实收到的 `sequence`；卡片列表与实际展示数量相等，忽略列表顺序及未指定的字段。断言按事件先后匹配，不固定一次运行产生的 `event_id`，允许中间存在其他事件。例如：
 
 ```yaml
 event_assertions:
@@ -72,7 +74,7 @@ event_assertions:
 
 ## 动作与断言
 
-`action` 使用 `docs/contracts/agent-http-v1.md` 中的语义动作种类。`choice` 与 `select_step` 使用 `match`；选卡、排序使用按期望顺序列出的 `matches`；区域使用 `places`；指示物使用 `allocations`；宣言卡片使用 `card_id`。`match` 可按动作种类、卡片 ID、控制者、当前位置与序号以及候选提供的 `description_id`、`effect_flag`、`number`、`bit`、`weight` 等字段精确匹配。默认必须匹配唯一候选；确有同形候选时，才允许写入从 1 开始的 `ordinal` 和 `expected_matches`。场景执行器解析临时候选 ID，交 `agent_sdk` 校验，客户端再校验并编码响应。场景不支持原始 CTOS 字节或跨提示的卡实体别名。
+`action` 使用[动作契约](duel-actions.md)定义的语义动作种类。`choice` 与 `select_step` 使用 `match`；选卡、排序使用按期望顺序列出的 `matches`；区域使用 `places`；指示物使用 `allocations`；宣言卡片使用 `card_id`。`match` 可按动作种类、卡片 ID、控制者、当前位置与序号以及候选提供的 `description_id`、`effect_flag`、`number`、`bit`、`weight` 等字段精确匹配。默认必须匹配唯一候选；确有同形候选时，才允许写入从 1 开始的 `ordinal` 和 `expected_matches`。场景执行器解析临时候选 ID，交 `agent_sdk` 校验，客户端再校验并编码响应。场景不支持原始 CTOS 字节或跨提示的卡实体别名。
 
 可见区域断言仅使用该客户端的本方视角：`count` 检查数量，`contains` 检查可见卡的 ID 与重复数量，`exact` 检查完整可见集合。场上卡可附区域序号、表示形式和 `known` 布尔值；仅已知身份的卡可附客户端已知的数值。`known: false` 断言当前快照仍隐藏身份，不否定该客户端历史上曾看到卡片 ID。隐藏对手手牌、双方牌库内容不可断言。`zones.player` 使用 `self` 或 `opponent`，也可写视角内的 `0` 或 `1`。步骤中的 `wait_for: {timeout_ms, expect}` 等待动作后某次可见快照满足条件；下一决策前仍需成立的状态应在下一步 `expect` 再断言。客户端测试入口会在处理游戏消息后记录本方可见快照，数据仅用于本地测试，不增加 Agent HTTP 的隐藏信息。
 

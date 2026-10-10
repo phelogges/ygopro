@@ -8,6 +8,7 @@ import base64
 import json
 import math
 import os
+import secrets
 import shlex
 import socket
 import sqlite3
@@ -216,11 +217,19 @@ def checkpoint_failure(
 
 
 def assert_recorded_events(
-    scenario: Any, work: Path
+    scenario: Any, work: Path, *, protocol: str = "v2"
 ) -> dict[str, list[dict[str, Any]]]:
-    """Check the test service's accepted event journal, including /v2/sync batches."""
+    """Check each perspective's durably accepted event history."""
     if not any(scenario.event_assertions.values()) and scenario.random_target is None:
         return {}
+    if protocol == "v3":
+        accepted = {
+            role: load_v3_duel(work, role)["events"] for role in ("host", "guest")
+        }
+        for role, expected in scenario.event_assertions.items():
+            if expected:
+                scenario.assert_events(role, accepted[role])
+        return accepted
     from agent_sdk.state_journal import StateJournal
 
     journal_root = work / "state"
@@ -257,6 +266,68 @@ def assert_recorded_events(
     return accepted
 
 
+def load_v3_duel(work: Path, role: str) -> dict[str, Any]:
+    """Read only this run's v3 child-service database for one perspective."""
+    root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root / "agent_server" / "src"))
+    from agent_server.storage import StateDatabase
+
+    database = work / "agent-data" / f"e2e-{role}-local" / "state.sqlite3"
+    if not database.is_file():
+        raise RuntimeError(f"{role}: v3 state database missing: {database}")
+    with StateDatabase(database, read_only=True) as store:
+        duels = store.list_duels()
+        if len(duels) != 1:
+            raise RuntimeError(f"{role}: expected one v3 duel, found {len(duels)}")
+        session = duels[0]["session_id"]
+        duel = duels[0]["duel_id"]
+        status = store.get_status(session, duel)
+        if status["state_version"] < 1:
+            raise RuntimeError(f"{role}: v3 duel has no accepted decision snapshot")
+        first = store.get_state(session, duel, 1)
+        if first.get("test_role") != role:
+            raise RuntimeError(f"{role}: v3 database perspective differs")
+        events: list[dict[str, Any]] = []
+        after_event_id = 0
+        while batch := store.get_events(
+            session, duel, after_event_id=after_event_id, limit=1000
+        ):
+            events.extend(batch)
+            after_event_id = batch[-1]["event_id"]
+        records: list[dict[str, Any]] = []
+        after_record_id = 0
+        while batch := store.get_records(
+            session, duel, after_id=after_record_id, limit=1000
+        ):
+            records.extend(batch)
+            after_record_id = batch[-1]["id"]
+    return {"events": events, "records": records, "status": status}
+
+
+def audit_v3_duel(work: Path, role: str, *, terminal: bool) -> None:
+    """Require v3-only binding and receipts on the scripted transport path."""
+    accepted = load_v3_duel(work, role)
+    records = accepted["records"]
+    kinds = [record["kind"] for record in records]
+    if kinds.count("deck_manifest") != 1:
+        raise RuntimeError(
+            f"{role}: v3 deck manifest was not durably bound exactly once"
+        )
+    actions = [record for record in records if record["kind"] == "agent_action"]
+    receipts = [record for record in records if record["kind"] == "action_receipt"]
+    if not actions or not receipts:
+        raise RuntimeError(f"{role}: v3 action issuance or client receipt missing")
+    issued = {record["record_id"] for record in actions}
+    if any(record["record_id"] not in issued for record in receipts):
+        raise RuntimeError(f"{role}: v3 receipt has no matching issued action")
+    if any(record["payload"].get("status") != "submitted" for record in receipts):
+        raise RuntimeError(f"{role}: v3 client rejected a scripted action")
+    if terminal and not any(
+        event["kind"] == "duel_ended" for event in accepted["events"]
+    ):
+        raise RuntimeError(f"{role}: v3 terminal sync was not durably accepted")
+
+
 def run_scripted_duel(
     scenario: Any,
     work: Path,
@@ -264,6 +335,7 @@ def run_scripted_duel(
     expected_opening: dict[str, tuple[int, ...]],
     timeout: int,
     *,
+    protocol: str = "v2",
     gui: bool = False,
     step_delay: float = 0,
 ) -> dict[str, Any]:
@@ -394,7 +466,7 @@ def run_scripted_duel(
                 for role in roles
             )
         ):
-            accepted = assert_recorded_events(scenario, work)
+            accepted = assert_recorded_events(scenario, work, protocol=protocol)
             random_case_key = None
             if scenario.random_target is not None:
                 random_case_key, random_case = scenario.match_random_case(accepted)
@@ -421,6 +493,8 @@ def run_scripted_duel(
                     continue
             for role in roles:
                 audit_decisions(tails[role].path, require_hand=False)
+                if protocol == "v3":
+                    audit_v3_duel(work, role, terminal=False)
             if gui:
                 checkpoint_path.write_text("reached\n", encoding="ascii")
                 checkpoint_deadline = time.monotonic() + 5
@@ -500,9 +574,11 @@ def run_scripted_duel(
                 or not results[roles.index(surrender_role)].get("surrender_sent")
             ):
                 raise RuntimeError(f"scripted {surrender_role} surrender was not sent")
-            assert_recorded_events(scenario, work)
+            assert_recorded_events(scenario, work, protocol=protocol)
             for role in roles:
                 audit_decisions(tails[role].path, require_hand=False)
+                if protocol == "v3":
+                    audit_v3_duel(work, role, terminal=True)
             return {"status": "duel_finished", "winner": winner, "results": results}
         time.sleep(0.05)
     raise TimeoutError(
@@ -601,11 +677,14 @@ def write_scenario_report(
     expected_opening: dict[str, tuple[int, ...]],
     outcome: dict[str, Any] | None,
     failure: BaseException | None,
+    *,
+    protocol: str,
 ) -> None:
     """Keep a compact, visible-only summary even when the duel aborts early."""
     status_path = work / "scenario-status.json"
     report: dict[str, Any] = {
         "schema_version": 1,
+        "agent_http_protocol": protocol,
         "scenario": str(scenario.source),
         "status": "failed" if failure else "passed",
         "error": str(failure) if failure else None,
@@ -653,6 +732,15 @@ def write_scenario_report(
                 if result_path.is_file()
                 else None
             ),
+            **(
+                {
+                    "agent_state_db": str(
+                        work / "agent-data" / f"e2e-{role}-local" / "state.sqlite3"
+                    )
+                }
+                if protocol == "v3"
+                else {}
+            ),
         }
     (work / "scenario-report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -669,9 +757,15 @@ def main() -> int:
     parser.add_argument("--scenario", help="YAML scripted fixed-deck duel")
     parser.add_argument("--report-output", type=Path, help=argparse.SUPPRESS)
     parser.add_argument(
+        "--protocol",
+        choices=("v2", "v3"),
+        default="v3",
+        help="Agent HTTP protocol for the deterministic test service (default: v3)",
+    )
+    parser.add_argument(
         "--agent-v3-offline",
         action="store_true",
-        help="exercise the v3 child service with deterministic local decisions",
+        help="legacy alias for the default --protocol v3",
     )
     parser.add_argument(
         "--gui",
@@ -729,8 +823,8 @@ def main() -> int:
         parser.error("--record-output requires one scripted duel")
     if args.gui and not scenario:
         parser.error("--gui requires --scenario")
-    if args.agent_v3_offline and scenario:
-        parser.error("--agent-v3-offline currently supports the unscripted duel only")
+    if args.agent_v3_offline and args.protocol == "v2":
+        parser.error("--agent-v3-offline conflicts with --protocol v2")
     if args.step_delay is not None and not args.gui:
         parser.error("--step-delay requires --gui")
     step_delay = (
@@ -759,14 +853,25 @@ def main() -> int:
     environment["PYTHONPATH"] = str(root / "agent_sdk" / "src")
     work = root / "out" / "agent-e2e-runs" / f"{int(time.time())}-{os.getpid()}"
     work.mkdir(parents=True, exist_ok=False)
+    use_v3 = args.protocol == "v3"
+    if use_v3 and scenario:
+        environment["YGOPRO_AGENT_E2E_SCENARIO_TOKEN"] = secrets.token_urlsafe(32)
     offline_profiles: dict[str, str] = {}
-    if args.agent_v3_offline:
+    if use_v3:
         template = (root / ".agents/config.example.toml").read_text(encoding="utf-8")
         launcher = work / "agent-server-offline"
+        oracle_arg = (
+            " --scenario-oracle "
+            + shlex.quote(f"http://127.0.0.1:{agent_port}/v3/scenario-action")
+            if scenario
+            else ""
+        )
         launcher.write_text(
             "#!/bin/sh\nexec "
             + shlex.quote(str(root / "agent_server/.venv/bin/python"))
-            + ' -m agent_server --offline "$@"\n',
+            + " -m agent_server --offline"
+            + oracle_arg
+            + ' "$@"\n',
             encoding="utf-8",
         )
         launcher.chmod(0o700)
@@ -798,8 +903,9 @@ def main() -> int:
     failure: BaseException | None = None
     try:
         with (work / "agent.log").open("wb") as output:
-            server = subprocess.Popen(
-                (
+            server: subprocess.Popen[bytes] | None = None
+            if scenario or not use_v3:
+                command = (
                     [
                         sys.executable,
                         "-m",
@@ -814,6 +920,11 @@ def main() -> int:
                         str(agent_port),
                         "--step-delay",
                         str(step_delay),
+                        *(
+                            ("--token-env", "YGOPRO_AGENT_E2E_SCENARIO_TOKEN")
+                            if use_v3
+                            else ()
+                        ),
                     ]
                     if scenario
                     else [
@@ -825,21 +936,24 @@ def main() -> int:
                         "--port",
                         str(agent_port),
                     ]
-                ),
-                cwd=root,
-                env=environment,
-                stdout=output,
-                stderr=subprocess.STDOUT,
-            )
+                )
+                server = subprocess.Popen(
+                    command,
+                    cwd=root,
+                    env=environment,
+                    stdout=output,
+                    stderr=subprocess.STDOUT,
+                )
             try:
-                wait_for_port(agent_port, time.monotonic() + 10)
+                if server is not None:
+                    wait_for_port(agent_port, time.monotonic() + 10)
                 for game in range(1, games + 1):
                     lan_port = free_port()
                     clients: list[subprocess.Popen[bytes]] = []
                     try:
                         for role in ("host", "guest"):
                             child_env = environment.copy()
-                            if args.agent_v3_offline:
+                            if use_v3:
                                 child_env["YGOPRO_AGENT_CONFIG"] = offline_profiles[
                                     role
                                 ]
@@ -910,6 +1024,7 @@ def main() -> int:
                                 clients,
                                 expected_opening,
                                 effective_timeout,
+                                protocol=args.protocol,
                                 gui=args.gui,
                                 step_delay=step_delay,
                             )
@@ -974,7 +1089,8 @@ def main() -> int:
                             for child in clients:
                                 stop(child)
             finally:
-                stop(server)
+                if server is not None:
+                    stop(server)
     except Exception as exc:
         failure = exc
         raise
@@ -983,7 +1099,13 @@ def main() -> int:
             (root / ".agents" / f"{profile}.toml").unlink(missing_ok=True)
         if scenario:
             write_scenario_report(
-                work, scenario, decks, expected_opening, outcome, failure
+                work,
+                scenario,
+                decks,
+                expected_opening,
+                outcome,
+                failure,
+                protocol=args.protocol,
             )
             if args.report_output:
                 args.report_output.parent.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,7 @@
 # 二期 Agent 服务设计
 
+> 状态：现行总设计。协议格式以 [HTTP v3 契约](../contracts/agent-http-v3.md)为准；状态细节见[现行状态设计](agent-state.md)，Codex 专属取舍见[Codex 后端设计](agent-codex-backend.md)。
+
 ## 目标与范围
 
 在一期可见状态和语义动作契约上，实现 `agent_server/` 中的完整本地 Agent 服务。客户端在配置启用时启动独占子进程；原有 Pydantic AI 后端调用 OpenAI 风格 Responses 端点，通过本地 Monty 代码沙盒和受限工具分析对局，输出可校验的语义动作。新增可选 Codex 后端的隔离、工具和运行时要求见 [Codex Agent 后端设计](agent-codex-backend.md)。首版中文、单局 1v1；人工完成房间和卡组操作。游戏服务端、CTOS/STOC、`ocgcore` 和卡片脚本不改。macOS 先实现，Windows 最后构建验证。
@@ -13,11 +15,12 @@ gframe AgentController ── HTTP v3 ── agent_server
   可见快照 / 事件 / 候选          │
   查询执行 / 动作提交            ├─ 持久事件与状态检查点
                                 ├─ agent_sdk 状态差异与动作校验
-                                ├─ Pydantic AI Responses Agent
-                                │    ├─ 本地 Monty CodeMode
+                                ├─ DuelTools 共用工具执行层
                                 │    ├─ 规则书与卡片数据库
-                                │    ├─ 当前场面 / 分页历史
-                                │    └─ 客户端只读查询
+                                │    ├─ 当前场面 / 分页历史 / 认知笔记
+                                │    └─ 客户端只读查询与受限计算
+                                ├─ Pydantic AI Responses Agent ─ 本地 Monty CodeMode
+                                ├─ Codex Agent ─ 单个本地 MCP 服务
                                 └─ 本机只读人类视图
 ```
 
@@ -51,7 +54,7 @@ gframe AgentController ── HTTP v3 ── agent_server
 - 卡片工具只读取 `.agents/skills/ygo-card-db` 的实现和发布主目录 `cards.cdb`，支持单卡 ID 查询、批量完整详情 `cards_by_ids` 和有数量上限的关键词检索；批量 ID 数上限可配置，默认 12 个不同 ID。服务核对与客户端的数据库哈希。工具轨迹记录批次 ID 数、返回字节数和耗时。
 - 临界预算保护为实验性配置：默认在剩余 2 次模型请求或 20 秒时（任一条件满足）进入最终化阶段，移除全部非最终输出工具，只允许提交最终动作；配置为 0 可关闭。它不提供确定性动作回退，也不替代期限和预算硬限制。
 - 状态工具读取本视角指定版本的场面、区域、卡片和分页事件历史，返回版本与事件范围。
-- 对手手牌、魔陷区和主怪兽区 0–4 号格的历史展示与后续不确定性由 Agent 撰写认知说明，按本视角和单局持久保存；每次决策附当前说明，后续事件只提示重审，不由程序自动推断卡片身份。工具与存储契约见 [Agent 对手隐藏区域认知说明 v1](../contracts/agent-hand-note-v1.md)。
+- 对手手牌、魔陷区和主怪兽区 0–4 号格的历史展示与后续不确定性由 Agent 撰写认知说明，按本视角和单局持久保存；每次决策附当前说明，后续事件只提示重审，不由程序自动推断卡片身份。工具与存储契约见[认知笔记契约](../contracts/agent-knowledge-notes-v1.md)。
 - 客户端查询工具仅有 `inspect_zone`、`inspect_card`，使用 v3 多轮 HTTP，请求绑定当前提示与版本；不能请求任意内部字段或另一视角。
 - CodeMode/Monty 只在本机执行受限 Python 子集，不配置远程 worker、文件挂载、OS 访问、Shell 或网络。仅明确列出的只读工具可在沙盒代码中调用；宿主工具再次核验会话、可见性、预算和结果大小。
 

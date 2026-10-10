@@ -1,6 +1,10 @@
 # 随机结果场景契约 v2
 
+> 状态：现行随机结果场景 YAML 扩展，仅适用于 `schema_version: 2`、`scenario_kind: random`；确定性场景仍按 [YAML v1](agent-scenario-v1.md) 读取。本版本号与 Agent HTTP 协议版本无关。
+
 本扩展仅用于单局 1v1 的随机效果协议回归。保留 v1 的 `decks`、`pregame`、`steps`、`event_assertions` 和可见状态断言；`schema_version: 2` 必须搭配 `scenario_kind: random`。双方仍使用各自固定顺序的 YDK 和“不洗牌”房间。每个场景只聚焦一次随机操作，按 Host 和 Guest 各自可见的事件作断言，不合并隐藏信息。
+
+执行器默认使用 [Agent HTTP v3](agent-http-v3.md) 的双端独立离线 Agent 服务和共享脚本协调器；YAML `schema_version: 2` 不要求 HTTP v2。历史 HTTP v2 回归须显式指定 `--protocol v2`。
 
 随机录制从完整终局对局生成 `scenario.unverified.yaml`，其中保留所有动作供审阅。编译器不能识别效果何时完成，故候选的终局目标不能直接执行：开发 Agent 须将动作截到效果完成后，改为 `checkpoint`，编写具体可见状态断言，并审查是否有依随机结果变化的玩家动作。若存在分支动作，当前版本不能入库。
 

@@ -1,5 +1,7 @@
 # 客户端 ⇄ Agent HTTP 契约 v1
 
+> 状态：历史兼容契约。适用于一期 `/v1/decision` 的原始语义；现行正式 Agent 服务采用 [HTTP v3](agent-http-v3.md)，一期确定性测试服务使用 [HTTP v2](agent-http-v2.md)。继任版本的重试规则不同，不应套用本页。
+
 ## 传输
 
 客户端向配置的 Agent 地址发送 `POST /v1/decision`，请求与响应均为 UTF-8 JSON，`Content-Type: application/json`。每个客户端同一时刻只允许一个未完成请求。启用局域网访问时使用 `Authorization: Bearer <token>`；默认只连接本机。限制请求/响应体大小、连接与总决策时长，超限视为失败并交还人工。Agent 不直接连接游戏服务端。

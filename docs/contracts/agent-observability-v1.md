@@ -1,5 +1,7 @@
 # Agent 可观测性契约 v1
 
+> 状态：现行正式 Agent 服务的人类只读视图契约，补充 [HTTP v3](agent-http-v3.md)。本页的 v1 是可观测性契约版本，不是客户端 HTTP 版本；认知笔记见[独立契约](agent-knowledge-notes-v1.md)。
+
 ## 范围与授权
 
 本契约补充[客户端与 Agent HTTP v3 契约](agent-http-v3.md)的人类视图，不改变 `/v3/decision`、查询、动作回执、客户端 GUI 或游戏联网协议。服务只绑定 `127.0.0.1`。`GET /view` 和同源静态资源无需授权且不包含对局数据、令牌或密钥；所有 `/v3/view/*` 数据 GET 请求都要求该配置档 `.agents/data/<profile>/viewer-token` 对应的 `Authorization: Bearer <token>`。该令牌只能读，不能调用决策接口或删除数据。令牌不得放在 URL、浏览器长期存储、页面日志或导出文件中。前端使用原生 `fetch` 发送授权头并解析 SSE，因此无需 Node 或浏览器原生 `EventSource` 的授权限制。

@@ -1,5 +1,7 @@
 # 客户端 ⇄ Agent HTTP 契约 v3
 
+> 状态：现行正式 Agent 服务的客户端协议。可见快照和事件字段继承 [v2](agent-http-v2.md)；本版增加就绪握手、牌表、客户端查询和动作回执。业务工具另见[工具契约](agent-tools-v1.md)。
+
 ## 范围
 
 本契约扩展 [v2 状态契约](agent-http-v2.md)的可见快照、连续事件、状态版本与动作形状，以支持一次决策中的只读客户端查询和动作执行回执。游戏服务端和 CTOS/STOC 不变。正式 Agent 服务只接受 `/v3/*`；现有 v2 确定性测试服务继续按原契约运行，不做静默降级。
@@ -11,6 +13,8 @@
 `session_id`、`duel_id`、`prompt_id`、`state_version`、`event_id`、`ack_event_id`、`database_sha256` 沿用 v2。一次决策由 `(session_id, duel_id, prompt_id, state_version)` 唯一标识。服务端签发只在该决策内有效的 `query_id` 和 `action_id`。客户端不能指定或复用这些 ID。
 
 `deadline_unix_ms` 是**整次决策**的绝对截止时间。模型调用、无效意图重试、沙盒和工具、客户端查询以及压缩调用共享它；每轮 HTTP 不得重新计时。客户端从配置的总上限和已确认的本方剩余操作时间中取较短者，并预留提交动作的时间。服务端在期限后不得签发动作；客户端在期限后不得提交动作。客户端提示撤销、人工接管、对局结束或子进程退出时取消在途决策。
+
+与 v2 不同，v3 决策请求的 `deadline_unix_ms` 必须是非空 Unix 毫秒整数；正式服务拒绝 `null`。
 
 ## 服务就绪：`GET /v3/ready`
 

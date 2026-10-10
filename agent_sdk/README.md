@@ -1,6 +1,6 @@
 # agent_sdk
 
-项目内的 Python 3.12 决策契约翻译包，运行时仅使用标准库。负责校验 v1/v2 客户端请求、匹配当前提示候选、把结构化意图转换为语义动作；v2 还提供本方可见状态、事件确认与快照差异的确定性处理。Agent 推理与正式服务框架由调用方实现。契约见 [HTTP v2](../docs/contracts/agent-http-v2.md) 和 [状态处理设计](../docs/design/agent-state-v2.md)。
+项目内的 Python 3.12 决策契约翻译包，运行时仅使用标准库。负责校验 v1/v2/v3 客户端请求、匹配当前提示候选、把结构化意图转换为语义动作；状态模块还提供本方可见状态、事件确认与快照差异的确定性处理。Agent 推理与正式服务框架由调用方实现。正式服务与默认确定性双客户端回归使用 [HTTP v3](../docs/contracts/agent-http-v3.md)；[HTTP v2](../docs/contracts/agent-http-v2.md) 测试端由 `tools/agent-e2e.py --protocol v2` 保留历史兼容回归。现行数据流见[状态设计](../docs/design/agent-state.md)。
 
 本地 YAML 场景执行器使用可选的 `scenario` 依赖组（PyYAML）；基础翻译包和正式客户端不需要它。场景格式见 [场景契约](../docs/contracts/agent-scenario-v1.md)。
 
@@ -25,13 +25,13 @@ response = build_response(
 - `validate_response(request, response) -> dict`：校验版本/会话/对局/提示是否完全匹配，重新校验动作。
 - `ContractError` 表示无效数据；`UnsupportedPrompt` 表示约束不足或无法可靠验证。两者均提供 `code`。
 
-### v2 状态接口
+### 历史 v2 状态接口
 
 - `agent_sdk.state.StateStore`：内存中的会话／对局隔离状态；`apply_sync` 确认连续事件，`apply_decision` 接受同一时点完整快照、事件和提示，计算净差异。`get_state`、`get_zone`、`get_events` 为按版本读取接口，`get_status` 返回当前 `state_version` 与 `ack_event_id`。
 - `agent_sdk.state_journal.StateJournal`：每次请求先在状态副本上校验和应用，再将含事件、快照与差异的完整检查点原子写入本地文件；成功后才确认事件。它不是追加日志实现。
-- `agent_sdk.test_server`：确定性测试端支持 `POST /v2/decision`、`/v2/sync`、`/v2/status`，同时保留 v1 决策入口。`/v2/status` 用于客户端 F10 恢复 Agent 时核对服务端状态，不执行动作。测试端按实际卡库校验 SHA-256，不接受模型生成的原始协议字节。
+- `agent_sdk.test_server`：历史兼容测试端支持 `POST /v2/decision`、`/v2/sync`、`/v2/status`，同时保留 v1 决策入口。`/v2/status` 用于客户端 F10 恢复 Agent 时核对服务端状态，不执行动作。测试端按实际卡库校验 SHA-256，不接受模型生成的原始协议字节。默认 v3 场景回放由两个离线 `agent_server` 子服务与共享 `agent_sdk.scenario_server` 协调器组成。
 
-v2 每次真实决策仍发送本方可见的完整快照；服务端据此替换状态并与上个版本比较。事件在收到持久确认前由客户端保留，未知关键消息和事件缺口使自动决策失败并交还人工。状态查询工具的 LLM 接线及追加日志方案属于二期服务工作。
+每次真实决策仍发送本方可见的完整快照；服务端据此替换状态并与上个版本比较。事件在收到持久确认前由客户端保留，未知关键消息和事件缺口使自动决策失败并交还人工。正式服务的持久事件日志与模型查询工具由 `agent_server/` 实现；此处的 `StateJournal` 是确定性测试端的检查点实现。
 
 Action 字段严格限制，拒绝原始 CTOS 参数及额外动作字段；请求/响应 envelope 允许新增可选字段。重复 JSON 键、非有限数、布尔值冒充整数、未知候选均拒绝。未知 constraints 语义拒绝，不能静默忽略。
 

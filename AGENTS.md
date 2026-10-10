@@ -1,6 +1,6 @@
 # 仓库工作约定
 
-本文件面向在本仓库工作的编码 Agent。先阅读相关源码及 `docs/` 中的契约，再修改代码；让实现、契约和验证结果保持一致。详细设计以链接的文档为准。
+本文件面向在本仓库工作的编码 Agent。先从 [文档总索引](docs/README.md)找到现行契约和设计，再阅读相关源码；让实现、契约和验证结果保持一致。旧版本文档保留演进与测试用途，不作为当前正式服务的默认入口。
 
 ## 项目与范围
 
@@ -12,13 +12,13 @@
 
 - 客户端只向 Agent 服务发送本方可见状态、提示和合法候选；不得泄露隐藏卡身份。卡片静态资料由二期 Agent 使用卡片 ID 查询，客户端不复制卡名或效果文本。
 - `agent_sdk/` 将结构化意图校验并翻译为语义动作；客户端再次核对会话、提示、候选与参数，然后使用原有响应编码。LLM 不得直接生成 CTOS 字节或绕过客户端校验。
-- 改动请求、响应、候选含义或动作映射时，同步更新 `docs/contracts/` 和对应测试。架构设计放在 `docs/design/`，实际验证状态放在 `docs/validation/`。先读 [HTTP 契约](docs/contracts/agent-http-v1.md)、[动作契约](docs/contracts/duel-actions.md) 和 [一期设计](docs/design/agent-phase-1.md)；固定牌序回归另读 [场景契约](docs/contracts/agent-scenario-v1.md)，人工对局录制另读 [录制契约](docs/contracts/duel-recording-v1.md)。
+- 改动请求、响应、候选含义、动作映射或工具行为时，同步检查并更新现行 `docs/contracts/`、相关设计及对应测试；将实际验证的日期、平台、路径、结果和未验证项写入 `docs/validation/`。操作步骤放在 `docs/guides/`。正式服务先读 [HTTP v3](docs/contracts/agent-http-v3.md)、[动作契约](docs/contracts/duel-actions.md)、[工具契约](docs/contracts/agent-tools-v1.md) 和 [现行状态设计](docs/design/agent-state.md)；固定牌序回归另读 [场景 v1](docs/contracts/agent-scenario-v1.md)，随机场景读 [场景 v2](docs/contracts/agent-scenario-v2.md)，人工对局录制读 [录制契约](docs/contracts/duel-recording-v1.md)。发现代码与现行契约有行为差异时，先列出差异与影响并和用户讨论处理，不能静默改写任一方。
 
 ## 构建与验证
 
 - 新开发只使用 CMake Presets + vcpkg，参见 [CMAKE_BUILD.md](CMAKE_BUILD.md) 与 `CMakePresets.json`。不要为新功能编辑或验证 premake 构建。上游仍使用 premake：同步上游时正常合并相关文件，无须对 premake 做额外验证。
-- 客户端使用 C++17，遵循现有代码风格并用 clang-format 格式化所改代码。Python 使用 3.12，默认以 uv 管理依赖，并用 Ruff、Pyright 检查。二期使用的开源 Agent SDK 由该期设计文档确定，根文件不预设框架；新增客户端依赖前说明必要性。
-- macOS 常用入口：`cmake --preset MacOS-Debug`、`cmake --build --preset MacOS-Debug`、`ctest --test-dir out/build/MacOS-Debug --output-on-failure`。Python 检查入口见 [agent_sdk/README.md](agent_sdk/README.md)。涉及真实决策或对局流程的改动，运行 `python3.12 tools/agent-e2e.py --games 3 --deck deck/test/test.ydk`；详见 [回归说明](docs/validation/agent-e2e.md)。按改动风险选择验证，文档小改不必重跑三局。
+- 客户端使用 C++17，遵循现有代码风格并用 clang-format 格式化所改代码。Python 使用 3.12，默认以 uv 管理依赖，并用 Ruff、Pyright 检查。二期服务实现见 [二期设计](docs/design/agent-phase-2.md)；新增客户端依赖前说明必要性。
+- macOS 常用入口：`cmake --preset MacOS-Debug`、`cmake --build --preset MacOS-Debug`、`ctest --test-dir out/build/MacOS-Debug --output-on-failure`。Python 检查入口见 [agent_sdk/README.md](agent_sdk/README.md)。涉及真实决策或对局流程的改动，运行 `python3.12 tools/agent-e2e.py --games 3 --deck deck/test/test.ydk`；该入口和 `--scenario` 默认走 Agent HTTP v3，`--protocol v2` 只做历史兼容回归。步骤见 [回归指南](docs/guides/scenario-replay.md)，最近实测证据见 [验证总览](docs/validation/README.md)。按改动风险选择验证，文档小改不必重跑三局；文档更新运行 `python3 tools/check-docs.py`。
 - 编译或契约测试通过不等于真实双客户端对局通过。GUI 人工接管、超时和断线需分别报告实测情况；未执行的平台或路径明确标为未验证。
 
 ## 本地资源与 Git

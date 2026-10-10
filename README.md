@@ -3,6 +3,8 @@
 
 A script engine for "yu-gi-oh!" and sample gui
 
+本仓库 Agent 功能的现行协议、设计、操作指南与验证状态见 [docs/README.md](docs/README.md)。
+
 [中文说明](https://github.com/Fluorohydride/ygopro/wiki/%E4%B8%AD%E6%96%87%E8%AF%B4%E6%98%8E)
 
 ### Keys:

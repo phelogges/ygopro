@@ -15,15 +15,17 @@ import time
 from contextlib import closing
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlsplit
 
-from agent_sdk.contract import DecisionRequest
+from agent_sdk.contract import ContractError, DecisionRequest, validate_action
 from agent_sdk.state import StateDelta
 from agent_sdk.test_server import decide as deterministic_decide
-from aiohttp import web
+from aiohttp import ClientError, ClientSession, ClientTimeout, web
 
 from agent_server.codex_agent import CodexDecisionAgent
 from agent_server.codex_mcp_stdio import main as codex_mcp_main
 from agent_server.config import load_settings, profile_data_dir
+from agent_server.decision_session import DecideFunction
 from agent_server.duel_tools import DecisionFailure
 from agent_server.http_service import HttpService, load_viewer_token, web_root
 from agent_server.model_agent import DecisionAgent
@@ -50,7 +52,95 @@ async def offline_decide(
     return cast(dict[str, Any], response["action"]), "离线协议测试"
 
 
-async def serve(profile: str, *, offline: bool = False) -> None:
+def scenario_oracle_url(value: str) -> str:
+    """Accept only the local test coordinator's fixed action endpoint."""
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("invalid scenario oracle URL") from exc
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname not in ("127.0.0.1", "localhost")
+        or port is None
+        or parsed.path != "/v3/scenario-action"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("scenario oracle must use the local /v3/scenario-action endpoint")
+    return value
+
+
+def scenario_oracle_decide(url: str, token: str) -> DecideFunction:
+    """Use a shared scripted oracle while retaining the normal v3 service pipeline."""
+    if len(token) < 32:
+        raise ValueError("missing or short scenario oracle token")
+    queried_hand = False
+
+    async def decide(
+        request: DecisionRequest,
+        _delta: StateDelta,
+        query_client: Any,
+    ) -> tuple[dict[str, Any], str]:
+        nonlocal queried_hand
+        if not queried_hand:
+            observation = cast(dict[str, Any], request.data["observation"])
+            own_player = observation["self_player"]
+            hand = next(
+                (
+                    zone
+                    for zone in cast(list[dict[str, Any]], observation["zones"])
+                    if zone["player"] == own_player and zone["name"] == "hand"
+                ),
+                None,
+            )
+            if hand is not None:
+                result = await query_client(
+                    {"kind": "inspect_zone", "player": own_player, "zone": "hand"}
+                )
+                if result != {"kind": "inspect_zone", "zone": hand}:
+                    raise DecisionFailure("scenario_mismatch", "queried hand differs from snapshot")
+                queried_hand = True
+        deadline = cast(int, request.data["deadline_unix_ms"])
+        remaining = (deadline - time.time() * 1000) / 1000
+        if remaining <= 0:
+            raise DecisionFailure("timeout", "scenario decision deadline expired")
+        try:
+            async with ClientSession(timeout=ClientTimeout(total=remaining)) as session:
+                async with session.post(
+                    url,
+                    json=request.data,
+                    headers={"Authorization": f"Bearer {token}"},
+                    allow_redirects=False,
+                ) as response:
+                    if response.status != 200:
+                        raise DecisionFailure(
+                            "scenario_mismatch", f"scenario oracle returned HTTP {response.status}"
+                        )
+                    payload_value: object = await response.json()
+        except (ClientError, TimeoutError, ValueError) as exc:
+            raise DecisionFailure("scenario_mismatch", "scenario oracle unavailable") from exc
+        if not isinstance(payload_value, dict):
+            raise DecisionFailure("scenario_mismatch", "scenario oracle response is invalid")
+        payload = cast(dict[str, Any], payload_value)
+        if (
+            payload.get("schema_version") != 3
+            or not isinstance(payload.get("reason"), str)
+            or not isinstance(payload.get("action"), dict)
+        ):
+            raise DecisionFailure("scenario_mismatch", "scenario oracle response is invalid")
+        try:
+            action = validate_action(request, payload["action"])
+        except ContractError as exc:
+            raise DecisionFailure("scenario_mismatch", "scenario oracle action is invalid") from exc
+        return action, cast(str, payload["reason"])
+
+    return decide
+
+
+async def serve(profile: str, *, offline: bool = False, scenario_oracle: str | None = None) -> None:
     root = release_root()
     settings = load_settings(root, profile, offline=offline)
     token = os.environ.get("YGOPRO_AGENT_BOOT_TOKEN", "")
@@ -81,7 +171,13 @@ async def serve(profile: str, *, offline: bool = False) -> None:
         storage.prune_finished(settings.storage.retention_days, settings.storage.max_bytes)
         codex_agent: CodexDecisionAgent | None = None
         if offline:
-            decide = offline_decide
+            decide = (
+                scenario_oracle_decide(
+                    scenario_oracle, os.environ.get("YGOPRO_AGENT_E2E_SCENARIO_TOKEN", "")
+                )
+                if scenario_oracle is not None
+                else offline_decide
+            )
         elif settings.backend == "codex":
             codex_agent = CodexDecisionAgent(settings, storage, skills, data_dir)
             probe_started = time.perf_counter()
@@ -240,6 +336,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Local YGOPro Agent service")
     parser.add_argument("--config", default="config", help="profile basename in .agents/")
     parser.add_argument("--offline", action="store_true", help="deterministic protocol fixture")
+    parser.add_argument("--scenario-oracle", help=argparse.SUPPRESS)
     parser.add_argument(
         "--view-only", action="store_true", help="serve read-only history without a client or model"
     )
@@ -262,6 +359,10 @@ def main() -> None:
     )
     args = parser.parse_args()
     try:
+        if args.scenario_oracle is not None:
+            if not args.offline:
+                parser.error("--scenario-oracle requires --offline")
+            args.scenario_oracle = scenario_oracle_url(args.scenario_oracle)
         if args.codex_mcp_stdio:
             codex_mcp_main()
             return
@@ -319,7 +420,7 @@ def main() -> None:
             return
         if args.port is not None:
             parser.error("--port requires --view-only")
-        asyncio.run(serve(args.config, offline=args.offline))
+        asyncio.run(serve(args.config, offline=args.offline, scenario_oracle=args.scenario_oracle))
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"agent-server: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

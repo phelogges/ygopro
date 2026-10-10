@@ -1,5 +1,7 @@
 # 双客户端人工对局录制契约 v1
 
+> 状态：现行人工双客户端录制及草稿生成契约。录制 JSONL 的 `schema_version: 1` 与场景 YAML、Agent HTTP 版本分别管理；确定性与随机场景输出分别遵循 [场景 v1](agent-scenario-v1.md) 和 [随机扩展 v2](agent-scenario-v2.md)。
+
 本契约定义本地人工 LAN 单局 1v1 对局的录制、离线场景生成及验证。录制文件包含双方隐藏信息，只供本地编译和诊断，不得交给仅代表一名玩家的 Agent。游戏服务端、`ocgcore`、卡片脚本及既有 CTOS/STOC 联网协议保持不变。
 
 ## 会话与入口

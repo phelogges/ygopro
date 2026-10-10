@@ -1,5 +1,7 @@
 # 复杂决斗场景 `duel-001` 设计
 
+> 状态：历史场景设计。适用于 `duel-001` 初次制作与验证阶段；继任的现行场景以 `tests/scenarios/duel-001/` 文件为准，格式以[场景 v1 契约](../contracts/agent-scenario-v1.md)为准。
+
 ## 背景与目标
 
 `duel.md` 给出双方固定起手、两回合卡片展开、效果连锁、Link/同调召唤和 Host 投降。目标是在现有双客户端 LAN 无界面入口中逐步执行并验证该剧本，失败时指出首个偏差。场景文件位于 `tests/scenarios/duel-001/`；双方均使用场景目录内的 YDK 副本。Host 的 `host.ydk` 保留 `deck/test/host1.ydk` 的前五张及原有顺序，另加入一张 `53927851`。

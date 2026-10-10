@@ -1,5 +1,7 @@
 # 客户端 ⇄ Agent HTTP 契约 v2
 
+> 状态：现行一期确定性测试协议，也是 [HTTP v3](agent-http-v3.md) 的可见状态与事件基础。正式 Agent 服务只接受 v3；[v1](agent-http-v1.md) 保留为历史兼容契约。
+
 ## 范围与传输
 
 本契约取代运行时的 [v1 决策契约](agent-http-v1.md)，不改变游戏服务端、CTOS/STOC 或 [语义动作映射](duel-actions.md)。客户端主动向 Agent 服务发送 UTF-8 JSON；服务不得反向连接客户端。`Content-Type: application/json`。默认使用本机回环地址；局域网连接沿用 Bearer token。请求和响应须限制字节数、嵌套深度、连接时间及总决策时间；超限、超时或鉴权失败均不得提交游戏动作。

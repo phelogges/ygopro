@@ -1,5 +1,7 @@
 # 二期 Agent 服务验证记录
 
+> 状态：历史验证记录；截至 2026-10-08。现行验证范围见[验证总览](README.md)，真实对局操作见[指南](../guides/agent-live-duel.md)。
+
 ## 已执行的离线验证
 
 - macOS CMake Debug 客户端构建成功；`ctest` 的 `agent_codec` 与 `agent_codec_sdk_contract` 通过。

@@ -2,7 +2,9 @@
 
 每个场景目录保存 `scenario.yaml`、本场景固定的 `host.ydk` 与 `guest.ydk`、`goal.md` 和 `README.md`。`goal.md` 分开保留用户原话与 Agent 整理的可核查目标；历史原话缺失时标记事后重建。README 说明证据、验证状态和限制。原始双端日志、密钥及诊断报告留在 Git 忽略的 `out/`，不入库。
 
-场景的机器通过结果只证明写入的断言成立；自然语言目标的充分性还需人工审核。场景制作流程见[设计](../../docs/design/duel-scenario-authoring.md)，格式见[严格场景 v1](../../docs/contracts/agent-scenario-v1.md)与[随机场景 v2](../../docs/contracts/agent-scenario-v2.md)。新场景使用简短功能名；历史编号目录保留原名。
+场景的机器通过结果只证明写入的断言成立；自然语言目标的充分性还需人工审核。制作步骤见[场景指南](../../docs/guides/duel-scenario-authoring.md)，流程取舍见[设计](../../docs/design/duel-scenario-authoring.md)，格式见[严格场景 v1](../../docs/contracts/agent-scenario-v1.md)与[随机场景 v2](../../docs/contracts/agent-scenario-v2.md)。新场景使用简短功能名；历史编号目录保留原名。
+
+场景 YAML 版本与 Agent HTTP 版本独立。当前 `tools/agent-e2e.py --scenario` 默认使用 HTTP v3；历史 HTTP v2 回归须显式指定 `--protocol v2`。下表保留各场景原有的入库验证证据；2026-10-10 当前 8 个确定性场景已全部在默认 v3 路径复跑通过，报告及双端链路核对见[本轮验证](../../docs/validation/agent-v3-scenario-replay.md)。
 
 | 场景 | 类型 | 主要覆盖 | 本轮验证 | 尚未证明 |
 | --- | --- | --- | --- | --- |
