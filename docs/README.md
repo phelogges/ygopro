@@ -31,7 +31,7 @@
 
 ## 验证与待办
 
-[验证总览](validation/README.md)按路径、平台与后端列出仓库内最近一次实际证据及未验证项；[默认 v3 场景回放记录](validation/agent-v3-scenario-replay.md)列本轮 8 个场景的通过报告，[场景清单](../tests/scenarios/README.md)列各局的目标和报告。[现行待办](roadmap.md)只列尚未完成或尚待实测的工作。
+[验证总览](validation/README.md)按路径、平台与后端列出仓库内最近一次实际证据及未验证项；[默认 v3 场景回放记录](validation/agent-v3-scenario-replay.md)区分当前 3 个场景与已移除剧本的历史报告，[场景清单](../tests/scenarios/README.md)列现行各局的目标和报告。[现行待办](roadmap.md)只列尚未完成或尚待实测的工作。
 
 以下各页保留带日期或阶段范围的原始证据，旧测试数量与“当时未实现”的表述不代表今天的状态：
 

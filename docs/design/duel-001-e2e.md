@@ -1,6 +1,6 @@
 # 复杂决斗场景 `duel-001` 设计
 
-> 状态：历史场景设计。适用于 `duel-001` 初次制作与验证阶段；继任的现行场景以 `tests/scenarios/duel-001/` 文件为准，格式以[场景 v1 契约](../contracts/agent-scenario-v1.md)为准。
+> 状态：历史场景设计；适用范围为 `duel-001` 初次制作与验证阶段。该场景已从现行回归集移除，本页仅保留当时的取舍。现行场景见[场景索引](../../tests/scenarios/README.md)，格式以[场景 v1 契约](../contracts/agent-scenario-v1.md)为准。
 
 ## 背景与目标
 

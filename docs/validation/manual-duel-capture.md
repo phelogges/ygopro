@@ -2,6 +2,8 @@
 
 > 状态：历史验证记录；截至 2026-10-07。现行操作步骤见[人工对局录制指南](../guides/manual-duel-capture.md)，各路径的现行验证范围见[验证总览](README.md)。
 
+本页提到的 `duel-001`、`duel-002`、`surrender-smoke` 已从现行回归集移除；相关入库和回放叙述只作为当时的证据。
+
 本页保留当时的自动验证和人工录制证据。普通人工 GUI 录制的新标准启动路径在该日仍待用户再跑一局验收。契约与边界见[录制契约](../contracts/duel-recording-v1.md)和[设计](../design/manual-duel-capture.md)。
 
 ## 2026-10-07 验收计划（历史）

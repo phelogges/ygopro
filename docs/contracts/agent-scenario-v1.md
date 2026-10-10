@@ -42,10 +42,10 @@ goal:
             - {card_id: "10266279"}
 ```
 
-完整的起手示例见 [`tests/scenarios/fixed-opening/scenario.yaml`](../../tests/scenarios/fixed-opening/scenario.yaml)；经过真实 LAN 双客户端验证的召唤、魔法发动及连锁示例见 [`tests/scenarios/summon-chain/scenario.yaml`](../../tests/scenarios/summon-chain/scenario.yaml)。从仓库根目录运行：
+本页的短 YAML 仅说明字段结构。当前入库的双端人工录制示例见 [`snake-eye-deck-set/scenario.yaml`](../../tests/scenarios/snake-eye-deck-set/scenario.yaml)，其完整目标、牌组和审核结论在同目录。从仓库根目录运行：
 
 ```sh
-uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario tests/scenarios/fixed-opening/scenario.yaml
+uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario tests/scenarios/snake-eye-deck-set/scenario.yaml
 ```
 
 `host`、`guest` 始终指两个客户端进程，不随猜拳或先后攻结果改变。`pregame.host` 与 `pregame.guest` 为 `rock`、`paper`、`scissors`，平局需按轮次给出列表。猜拳胜者收到先后攻提示，按 `winner_chooses` 选择 `go_first` 或 `go_second`。房间参数固定为单局 1v1、起手五张、LP 8000、每回合抽一张、无计时，且免除禁限卡与卡组构筑检查；场景通过不代表比赛构筑合法。
@@ -80,7 +80,7 @@ event_assertions:
 
 `goal.kind: checkpoint` 在双方步骤耗尽且两端目标断言成立后报告 `checkpoint_passed`，不要求对局终局。`goal.kind: duel_end` 必须指定 `winner: host|guest|draw|any`，并核对两客户端的权威 `MSG_WIN` 与 `STOC_DUEL_END`，报告 `duel_finished`。可选的 `goal.expect.{host,guest}` 检查终局后各自可见快照。两种目标都要求步骤耗尽。`duel_end` 可指定 `surrender: {role: host|guest, expect: {host: ..., guest: ...}}`：测试器在步骤耗尽且两端后置可见断言成立后发出一次本地信号，由指定一端使用既有投降协议；赢家必须是另一端。
 
-完整展开样例见 [`tests/scenarios/duel-001/scenario.yaml`](../../tests/scenarios/duel-001/scenario.yaml)。其 Host 卡组副本额外包含第二张 `53927851`，因为达维检索第一张后，米克拉需要从卡组特召另一张；Guest 也使用场景专用卡组副本固定剧本所需的前五张及下次抽牌。不要让共享的 `deck/test/guest1.ydk` 后续改动改变场景前置条件。人工录制转入回归集的完整对局见 [`tests/scenarios/duel-002/scenario.yaml`](../../tests/scenarios/duel-002/scenario.yaml)。
+当前入库场景各自保存了人工录制时实际提交的 `host.ydk` 与 `guest.ydk`，避免共享卡组改动改变回放前置条件。可见展示事件、盖放位置与隐藏身份的双视角断言，分别见 [`snake-eye-deck-set`](../../tests/scenarios/snake-eye-deck-set/scenario.yaml)、[`tenpai-field-set`](../../tests/scenarios/tenpai-field-set/scenario.yaml)；表侧怪兽翻为里侧后的可见性断言见 [`death-camel-self-set`](../../tests/scenarios/death-camel-self-set/scenario.yaml)。旧 `duel-001`、`duel-002` 等剧本已移出当前回归集，历史验证记录不再作为现行样例。
 
 ## 失败与诊断
 

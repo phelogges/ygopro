@@ -684,6 +684,7 @@ def write_scenario_report(
     status_path = work / "scenario-status.json"
     report: dict[str, Any] = {
         "schema_version": 1,
+        "diagnostic_dir": str(work),
         "agent_http_protocol": protocol,
         "scenario": str(scenario.source),
         "status": "failed" if failure else "passed",
@@ -747,6 +748,147 @@ def write_scenario_report(
     )
 
 
+def run_scenario_batch(
+    args: argparse.Namespace, root: Path, parser: argparse.ArgumentParser
+) -> int:
+    """Run each deterministic YAML scenario in an isolated child invocation."""
+    if args.gui or args.step_delay is not None or args.record_output:
+        parser.error("--scenario-dir supports headless replay only")
+    if (
+        args.games is not None
+        or args.host_deck
+        or args.guest_deck
+        or args.report_output
+        or args.deck != "deck/test/test.ydk"
+    ):
+        parser.error("--scenario-dir cannot override individual scenario runs")
+    if args.agent_v3_offline and args.protocol == "v2":
+        parser.error("--agent-v3-offline conflicts with --protocol v2")
+    if args.timeout < 10:
+        parser.error("--timeout must be at least 10 seconds")
+    if not (root / args.client).is_file() or not (root / args.cards_db).is_file():
+        parser.error("client and cards-db must exist")
+    directory = (root / args.scenario_dir).resolve()
+    if not directory.is_dir():
+        parser.error(f"scenario directory does not exist: {directory}")
+    scenarios = sorted(
+        directory.rglob("scenario.yaml"),
+        key=lambda path: path.relative_to(directory).as_posix(),
+    )
+    if not scenarios:
+        parser.error(f"no scenario.yaml files under {directory}")
+    sys.path.insert(0, str(root / "agent_sdk" / "src"))
+    from agent_sdk.scenario import Scenario
+
+    work = root / "out" / "agent-e2e-runs" / f"batch-{int(time.time())}-{os.getpid()}"
+    work.mkdir(parents=True, exist_ok=False)
+    entries: list[dict[str, Any]] = []
+
+    def write_summary() -> dict[str, Any]:
+        counts = {
+            name: sum(entry["status"] == name for entry in entries)
+            for name in ("passed", "failed", "unsupported")
+        }
+        summary = {
+            "schema_version": 1,
+            "status": (
+                "running"
+                if len(entries) < len(scenarios)
+                else "passed"
+                if counts["passed"] == len(scenarios)
+                else "failed"
+            ),
+            "agent_http_protocol": args.protocol,
+            "scenario_dir": str(directory),
+            "total": len(scenarios),
+            "counts": counts,
+            "scenarios": entries,
+        }
+        temporary = work / "batch-report.json.tmp"
+        temporary.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        os.replace(temporary, work / "batch-report.json")
+        return summary
+
+    write_summary()
+    for index, path in enumerate(scenarios, 1):
+        relative = path.relative_to(directory).as_posix()
+        print(f"[{index}/{len(scenarios)}] {relative}", flush=True)
+        report_path = work / f"scenario-{index:03d}.json"
+        log_path = work / f"scenario-{index:03d}.log"
+        entry: dict[str, Any] = {
+            "scenario": relative,
+            "status": "failed",
+            "report": str(report_path),
+            "log": str(log_path),
+            "diagnostic_dir": None,
+            "exit_code": None,
+            "error": None,
+        }
+        try:
+            missing = [
+                name
+                for name in ("host.ydk", "guest.ydk", "goal.md", "README.md")
+                if not (path.parent / name).is_file()
+            ]
+            if missing:
+                raise ValueError(
+                    f"incomplete scenario package: missing {', '.join(missing)}"
+                )
+            scenario = Scenario.load(path)
+            if scenario.random_target is not None:
+                entry["status"] = "unsupported"
+                entry["error"] = (
+                    "random scenario requires tools/sample-random-scenario.py"
+                )
+                log_path.write_text(entry["error"] + "\n", encoding="utf-8")
+            else:
+                command = [
+                    sys.executable,
+                    str(root / "tools/agent-e2e.py"),
+                    "--scenario",
+                    str(path),
+                    "--protocol",
+                    args.protocol,
+                    "--client",
+                    str(args.client),
+                    "--cards-db",
+                    str(args.cards_db),
+                    "--timeout",
+                    str(args.timeout),
+                    "--report-output",
+                    str(report_path),
+                ]
+                with log_path.open("wb") as output:
+                    completed = subprocess.run(
+                        command,
+                        cwd=root,
+                        stdout=output,
+                        stderr=subprocess.STDOUT,
+                        check=False,
+                    )
+                entry["exit_code"] = completed.returncode
+                if report_path.is_file():
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    entry["diagnostic_dir"] = report.get("diagnostic_dir")
+                    entry["error"] = report.get("error")
+                    if completed.returncode == 0 and report.get("status") == "passed":
+                        entry["status"] = "passed"
+                if entry["status"] != "passed" and not entry["error"]:
+                    entry["error"] = "child failed or did not produce a passing report"
+        except (OSError, ValueError, KeyError) as exc:
+            entry["error"] = str(exc)
+            if not log_path.exists():
+                log_path.write_text(entry["error"] + "\n", encoding="utf-8")
+        entries.append(entry)
+        write_summary()
+        print(f"  {entry['status']}: {entry['error'] or report_path}", flush=True)
+    summary = write_summary()
+    print(f"batch report: {work / 'batch-report.json'}", flush=True)
+    return 0 if summary["status"] == "passed" else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--client", default="out/build/MacOS-Debug/gframe/ygopro")
@@ -754,7 +896,14 @@ def main() -> int:
     parser.add_argument("--deck", default="deck/test/test.ydk")
     parser.add_argument("--host-deck")
     parser.add_argument("--guest-deck")
-    parser.add_argument("--scenario", help="YAML scripted fixed-deck duel")
+    scenario_group = parser.add_mutually_exclusive_group()
+    scenario_group.add_argument("--scenario", help="YAML scripted fixed-deck duel")
+    scenario_group.add_argument(
+        "--scenario-dir",
+        nargs="?",
+        const="tests/scenarios",
+        help="run every deterministic scenario.yaml below DIR (default: tests/scenarios)",
+    )
     parser.add_argument("--report-output", type=Path, help=argparse.SUPPRESS)
     parser.add_argument(
         "--protocol",
@@ -785,6 +934,8 @@ def main() -> int:
     )
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
+    if args.scenario_dir is not None:
+        return run_scenario_batch(args, root, parser)
     client = (root / args.client).resolve()
     cards_db = (root / args.cards_db).resolve()
     scenario_path = (root / args.scenario).resolve() if args.scenario else None

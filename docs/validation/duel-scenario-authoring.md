@@ -2,6 +2,8 @@
 
 > 状态：历史验证记录；截至 2026-10-09。现行操作见[场景制作指南](../guides/duel-scenario-authoring.md)，现行验证范围见[验证总览](README.md)。
 
+以下五个早期场景后来已从 `tests/scenarios/` 移除；本页保留当时的回放证据，不代表当前入库清单。
+
 2026-10-09，macOS Debug：
 
 - `cmake --build --preset MacOS-Debug`、`ctest --test-dir out/build/MacOS-Debug --output-on-failure` 均通过（CTest 2 项）。`MSG_RANDOM_SELECTED` 解析、隐藏序号过滤及最多 255 张的边界由 C++ 编解码测试覆盖；GUI 中一次选出超过 10 张卡的实际行为尚未目视验证。

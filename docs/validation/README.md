@@ -1,12 +1,12 @@
 # 验证总览
 
-> 状态：现行验证入口；截至 2026-10-10 的仓库内记录。下表汇总**已有证据**，并非本次文档整理重新运行的测试。报告多在 Git 忽略的本机 `out/` 中，其他环境可能无法直接打开。
+> 状态：现行验证入口；截至 2026-10-10 的仓库内记录。下表汇总**已有证据**；当前三场景批量回放已在本轮重跑，其余历史项目以各自记录为准。报告多在 Git 忽略的本机 `out/` 中，其他环境可能无法直接打开。
 
 | 验证路径 | 平台与后端 | 最近有据可查的通过记录 | 未验证或不能由该记录证明 |
 | --- | --- | --- | --- |
 | C++ 协议编解码与 Python SDK 契约 | macOS Debug；确定性夹具 | 2026-10-09 [Codex 后端记录](agent-codex-backend.md)报告 CTest 2 项通过；[一期历史记录](phase-1-status.md)列出 v1/v2 细项 | Windows 构建和协议测试；真实模型决策 |
 | 严格场景双客户端无头回放 | macOS Debug；确定性场景服务 | 2026-10-10 [场景索引](../../tests/scenarios/README.md)列出已入库场景及逐局报告；[场景制作记录](duel-scenario-authoring.md)保留 2026-10-09 当时五局的报告 | 未写入断言的规则因果；随机结果场景；Windows |
-| 默认 HTTP v3 严格场景回放 | macOS Debug；双端独立离线 Agent 服务 + 共享脚本协调器 | 2026-10-10 [v3 回放记录](agent-v3-scenario-replay.md)列出当前 8 个入库 YAML 场景全部 `passed`；同日默认三局双端完成，旧 v2 `fixed-opening` 兼容回放通过 | v3 GUI、真实模型与 Windows |
+| 默认 HTTP v3 严格场景回放 | macOS Debug；双端独立离线 Agent 服务 + 共享脚本协调器 | 2026-10-10 [v3 回放记录](agent-v3-scenario-replay.md)列出删减后当前 3 个入库场景的批量报告，全部 `passed`；旧八场景报告保留为历史证据，同日默认三局双端完成 | v3 GUI、真实模型与 Windows |
 | GUI 场景播放 | macOS Debug；确定性场景服务 | 2026-10-06（报告路径时间戳）[一期历史记录](phase-1-status.md)中 `duel-001` 完成双窗口终局，用户目视确认菜单和提示弹窗关闭，报告 `out/agent-e2e-runs/1791225410-98403/scenario-report.json` | 真实模型 Agent、人工 F10 接管、Windows GUI |
 | 人工双客户端录制与编译 | macOS GUI + 无头回放；确定性录制 | [人工录制记录](manual-duel-capture.md)列出 `8ed56016e03248fd8e0f1807e025fab1` 回放报告；2026-10-10 [场地区场景](../../tests/scenarios/tenpai-field-set/README.md)亦有独立报告 | 新标准启动器全流程 GUI 目视验收；随机效果采样；Windows |
 | v3 双客户端离线 Agent | macOS Debug；确定性假策略 | [二期记录](agent-phase-2.md)列出 `out/agent-e2e-runs/1791474298-17867/` 等完整终局及牌表绑定 | 真实模型的战术决策、完整 GUI 对局、Windows |
