@@ -234,6 +234,10 @@ class CardQuery:
         """Find card ids whose description text contains a keyword."""
         return self._db.search_by_keyword(keyword)
 
+    def search_names(self, keyword: str) -> list[dict[str, int | str]]:
+        """Find card IDs and names by a literal name substring."""
+        return self._db.search_names(keyword)
+
     def close(self) -> None:
         if self._own_db:
             self._db.close()
@@ -298,6 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  query.py query --include-availability 31809476  查询并附带登场地区\n"
             "  query.py query --archetype-output 0 31809476     系列名双语输出\n"
             "  query.py search 青眼         搜索描述中含\"青眼\"的卡片id\n"
+            "  query.py search-name 青眼    搜索卡名中含\"青眼\"的卡片\n"
             "\n"
             "兼容旧版: query.py 31809476  等价于  query.py query 31809476"
         ),
@@ -334,13 +339,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="在卡片描述文本中搜索的关键字，如 特殊召唤、破坏、除外 等",
     )
 
+    n = subs.add_parser("search-name", help="根据卡名关键字搜索，返回卡片 ID 与卡名")
+    n.add_argument("keyword", metavar="KEYWORD", help="卡名中的关键字，如 青眼")
+
     return parser
 
 
 def main() -> None:
     """Parse CLI arguments and dispatch to query or search."""
     # Backward compat: plain card-id positional → automatically treat as query.
-    if len(sys.argv) > 1 and sys.argv[1] not in ("query", "search", "-h", "--help"):
+    if len(sys.argv) > 1 and sys.argv[1] not in ("query", "search", "search-name", "-h", "--help"):
         sys.argv.insert(1, "query")
 
     parser = build_parser()
@@ -370,6 +378,19 @@ def main() -> None:
             ids = cq.search_by_keyword(args.keyword)
             json.dump(
                 {"keyword": args.keyword, "ids": ids},
+                sys.stdout, ensure_ascii=False, indent=2,
+            )
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        finally:
+            cq.close()
+
+    elif args.command == "search-name":
+        cq = CardQuery()
+        try:
+            matches = cq.search_names(args.keyword)
+            json.dump(
+                {"keyword": args.keyword, "matches": matches},
                 sys.stdout, ensure_ascii=False, indent=2,
             )
             sys.stdout.write("\n")

@@ -45,7 +45,12 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "rulebook_section": _schema({"section": STRING}, ["section"]),
     "card_by_id": _schema({"card_id": INTEGER}, ["card_id"]),
     "cards_by_ids": _schema({"card_ids": {"type": "array", "items": INTEGER}}, ["card_ids"]),
-    "search_cards": _schema({"keyword": STRING, "limit": INTEGER, "offset": INTEGER}, ["keyword"]),
+    "search_card_descriptions": _schema(
+        {"keyword": STRING, "limit": INTEGER, "offset": INTEGER}, ["keyword"]
+    ),
+    "search_card_names": _schema(
+        {"keyword": STRING, "limit": INTEGER, "offset": INTEGER}, ["keyword"]
+    ),
     "own_decklist": _schema({}),
     "current_state": _schema({}),
     "zone_state": _schema({"player": INTEGER, "zone": STRING}, ["player", "zone"]),

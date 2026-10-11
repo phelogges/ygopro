@@ -34,7 +34,7 @@ private:
 	explicit DecisionPrompt(std::shared_ptr<const DecisionData> data);
 	std::shared_ptr<const DecisionData> data_;
 	friend ParseDecisionResult ParseDecision(const std::uint8_t*, std::size_t, DecisionSource,
-		const std::vector<std::uint32_t>*);
+		const std::vector<std::uint32_t>*, std::string (*)(std::uint32_t));
 	friend EncodeDecisionResult EncodeDecision(const DecisionPrompt&, const nlohmann::json&);
 	friend DecodeDecisionResult DecodeDecisionResponse(const DecisionPrompt&, std::uint8_t,
 		const std::uint8_t*, std::size_t);
@@ -70,7 +70,8 @@ struct DecodeDecisionResult {
 // prompt is unsupported; other message types ignore this argument.
 ParseDecisionResult ParseDecision(const std::uint8_t* bytes, std::size_t length,
 	DecisionSource source = DecisionSource::game_message,
-	const std::vector<std::uint32_t>* allowed_card_ids = nullptr);
+	const std::vector<std::uint32_t>* allowed_card_ids = nullptr,
+	std::string (*option_description)(std::uint32_t) = nullptr);
 EncodeDecisionResult EncodeDecision(const DecisionPrompt& prompt, const nlohmann::json& action);
 // Reconstructs a semantic action from the response actually sent by the client.
 // Fails if the bytes are malformed, illegal for this prompt, or encode more than

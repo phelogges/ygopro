@@ -24,8 +24,12 @@ CARD_FIELDS = {
     "location",
     "sequence",
     "position",
+    "attribute",
+    "race",
     "attack",
     "defense",
+    "base_attack",
+    "base_defense",
     "level",
     "rank",
     "link",
@@ -211,8 +215,12 @@ def _assertion(value: object, path: str, *, normalized: bool = False) -> dict[st
                     for field in (
                         "controller",
                         "sequence",
+                        "attribute",
+                        "race",
                         "attack",
                         "defense",
+                        "base_attack",
+                        "base_defense",
                         "level",
                         "rank",
                         "link",
@@ -304,23 +312,39 @@ def _event_assertion(value: object, path: str) -> dict[str, Any]:
             "count",
             "card_id",
             "controller",
+            "description_id",
             "location",
             "sequence",
             "from_position",
             "to_position",
+            "field",
+            "from_value",
+            "to_value",
             "from_player",
             "from_location",
             "from_sequence",
             "to_player",
             "to_location",
             "to_sequence",
+            "reason_flags",
             "chain_index",
+            "attacker_player",
+            "attacker_location",
+            "attacker_sequence",
+            "target_player",
+            "target_location",
+            "target_sequence",
+            "attacker_attack",
+            "attacker_defense",
+            "target_attack",
+            "target_defense",
+            "value",
         },
     )
     _string(event["kind"], f"{path}.kind")
     if "card_id" in event:
-        if event["kind"] != "effect_activated":
-            raise ScenarioError(f"{path}.card_id: only effect_activated supports this field")
+        if event["kind"] not in ("effect_activated", "special_summon_started"):
+            raise ScenarioError(f"{path}.card_id: unsupported for this event kind")
         _normalize_card_id(event, path)
     if "controller" in event:
         if event["kind"] != "effect_activated":
@@ -329,11 +353,90 @@ def _event_assertion(value: object, path: str) -> dict[str, Any]:
             event["controller"] = 0 if event["controller"] == "self" else 1
         if type(event["controller"]) is not int or event["controller"] not in (0, 1):
             raise ScenarioError(f"{path}.controller: expected self, opponent, 0, or 1")
+    if "description_id" in event:
+        if event["kind"] != "effect_activated":
+            raise ScenarioError(f"{path}.description_id: only effect_activated supports this field")
+        _integer(event["description_id"], f"{path}.description_id")
+    if event["kind"] == "card_value_changed":
+        required = {"player", "location", "sequence", "field", "from_value", "to_value"}
+        if not required <= event.keys():
+            raise ScenarioError(f"{path}: card_value_changed requires {sorted(required)}")
+        numeric_fields = {
+            "attack",
+            "defense",
+            "level",
+            "rank",
+            "link",
+            "link_marker",
+            "type",
+            "attribute",
+            "race",
+            "base_attack",
+            "base_defense",
+            "left_scale",
+            "right_scale",
+        }
+        _string(event["field"], f"{path}.field")
+        if event["field"] not in numeric_fields:
+            raise ScenarioError(f"{path}.field: unsupported visible value")
+        for value_key in ("from_value", "to_value"):
+            if event[value_key] is None and event["field"] in ("attack", "defense"):
+                continue
+            minimum = (
+                -(2**31)
+                if event["field"] in ("attack", "defense", "base_attack", "base_defense")
+                else 0
+            )
+            _integer(event[value_key], f"{path}.{value_key}", minimum)
+        if event["location"] not in (4, 8, 16, 32, 64) or event["sequence"] > 255:
+            raise ScenarioError(f"{path}: invalid visible card slot")
+        if event["from_value"] == event["to_value"]:
+            raise ScenarioError(f"{path}: unchanged value")
+    elif "field" in event or "from_value" in event or "to_value" in event:
+        raise ScenarioError(f"{path}: value fields require card_value_changed")
+    if "reason_flags" in event:
+        if event["kind"] != "card_moved":
+            raise ScenarioError(f"{path}.reason_flags: only card_moved supports this field")
+        _integer(event["reason_flags"], f"{path}.reason_flags")
+    for field in (
+        "attacker_player",
+        "attacker_location",
+        "attacker_sequence",
+        "target_player",
+        "target_location",
+        "target_sequence",
+    ):
+        if field not in event:
+            continue
+        if str(event["kind"]) not in ("attack_declared", "battle_values_observed"):
+            raise ScenarioError(f"{path}.{field}: unsupported for this event kind")
+        if field.endswith("_player") and event[field] in ("self", "opponent"):
+            event[field] = 0 if event[field] == "self" else 1
+        if field.endswith("_player"):
+            if type(event[field]) is not int or event[field] not in (0, 1):
+                raise ScenarioError(f"{path}.{field}: expected self, opponent, 0, or 1")
+        else:
+            _integer(event[field], f"{path}.{field}")
+    for field in ("attacker_attack", "attacker_defense", "target_attack", "target_defense"):
+        if field not in event:
+            continue
+        if str(event["kind"]) != "battle_values_observed":
+            raise ScenarioError(f"{path}.{field}: only battle_values_observed supports this field")
+        _integer(event[field], f"{path}.{field}")
+    if "value" in event:
+        if str(event["kind"]) != "life_points_damaged":
+            raise ScenarioError(f"{path}.value: only life_points_damaged supports this field")
+        _integer(event["value"], f"{path}.value")
     for field in ("location", "sequence", "from_position", "to_position"):
         if field not in event:
             continue
         if field in ("location", "sequence"):
-            allowed = ("position_changed", "effect_activated")
+            allowed = (
+                "position_changed",
+                "effect_activated",
+                "special_summon_started",
+                "card_value_changed",
+            )
         else:
             allowed = ("position_changed",)
         if event["kind"] not in allowed:

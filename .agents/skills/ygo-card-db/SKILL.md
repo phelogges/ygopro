@@ -1,11 +1,11 @@
 ---
 name: ygo-card-db
-description: 游戏王卡片数据库查询，提供两种检索方式：(1) 根据卡片8位密码(id)精确查询，返回结构化的卡片详细信息（类型、种族、属性、攻守、效果文本、系列、灵摆刻度、连接箭头等）；(2) 根据关键字在卡片描述文本中搜索，返回匹配的卡片id列表。当用户询问某张卡片的具体信息、需要查看效果文本、攻击力守备力、种族属性、或需要根据效果关键词找出相关卡片时使用此技能。
+description: 游戏王卡片数据库查询：按卡片 ID 精确查询详细信息；按描述文本关键字搜索卡片 ID；按卡名关键字搜索卡名与 ID。查询卡片效果、数值、种族属性或寻找宣言卡名时使用。
 ---
 
 # 游戏王卡片数据库
 
-从项目或发布包主目录的 `cards.cdb`（SQLite）中检索卡片，支持两种查询模式。技能位于 `<主目录>/.agents/skills/ygo-card-db/`，默认数据库路径为 `<主目录>/cards.cdb`；缺失时查询报错，不会创建空数据库。
+从项目或发布包主目录的 `cards.cdb`（SQLite）中检索卡片，支持按 ID、描述文本或卡名查询。技能位于 `<主目录>/.agents/skills/ygo-card-db/`，默认数据库路径为 `<主目录>/cards.cdb`；缺失时查询报错，不会创建空数据库。
 
 ## 功能一：卡片ID精确检索
 
@@ -113,6 +113,7 @@ cq.close()
 ## 功能二：关键字检索
 
 在卡片描述文本（`desc` 字段）中搜索关键字，返回匹配的卡片 ID 列表。
+此入口不搜索卡名；运行时 Agent 工具名为 `search_card_descriptions`。CLI 的 `search` 和 Python 的 `search_by_keyword` 保留原有调用方式。
 
 ### 命令行
 
@@ -142,6 +143,26 @@ cq.close()
   "ids": [2129638, 2783661, 5405695, 8240199, 9433350, ...]
 }
 ```
+
+---
+
+## 功能三：卡名关键字检索
+
+对 `name` 字段做字面子串检索。完整卡名命中优先，其余结果按卡名、ID 稳定排序；同名的不同卡片 ID 都返回。卡名查询可帮助选择宣言卡名的 ID，实际宣言仍须通过当前提示的合法 ID 校验。
+
+```bash
+uv run python -m scripts.query search-name "地狱亡灵"
+```
+
+```python
+from scripts.query import CardQuery
+
+cq = CardQuery()
+matches = cq.search_names("地狱亡灵")  # → [{"card_id": 40575313, "name": "地狱亡灵"}]
+cq.close()
+```
+
+CLI 返回 `{ "keyword": "...", "matches": [...] }`；运行时 Agent 工具 `search_card_names(keyword, limit=30, offset=0)` 额外返回 `total`，单页最多 100 项。
 
 ---
 

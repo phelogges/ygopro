@@ -11,7 +11,7 @@
 | `MSG_SELECT_BATTLECMD` | 攻击、发动、M2、结束 | `CTOS_RESPONSE` i32 | 阶段动作仅在服务端允许时加入 |
 | `MSG_SELECT_IDLECMD` | 召唤、特召、转表示、盖放、发动、BP、结束、洗手 | i32 | 每个发动效果是独立候选 |
 | `MSG_SELECT_EFFECTYN`、`MSG_SELECT_YESNO` | 接受/拒绝 | i32 0/1 | 仅当前提示 |
-| `MSG_SELECT_OPTION` | 选择选项 | i32 索引 | 原始选项顺序 |
+| `MSG_SELECT_OPTION` | 选择选项 | i32 索引 | 原始选项顺序；候选文字由客户端本地解析，`description_id` 保留 |
 | `MSG_SELECT_CARD` | 多选或取消 | bytes `[count,index...]` / i32 -1 | 数量、唯一性、可取消 |
 | `MSG_SELECT_UNSELECT_CARD` | 单步选/撤销、完成/取消 | bytes `[1,index]` / i32 -1 | 每步产生新提示 |
 | `MSG_SELECT_CHAIN` | 发动或放弃 | i32 索引/-1 | 强制连锁不可放弃 |

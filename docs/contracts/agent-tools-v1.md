@@ -16,7 +16,8 @@
 | `rulebook_section` | `section: str` | 读取一个白名单规则书章节。 |
 | `card_by_id` | `card_id: int` | 从本地 `cards.cdb` 读取一张卡的公开资料。 |
 | `cards_by_ids` | `card_ids: list[int]` | 批量读取不同 ID 的完整资料，按输入顺序返回；数量受 `card_lookup_batch_size` 配置限制，默认最多 12 个。记录批次大小、返回字节数和耗时。 |
-| `search_cards` | `keyword: str`, 可选 `limit: int = 30`, `offset: int = 0` | 搜索卡片文本，分页返回匹配 ID。 |
+| `search_card_descriptions` | `keyword: str`, 可选 `limit: int = 30`, `offset: int = 0` | 仅搜索卡片描述文本，分页返回 `{keyword, ids, total}`；不检索卡名。 |
+| `search_card_names` | `keyword: str`, 可选 `limit: int = 30`, `offset: int = 0` | 按卡名的字面子串搜索，分页返回 `{keyword, matches: [{card_id, name}], total}`。完整卡名优先，其余按卡名、ID 稳定排序；同名的不同 ID 各自保留。 |
 | `own_decklist` | 无 | 读取本局已提交主卡组与额外卡组的 ID、张数、卡名和类型目录；不表示抽牌顺序或当前剩余量。 |
 | `current_state` | 无 | 读取本决策 `state_version` 对应的完整、本方可见、已确认快照。 |
 | `zone_state` | `player: int`, `zone: str` | 从同一快照读取一区的数量与可见卡片；隐藏身份不展开。区域名称沿用 [HTTP v2 状态契约](agent-http-v2.md#可见状态白名单)。 |

@@ -73,6 +73,8 @@
 
 `deadline_unix_ms` 可为 `null` 或 Unix 毫秒整数。服务端不得在截止时间之后产出可执行动作。`candidate.id` 仅在本次提示有效；候选、组合约束及动作的具体形态沿用 v1 和动作契约。客户端仍须复核会话、对局、提示、版本、候选及参数，然后使用既有响应编码；`reason` 不参与编码。不得接收自由文本或原始 CTOS 字节作为动作。
 
+`MSG_SELECT_OPTION` 的每个候选保留原始 `description_id` 和原始顺序；人可读 `description` 由客户端用与 GUI 相同的本地 `DataManager::GetDesc` 解析为 UTF-8 文本。例如本地卡库可把卡片描述编号解析为“加入手卡”或“特殊召唤”。文字帮助决策，动作仍用提示内的 `candidate.id` 并由客户端按原顺序编码；不能用文字代替编号校验。卡库没有对应文本时保留通用描述，不凭脚本推断选项含义。
+
 ### 可见状态白名单
 
 客户端从 `ClientField` / `ClientCard` 挑选字段，不直接序列化整个 GUI 缓存。下表给出 v2 的已定义字段；可选字段只有在可见且有可信的当前值时才出现。`null` 表示合法字段但本次值未确认，不能把默认 `0` 当观测事实。静态卡库信息只由 Agent 服务按卡片 ID 查询，客户端不复制卡名或效果文本。
@@ -83,7 +85,7 @@
 | 区域 | `player`, `name`, `count`, `hidden_count`, `cards` | `deck`, `hand`, `monster`, `spell`, `graveyard`, `banished`, `extra`。`hidden_count = count - cards.length`；它统计未展开为单卡对象的数量，不表示卡片具有某种固定身份。双方牌组和对方手牌只给数量；不可查看墓地时该区域只给数量；对手额外和除外区域只列出身份已公开的单卡，其余计入 `hidden_count`。 |
 | 卡片定位 | `instance_id`, `controller`, `location`, `sequence`, `position`, `known` | `instance_id` 是区域位置键，换区会变且可复用；不能当跨区稳定实体 ID。未知位置或表示不得凭内部缓存补全。 |
 | 卡片身份 | `card_id`, `owner` | `card_id` 只在本方此刻有权查看且客户端确实知道身份时发送；`known=false` 时不得有 `card_id`。`owner` 还需当前区域内有效的对应查询。 |
-| 当前公开数值 | `attack`, `defense`, `level`, `rank`, `link`, `link_marker`, `type`, `attribute`, `race`, `base_attack`, `base_defense`, `left_scale`, `right_scale`, `counters` | 正面且已知的卡，仅发送在当前区域经对应 `QUERY_*` 观察过的动态字段；未观察到就省略。攻击力或守备力为负的未知值输出 `null`。指示物只在有观察到的非空集合时给出。 |
+| 当前公开数值 | `attack`, `defense`, `level`, `rank`, `link`, `link_marker`, `type`, `attribute`, `race`, `base_attack`, `base_defense`, `left_scale`, `right_scale`, `counters` | 正面且已知的卡，仅发送在当前区域经对应 `QUERY_*` 观察过的动态字段；未观察到就省略。攻击力或守备力为负的未知值输出 `null`。指示物只在有观察到的非空集合时给出；`counters` 为 JSON 对象，键是十进制指示物种类字符串，值是非负整数数量，例如 `{"1": 1}`。 |
 | 当前卡片提示 | `hint_type`, `hint_value`, `description_hints` | 仅对本方当前已知身份的卡片发送。来自客户端当前 `cHint`、`chValue` 和正计数的 `desc_hints`；`description_hints` 项含原始 `description_id` 与 `count`。隐藏卡不得带这些字段；历史上隐藏期间的提示若后来变得可见，以当前快照反映。 |
 | 可见关系 | `overlay_count`, `overlay_cards`, `equipped_to`, `targets` | 正面卡的素材数及已知素材身份、装备对象和指定对象。素材对象使用宿主位置键派生的局部键；关系目标均为位置键，目标离位后不可当成持久实体引用。 |
 
@@ -95,7 +97,9 @@
 
 ### 观测事件
 
-每个事件含 `event_id` 和 `kind`。来自游戏消息的事件还含 `message_type`；本地人工／Agent 控制切换事件使用 `source: "client_control"`。事件只附协议或客户端 GUI 确实观察到的字段。首版已解析回合／阶段、抽卡、移动、终局、提示、展示、连锁发动与结算、LP 变化、攻击／战斗、表示形式、盖放、指定对象、召唤、洗牌、硬币与骰子结果，以及卡片与玩家提示等消息。`MSG_CARD_HINT` 在关联卡片当前可见且身份已知时记录 `card_hint_observed`，包含本方视角的 `player`、去除叠放标记的 `location`、`sequence`、`hint_type`、`value`；关联卡片不可见时不生成事件，避免泄露隐藏信息。`MSG_PLAYER_HINT` 记录 `player_hint_observed`，包含 `player`、`hint_type`、`value`。提示值保留观察到的原始值；仅 `HINT_OPSELECTED` 的公开选项值 `60`／`61` 额外给出 `option: "heads"`／`"tails"`，对应 GUI 展示的正面／反面，不据此判断卡片效果是否成功。洗牌消息只记录 `shuffle_message_observed`，不凭消息推断未知牌序。移动消息给出收到的原始 `reason_flags`，但不能补写未观测到的战斗破坏、素材用途、效果已使用等因果。已确认对历史不产生必要事实的更新包和决策提示不入事件日志。其余消息或已知消息的截断内容记录 `unparsed_game_message` 并把 `history_complete` 置为 `false`；服务端拒绝自动决策。绝不把未知消息的原始包、隐藏卡 ID 或服务端私有字段传给 Agent。
+每个事件含 `event_id` 和 `kind`。来自游戏消息的事件还含 `message_type`；本地人工／Agent 控制切换事件使用 `source: "client_control"`。事件只附协议或客户端 GUI 确实观察到的字段。首版已解析回合／阶段、抽卡、移动、终局、提示、展示、连锁发动与结算、LP 变化、攻击／战斗、表示形式、盖放、指定对象、召唤、洗牌、硬币与骰子结果，以及卡片与玩家提示等消息。`MSG_CARD_HINT` 在关联卡片当前可见且身份已知时记录 `card_hint_observed`，包含本方视角的 `player`、去除叠放标记的 `location`、`sequence`、`hint_type`、`value`；关联卡片不可见时不生成事件，避免泄露隐藏信息。`MSG_PLAYER_HINT` 记录 `player_hint_observed`，包含 `player`、`hint_type`、`value`。提示值保留观察到的原始值；仅 `HINT_OPSELECTED` 的公开选项值 `60`／`61` 额外给出 `option: "heads"`／`"tails"`，对应 GUI 展示的正面／反面，不据此判断卡片效果是否成功。洗牌消息只记录 `shuffle_message_observed`，不凭消息推断未知牌序。移动消息给出收到的原始 `reason_flags`，但不能补写未观测到的战斗破坏、素材用途、效果已使用等因果。更新包不作为原始事件暴露，但可见数值的实际变化产生下述派生事件；决策提示本身不入事件日志。其余消息或已知消息的截断内容记录 `unparsed_game_message` 并把 `history_complete` 置为 `false`；服务端拒绝自动决策。绝不把未知消息的原始包、隐藏卡 ID 或服务端私有字段传给 Agent。
+
+`MSG_UPDATE_DATA`（6）和 `MSG_UPDATE_CARD`（7）是包含 `QUERY_*` 标志与当前值的状态更新包，本身没有统一的字段变化事件、旧值或变化原因。客户端处理后比较同一位置、同一已知表侧卡已经观察过的可见数值；有差异时逐字段生成 `card_value_changed`。事件含本端视角的 `player`、`location`、`sequence`、`field`、`from_value`、`to_value`。`field` 限于快照已允许的数值字段：`attack`、`defense`、`level`、`rank`、`link`、`link_marker`、`type`、`attribute`、`race`、`base_attack`、`base_defense`、`left_scale`、`right_scale`；攻守未知值可为 `null`。事件不带卡片 ID 或效果归因，缺少已观测旧值或新值、卡片身份、表侧可见性时不生成；新入场、移位、揭示也不伪装成数值变化。一次更新可生成多条事件，按卡片位置与字段顺序连续编号；相同值的重复更新不生成。指示物、素材与目标关系不在这类标量事件中。`/v2/sync` 仍只推进事件前缀，不刷新权威快照；下一次决策快照才确定当前场面。
 
 `MSG_TOSS_COIN`（130）生成 `coin_tossed`，`MSG_TOSS_DICE`（131）生成 `dice_rolled`；二者均含本方视角的 `player`、`count` 和按报文顺序排列的 `results`。硬币结果使用 `"heads"`／`"tails"`，与 GUI 展示一致（原始值 `1`／`0`）；骰子结果为 `1` 至 `6` 的整数。`count` 必须等于结果数；单包硬币最多 20 次、骰子最多 5 次。长度、次数、投掷者或结果非法时按解析不完整处理。结果事件只报告公开随机结果，不推断猜测是否命中或效果结算因果。例如：
 

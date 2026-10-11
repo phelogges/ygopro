@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <deque>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -84,6 +85,14 @@ class AgentController final {
 		bool history_complete;
 		int attempts = 0;
 	};
+	struct VisibleCardValues {
+		std::uint32_t card_id;
+		int player;
+		std::uint32_t location;
+		int sequence;
+		nlohmann::json values;
+	};
+	using VisibleCards = std::map<std::string, VisibleCardValues>;
 
 	AgentController() = default;
 	~AgentController();
@@ -100,6 +109,8 @@ class AgentController final {
 	bool RestartTransport();
 	void OnHttpResult(agent::HttpResult result);
 	void RecordEvent(const std::uint8_t *bytes, std::size_t length, bool card_hint_visible);
+	VisibleCards CaptureVisibleCardValues() const;
+	void RecordVisibleValueChanges(const VisibleCards &current, std::uint8_t message_type);
 	void Log(const nlohmann::json &record);
 	void FailCurrent(const std::string &code);
 	std::string NewId();
@@ -150,6 +161,7 @@ class AgentController final {
 	std::deque<Completed> completed_;
 	std::deque<std::string> notices_;
 	std::vector<nlohmann::json> events_;
+	VisibleCards last_visible_cards_;
 	std::optional<TerminalPending> terminal_;
 	std::string phase_ = "unknown";
 	int turn_player_ = -1;

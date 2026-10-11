@@ -3,6 +3,7 @@
 #include "agent_controller.h"
 #include "../deck_manager.h"
 #include "../data_manager.h"
+#include "../bufferio.h"
 #include "../game.h"
 #include "../network.h"
 
@@ -297,7 +298,10 @@ void DuelRecorder::OnGameMessage(const std::uint8_t* bytes, std::size_t length, 
 		return;
 	}
 	RecordPrompt(ParseDecision(bytes, length, DecisionSource::game_message,
-		bytes[0] == MSG_ANNOUNCE_CARD ? &allowed_card_ids : nullptr), bytes, length,
+		bytes[0] == MSG_ANNOUNCE_CARD ? &allowed_card_ids : nullptr,
+		[](std::uint32_t description_id) {
+			return BufferIO::EncodeUTF8String(std::wstring(dataManager.GetDesc(description_id)));
+		}), bytes, length,
 		already_answered, std::move(observation));
 }
 

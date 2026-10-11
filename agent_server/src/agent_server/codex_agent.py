@@ -20,6 +20,7 @@ from agent_server.duel_tools import TOOLSET_VERSION, ClientQuery, DecisionDeps, 
 from agent_server.model_agent import (
     DecisionOutput,
     intent_format,
+    model_visible_prompt,
 )
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
@@ -426,7 +427,7 @@ class CodexDecisionAgent:
             "ack_event_id": delta.ack_event_id,
             "new_events": delta.events,
             "net_changes": delta.changes,
-            "prompt": data["prompt"],
+            "prompt": model_visible_prompt(request),
             "intent_format": intent_format(request),
             "budget": {
                 "host_tool_attempts": self.settings.limits.host_tool_attempts,

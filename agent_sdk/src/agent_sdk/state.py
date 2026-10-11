@@ -97,6 +97,8 @@ _EVENT_FIELDS = {
     "deck_reversed",
     "description_id",
     "from_location",
+    "field",
+    "from_value",
     "from_player",
     "from_position",
     "from_sequence",
@@ -118,6 +120,7 @@ _EVENT_FIELDS = {
     "target_sequence",
     "targets",
     "to_location",
+    "to_value",
     "to_player",
     "to_position",
     "to_sequence",
@@ -157,6 +160,7 @@ _CARD_NUMERIC_FIELDS = {
     "hint_value",
 }
 _CARD_SIGNED_FIELDS = {"attack", "defense", "base_attack", "base_defense"}
+_CARD_UPDATE_FIELDS = _CARD_NUMERIC_FIELDS - {"overlay_count", "hint_type", "hint_value"}
 _EVENT_SIGNED_FIELDS = {"attacker_attack", "attacker_defense", "target_attack", "target_defense"}
 _PHASES = {
     "draw",
@@ -301,6 +305,47 @@ def _validate_events(value: object) -> list[JSONObject]:
                 raise StateError("invalid_state", "control_changed requires source and agent")
         elif "source" in event or "agent" in event:
             raise StateError("invalid_state", "control fields require control_changed")
+        if event["kind"] == "card_value_changed":
+            _only_fields(
+                event,
+                {
+                    "event_id",
+                    "kind",
+                    "message_type",
+                    "player",
+                    "location",
+                    "sequence",
+                    "field",
+                    "from_value",
+                    "to_value",
+                },
+                "card_value_changed",
+            )
+            if (
+                event.get("message_type") not in (6, 7)
+                or event.get("player") not in (0, 1)
+                or event.get("location") not in (4, 8, 16, 32, 64)
+                or type(event.get("sequence")) is not int
+                or not 0 <= event["sequence"] <= 255
+                or type(event.get("field")) is not str
+                or event["field"] not in _CARD_UPDATE_FIELDS
+                or "from_value" not in event
+                or "to_value" not in event
+                or event["from_value"] == event["to_value"]
+            ):
+                raise StateError(
+                    "invalid_state", "card_value_changed: invalid visible value change"
+                )
+            for key in ("from_value", "to_value"):
+                value = event[key]
+                if value is None and event["field"] in ("attack", "defense"):
+                    continue
+                if type(value) is not int or (
+                    value < 0 and event["field"] not in _CARD_SIGNED_FIELDS
+                ):
+                    raise StateError("invalid_state", f"card_value_changed.{key}: invalid value")
+        elif "field" in event or "from_value" in event or "to_value" in event:
+            raise StateError("invalid_state", "value fields require card_value_changed")
         if "option" in event and (
             event["kind"] != "hint_observed"
             or event.get("hint_type") != 4
@@ -484,6 +529,8 @@ def _validate_events(value: object) -> list[JSONObject]:
         for name, field_value in event.items():
             if name in {
                 "event_id",
+                "from_value",
+                "to_value",
                 "cards",
                 "targets",
                 "results",
@@ -494,7 +541,7 @@ def _validate_events(value: object) -> list[JSONObject]:
             if name == "agent":
                 _boolean(field_value, "event.agent")
                 continue
-            if name in _EVENT_TEXT_FIELDS:
+            if name in _EVENT_TEXT_FIELDS or name == "field":
                 _string(field_value, f"event.{name}")
             elif name in _EVENT_SIGNED_FIELDS:
                 _signed_integer(field_value, f"event.{name}")

@@ -87,6 +87,48 @@ class FakeCodex:
 
 
 class CodexAgentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_announce_card_prompt_omits_allowed_ids(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        (root / "out").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=root / "out") as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                card_id = 987654321
+                body = request()
+                body["prompt"] = {
+                    "kind": "announce_card",
+                    "description": "请宣言卡片密码",
+                    "constraints": {"allowed_card_ids": [card_id]},
+                    "candidates": [],
+                }
+                settings = load_settings(root, offline=True)
+                settings.backend = "codex"
+                settings.model = None
+                fake = FakeCodex(
+                    [
+                        json.dumps(
+                            {
+                                "reason": "宣言合法卡片",
+                                "intent": {"kind": "announce_card", "card_id": card_id},
+                            }
+                        )
+                    ]
+                )
+                agent = CodexDecisionAgent(settings, storage, SkillResources(root), Path(directory))
+                agent.codex = fake
+                agent.bridge = FakeBridge()  # type: ignore[assignment]
+                parsed = parse_request(body)
+
+                async def unused_query(_query: dict[str, Any]) -> dict[str, Any]:
+                    self.fail("announcement must not query client")
+
+                action, _reason = await agent.decide(
+                    parsed, storage.apply_decision(parsed.data), unused_query
+                )
+                self.assertEqual(action, {"kind": "announce_card", "card_id": card_id})
+                model_prompt = json.loads(fake.thread.inputs[0][0].text)
+                self.assertEqual(model_prompt["prompt"]["constraints"], {"allowed_card_count": 1})
+                self.assertNotIn(str(card_id), fake.thread.inputs[0][0].text)
+
     async def test_invalid_intent_retries_and_stores_validated_action(self) -> None:
         root = Path(__file__).resolve().parents[2]
         (root / "out").mkdir(exist_ok=True)
@@ -133,9 +175,9 @@ class CodexAgentTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(
                     any("note" in key for key in json.loads(fake.thread.inputs[0][0].text))
                 )
-                record = storage.get_record("client-a", "duel-1", "codex_thread", "toolset-v2")
+                record = storage.get_record("client-a", "duel-1", "codex_thread", "toolset-v4")
                 self.assertEqual(record["payload"]["thread_id"], "thread-fixture")  # type: ignore[index]
-                self.assertEqual(record["payload"]["toolset_version"], 2)  # type: ignore[index]
+                self.assertEqual(record["payload"]["toolset_version"], 4)  # type: ignore[index]
                 exchange = storage.get_record("client-a", "duel-1", "model_exchange", "1:1")
                 self.assertEqual(exchange["payload"]["backend"], "codex")  # type: ignore[index]
 

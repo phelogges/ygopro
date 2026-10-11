@@ -11,7 +11,7 @@
 - 重编译报告：`out/duel-recordings/8b8d37bcddbd4c7ea654c8c041ea31d4/draft/compile-report.json`，`compiled`，Host 5 步、Guest 6 步。
 - 原始草稿 HTTP v3 双客户端无头回放 `passed`：`out/agent-e2e-runs/1791654373-1808/scenario-report.json`。
 - 补齐目标断言的候选回放 `passed`：`out/agent-e2e-runs/1791654672-8490/scenario-report.json`。
-- 收录后运行 `agent_sdk/.venv/bin/python tools/agent-e2e.py --scenario-dir --timeout 180`，当前八场景全部通过、零失败、零不支持；汇总报告 `out/agent-e2e-runs/batch-1791654878-13235/batch-report.json`，本场为第 3 项。
+- 收录后运行 `agent_sdk/.venv/bin/python tools/agent-e2e.py --scenario-dir --timeout 180`，当时八场景全部通过、零失败、零不支持；汇总报告 `out/agent-e2e-runs/batch-1791654878-13235/batch-report.json`，本场为第 3 项。现行场景数量见[场景索引](../../tests/scenarios/README.md)。
 - 编译器单元测试 14 项、场景单元测试 31 项通过；Ruff 检查与格式检查通过。
 
 目标中的发动、确认、选择与里侧除外已在协议和回放层验证。本局对手额外卡组只有一个候选，不能证明多候选选择。真实模型、GUI 剧本播放及 Windows 未验证。用户已审核目标解释和断言范围，场景收入 `tests/scenarios/kashtira-unicorn-extra-face-down-banish/`。

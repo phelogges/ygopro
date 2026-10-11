@@ -1,0 +1,870 @@
+schema_version: 1
+decks:
+  host: host.ydk
+  guest: guest.ydk
+pregame:
+  host:
+  - rock
+  guest:
+  - scissors
+  winner_chooses: go_first
+steps:
+  host:
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "74701381"
+    action:
+      kind: choice
+      match:
+        kind: set_spell_trap
+        card_id: "74701381"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 1
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_down
+          sequence: 1
+    action:
+      kind: choice
+      match:
+        kind: normal_summon
+        card_id: "33112041"
+        controller: 0
+        location: hand
+        ordinal: 2
+        expected_matches: 3
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 3
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 3
+        contains:
+        - card_id: "33112041"
+          count: 2
+        - card_id: "40575313"
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "33112041"
+          position: face_up_attack
+          sequence: 3
+    action:
+      kind: choice
+      match:
+        kind: end_turn
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: draw
+      turn_player: 1
+      zones:
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 6
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: draw
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: standby
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 1
+        name: hand
+        count: 5
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "40575313"
+          position: face_up_attack
+          sequence: 3
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 1
+        name: hand
+        count: 4
+      - player: 1
+        name: spell
+        count: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_1
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: battle_start
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: battle_start
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: battle_start
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: main_2
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 2
+      phase: end
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 3
+      phase: draw
+      turn_player: 0
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 2
+        - card_id: "40575313"
+          count: 2
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 3
+      phase: draw
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 3
+      phase: standby
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 2
+        - card_id: "40575313"
+          count: 2
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: idle_command
+      turn: 3
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        contains:
+        - card_id: "33112041"
+          sequence: 3
+          race: 128
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_down
+          sequence: 1
+      - player: 1
+        name: monster
+        contains:
+        - card_id: "40575313"
+          sequence: 3
+          race: 16
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "74701381"
+        controller: 0
+        location: spell
+        sequence: 1
+  - expect:
+      prompt: announce_race
+      turn: 3
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_up
+          sequence: 1
+    action:
+      kind: select_cards
+      matches:
+      - kind: race
+        bit: 33554432
+    wait_for:
+      timeout_ms: 5000
+      expect:
+        zones:
+        - player: 0
+          name: monster
+          contains:
+          - card_id: "33112041"
+            sequence: 3
+            race: 33554432
+        - player: 1
+          name: monster
+          contains:
+          - card_id: "40575313"
+            sequence: 3
+            race: 33554432
+  - expect:
+      prompt: idle_command
+      turn: 3
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        contains:
+        - card_id: "33112041"
+          sequence: 3
+          race: 33554432
+      - player: 1
+        name: monster
+        contains:
+        - card_id: "40575313"
+          sequence: 3
+          race: 33554432
+    action:
+      kind: choice
+      match:
+        kind: battle_phase
+  - expect:
+      prompt: idle_command
+      turn: 3
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        contains:
+        - card_id: "33112041"
+          sequence: 3
+          race: 16777216
+      - player: 1
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_up
+          sequence: 1
+      - player: 1
+        name: monster
+        contains:
+        - card_id: "40575313"
+          sequence: 3
+          race: 16777216
+    action:
+      kind: choice
+      match:
+        kind: battle_phase
+  - expect:
+      prompt: battle_command
+      turn: 3
+      phase: battle_start
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: main_phase_2
+  guest:
+  - expect:
+      prompt: idle_command
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 6
+        contains:
+        - card_id: "40575313"
+          count: 2
+    action:
+      kind: choice
+      match:
+        kind: normal_summon
+        card_id: "40575313"
+        controller: 0
+        location: hand
+        ordinal: 1
+        expected_matches: 2
+  - expect:
+      prompt: select_place
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 3
+  - expect:
+      prompt: idle_command
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+        - card_id: "74701381"
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "40575313"
+          position: face_up_attack
+          sequence: 3
+    action:
+      kind: choice
+      match:
+        kind: set_spell_trap
+        card_id: "74701381"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 1
+  - expect:
+      prompt: idle_command
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_down
+          sequence: 1
+    action:
+      kind: choice
+      match:
+        kind: battle_phase
+  - expect:
+      prompt: battle_command
+      turn: 2
+      phase: battle_start
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: main_phase_2
+  - expect:
+      prompt: idle_command
+      turn: 2
+      phase: main_2
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: end_turn
+  - expect:
+      prompt: chain
+      turn: 3
+      phase: draw
+      turn_player: 1
+      zones:
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 4
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 3
+      phase: draw
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 3
+      phase: standby
+      turn_player: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 3
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 1
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_up
+          sequence: 1
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 3
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 0
+        name: monster
+        contains:
+        - card_id: "40575313"
+          sequence: 3
+          race: 33554432
+      - player: 1
+        name: monster
+        contains:
+        - card_id: "33112041"
+          sequence: 3
+          race: 33554432
+    action:
+      kind: choice
+      match:
+        kind: pass
+  - expect:
+      prompt: chain
+      turn: 3
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_down
+          sequence: 1
+      - player: 0
+        name: monster
+        contains:
+        - card_id: "40575313"
+          sequence: 3
+          race: 33554432
+      - player: 1
+        name: monster
+        contains:
+        - card_id: "33112041"
+          sequence: 3
+          race: 33554432
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "74701381"
+        controller: 0
+        location: spell
+        sequence: 1
+  - expect:
+      prompt: announce_race
+      turn: 3
+      phase: main_1
+      turn_player: 1
+      zones:
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_up
+          sequence: 1
+    action:
+      kind: select_cards
+      matches:
+      - kind: race
+        bit: 16777216
+    wait_for:
+      timeout_ms: 5000
+      expect:
+        zones:
+        - player: 0
+          name: monster
+          contains:
+          - card_id: "40575313"
+            sequence: 3
+            race: 16777216
+        - player: 1
+          name: monster
+          contains:
+          - card_id: "33112041"
+            sequence: 3
+            race: 16777216
+event_assertions:
+  host:
+  - kind: effect_activated
+    card_id: "74701381"
+    controller: self
+    location: 8
+  - kind: card_value_changed
+    player: self
+    location: 4
+    sequence: 3
+    field: race
+    from_value: 128
+    to_value: 33554432
+  - kind: card_value_changed
+    player: opponent
+    location: 4
+    sequence: 3
+    field: race
+    from_value: 16
+    to_value: 33554432
+  - kind: effect_activated
+    card_id: "74701381"
+    controller: opponent
+    location: 8
+  - kind: card_value_changed
+    player: self
+    location: 4
+    sequence: 3
+    field: race
+    from_value: 33554432
+    to_value: 16777216
+  - kind: card_value_changed
+    player: opponent
+    location: 4
+    sequence: 3
+    field: race
+    from_value: 33554432
+    to_value: 16777216
+  guest:
+  - kind: effect_activated
+    card_id: "74701381"
+    controller: opponent
+    location: 8
+  - kind: card_value_changed
+    player: opponent
+    location: 4
+    sequence: 3
+    field: race
+    from_value: 128
+    to_value: 33554432
+  - kind: card_value_changed
+    player: self
+    location: 4
+    sequence: 3
+    field: race
+    from_value: 16
+    to_value: 33554432
+  - kind: effect_activated
+    card_id: "74701381"
+    controller: self
+    location: 8
+  - kind: card_value_changed
+    player: opponent
+    location: 4
+    sequence: 3
+    field: race
+    from_value: 33554432
+    to_value: 16777216
+  - kind: card_value_changed
+    player: self
+    location: 4
+    sequence: 3
+    field: race
+    from_value: 33554432
+    to_value: 16777216
+goal:
+  kind: duel_end
+  winner: host
+  expect:
+    host:
+      turn: 3
+      phase: main_2
+      turn_player: 0
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 2
+        - card_id: "40575313"
+          count: 2
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "33112041"
+          position: face_up_attack
+          sequence: 3
+          race: 16777216
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_up
+          sequence: 1
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 4
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "40575313"
+          position: face_up_attack
+          sequence: 3
+          race: 16777216
+      - player: 1
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_up
+          sequence: 1
+    guest:
+      turn: 3
+      phase: main_2
+      turn_player: 1
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "40575313"
+          position: face_up_attack
+          sequence: 3
+          race: 16777216
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_up
+          sequence: 1
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 4
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "33112041"
+          position: face_up_attack
+          sequence: 3
+          race: 16777216
+      - player: 1
+        name: spell
+        count: 1
+        contains:
+        - card_id: "74701381"
+          position: face_up
+          sequence: 1
+  surrender:
+    role: guest
+    expect:
+      host: {}
+      guest:
+        turn: 3
+        phase: main_2
+        turn_player: 1

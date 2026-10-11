@@ -111,6 +111,13 @@ def test_bridge_batch_lookup_records_shared_metrics() -> None:
         def cards_by_ids(ids: list[int]) -> list[dict[str, Any]]:
             return [{"id": ids[0], "name": "test"}]
 
+        def search_card_names(keyword: str, *, limit: int, offset: int) -> dict[str, Any]:
+            return {
+                "keyword": keyword,
+                "matches": [{"card_id": 40575313, "name": "地狱亡灵"}],
+                "total": 1,
+            }
+
         def emit_metric(name: str, payload: dict[str, Any]) -> None:
             metrics.append((name, payload))
 
@@ -118,7 +125,7 @@ def test_bridge_batch_lookup_records_shared_metrics() -> None:
             tool=record_tool,
             check_deadline=lambda: None,
             settings=SimpleNamespace(limits=SimpleNamespace(card_lookup_batch_size=12)),
-            skills=SimpleNamespace(cards_by_ids=cards_by_ids),
+            skills=SimpleNamespace(cards_by_ids=cards_by_ids, search_card_names=search_card_names),
             emit_tool_metric=emit_metric,
         )
         bridge.activate(cast(Any, deps), cast(Any, None))
@@ -137,6 +144,18 @@ def test_bridge_batch_lookup_records_shared_metrics() -> None:
             assert attempts[0]["distinct_card_ids"] == 1
             assert attempts[0]["result_bytes"] > 0
             assert metrics[0][0] == "card_batch_lookup"
+            response = await _exchange(
+                reader,
+                writer,
+                {
+                    "token": config["env"]["YGOPRO_MCP_TOKEN"],
+                    "name": "search_card_names",
+                    "arguments": {"keyword": "地狱亡灵"},
+                },
+            )
+            assert response["ok"] is True
+            assert response["result"]["matches"] == [{"card_id": 40575313, "name": "地狱亡灵"}]
+            assert attempts[1]["name"] == "search_card_names"
         finally:
             writer.close()
             await writer.wait_closed()

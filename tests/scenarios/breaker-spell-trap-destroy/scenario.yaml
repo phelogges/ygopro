@@ -1,0 +1,273 @@
+schema_version: 1
+decks:
+  host: host.ydk
+  guest: guest.ydk
+pregame:
+  host:
+  - scissors
+  guest:
+  - rock
+  winner_chooses: go_first
+steps:
+  host: []
+  guest:
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "00059080"
+    action:
+      kind: choice
+      match:
+        kind: set_spell_trap
+        card_id: "00059080"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 1
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "71413901"
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "00059080"
+          position: face_down
+          sequence: 1
+    action:
+      kind: choice
+      match:
+        kind: normal_summon
+        card_id: "71413901"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 0
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "71413901"
+          position: face_up_attack
+          sequence: 0
+      - player: 0
+        name: hand
+        count: 3
+        contains:
+        - card_id: "33112041"
+          count: 3
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "71413901"
+        description_id: 1142622418
+        controller: 0
+        location: monster
+        sequence: 0
+  - expect:
+      prompt: select_cards
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "00059080"
+          position: face_down
+          sequence: 1
+    action:
+      kind: select_cards
+      matches:
+      - kind: card
+        card_id: "00059080"
+        controller: 0
+        location: spell
+        sequence: 1
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 0
+      - player: 0
+        name: graveyard
+        count: 1
+        contains:
+        - card_id: "00059080"
+    action:
+      kind: choice
+      match:
+        kind: end_turn
+goal:
+  kind: duel_end
+  winner: guest
+  expect:
+    host:
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 6
+        contains:
+        - card_id: "00059080"
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+        - card_id: "71413901"
+      - player: 1
+        name: hand
+        count: 3
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "71413901"
+          position: face_up_attack
+          sequence: 0
+      - player: 1
+        name: graveyard
+        count: 1
+        contains:
+        - card_id: "00059080"
+    guest:
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: hand
+        count: 3
+        contains:
+        - card_id: "33112041"
+          count: 3
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "71413901"
+          position: face_up_attack
+          sequence: 0
+      - player: 0
+        name: graveyard
+        count: 1
+        contains:
+        - card_id: "00059080"
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 6
+  surrender:
+    role: host
+    expect:
+      host:
+        turn: 2
+        phase: main_1
+        turn_player: 0
+      guest: {}
+event_assertions:
+  guest:
+  - kind: effect_activated
+    card_id: "71413901"
+    controller: self
+    description_id: 1142622418
+    location: 4
+    sequence: 0
+    chain_index: 1
+  - kind: counter_removed
+  - kind: card_moved
+    from_player: self
+    from_location: 8
+    from_sequence: 1
+    to_player: self
+    to_location: 16
+    to_sequence: 0
+    reason_flags: 65
+  - kind: chain_link_solved
+    chain_index: 1
+  host:
+  - kind: effect_activated
+    card_id: "71413901"
+    controller: opponent
+    description_id: 1142622418
+    location: 4
+    sequence: 0
+    chain_index: 1
+  - kind: counter_removed
+  - kind: card_moved
+    from_player: opponent
+    from_location: 8
+    from_sequence: 1
+    to_player: opponent
+    to_location: 16
+    to_sequence: 0
+    reason_flags: 65
+  - kind: chain_link_solved
+    chain_index: 1

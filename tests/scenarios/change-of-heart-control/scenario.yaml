@@ -1,0 +1,358 @@
+schema_version: 1
+decks:
+  host: host.ydk
+  guest: guest.ydk
+pregame:
+  host:
+  - rock
+  guest:
+  - scissors
+  winner_chooses: go_first
+steps:
+  host:
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "33112041"
+          count: 3
+    action:
+      kind: choice
+      match:
+        kind: normal_summon
+        card_id: "33112041"
+        controller: 0
+        location: hand
+        ordinal: 1
+        expected_matches: 3
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 2
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "04031928"
+        - card_id: "33112041"
+          count: 2
+        - card_id: "40575313"
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "33112041"
+          position: face_up_attack
+          sequence: 2
+          controller: 0
+    action:
+      kind: choice
+      match:
+        kind: end_turn
+  - expect:
+      prompt: select_place
+      turn: 2
+      phase: end
+      turn_player: 1
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "33112041"
+          position: face_up_attack
+          sequence: 0
+          controller: 1
+      - player: 1
+        name: graveyard
+        count: 1
+        contains:
+        - card_id: "04031928"
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 0
+  guest:
+  - expect:
+      prompt: idle_command
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 6
+        contains:
+        - card_id: "04031928"
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "04031928"
+        description_id: 0
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: spell
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: spell
+        sequence: 0
+  - expect:
+      prompt: select_cards
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "33112041"
+          position: face_up_attack
+          sequence: 2
+          controller: 1
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+          count: 2
+      - player: 0
+        name: spell
+        count: 1
+        contains:
+        - card_id: "04031928"
+          position: face_up
+          sequence: 0
+    action:
+      kind: select_cards
+      matches:
+      - kind: card
+        controller: 1
+        location: monster
+        sequence: 2
+  - expect:
+      prompt: select_place
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 0
+  - expect:
+      prompt: idle_command
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "33112041"
+          position: face_up_attack
+          sequence: 0
+          controller: 0
+      - player: 0
+        name: spell
+        count: 0
+      - player: 0
+        name: graveyard
+        count: 1
+        contains:
+        - card_id: "04031928"
+      - player: 1
+        name: monster
+        count: 0
+    action:
+      kind: choice
+      match:
+        kind: end_turn
+goal:
+  kind: duel_end
+  winner: guest
+  expect:
+    host:
+      turn: 3
+      phase: main_1
+      turn_player: 0
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "04031928"
+        - card_id: "33112041"
+          count: 2
+        - card_id: "40575313"
+          count: 2
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "33112041"
+          position: face_up_attack
+          sequence: 0
+          controller: 0
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: graveyard
+        count: 1
+        contains:
+        - card_id: "04031928"
+    guest:
+      turn: 3
+      phase: main_1
+      turn_player: 1
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+          count: 2
+      - player: 0
+        name: graveyard
+        count: 1
+        contains:
+        - card_id: "04031928"
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "33112041"
+          position: face_up_attack
+          sequence: 0
+          controller: 1
+  surrender:
+    role: host
+    expect:
+      host:
+        turn: 3
+        phase: main_1
+        turn_player: 0
+      guest: {}
+event_assertions:
+  host:
+  - kind: effect_activated
+    card_id: "04031928"
+    description_id: 0
+    controller: opponent
+    chain_index: 1
+  - kind: chain_link_solving
+    chain_index: 1
+  - kind: card_moved
+    from_player: self
+    from_location: 4
+    from_sequence: 2
+    to_player: opponent
+    to_location: 4
+    to_sequence: 0
+    reason_flags: 16
+  - kind: chain_link_solved
+    chain_index: 1
+  - kind: chain_ended
+  - kind: card_moved
+    from_player: opponent
+    from_location: 4
+    from_sequence: 0
+    to_player: self
+    to_location: 4
+    to_sequence: 0
+    reason_flags: 16
+  guest:
+  - kind: effect_activated
+    card_id: "04031928"
+    description_id: 0
+    controller: self
+    chain_index: 1
+  - kind: chain_link_solving
+    chain_index: 1
+  - kind: card_moved
+    from_player: opponent
+    from_location: 4
+    from_sequence: 2
+    to_player: self
+    to_location: 4
+    to_sequence: 0
+    reason_flags: 16
+  - kind: chain_link_solved
+    chain_index: 1
+  - kind: chain_ended
+  - kind: card_moved
+    from_player: self
+    from_location: 4
+    from_sequence: 0
+    to_player: opponent
+    to_location: 4
+    to_sequence: 0
+    reason_flags: 16

@@ -106,6 +106,21 @@ class CardDatabase:
         ).fetchall()
         return [row["id"] for row in rows]
 
+    def search_names(self, keyword: str) -> list[dict[str, int | str]]:
+        """Find literal card-name substrings, with exact names first.
+
+        Different card IDs may share a displayed name; keep every matching ID.
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT id, name FROM texts
+               WHERE instr(name, ?) > 0
+               ORDER BY CASE WHEN name = ? THEN 0 ELSE 1 END,
+                        name COLLATE NOCASE, id""",
+            (keyword, keyword),
+        ).fetchall()
+        return [{"card_id": row["id"], "name": row["name"]} for row in rows]
+
     def close(self) -> None:
         if self._conn is not None:
             self._conn.close()

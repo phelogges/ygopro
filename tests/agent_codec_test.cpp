@@ -97,6 +97,12 @@ int main(int argc, char** argv){
  B yes={MSG_SELECT_YESNO,0};u32(yes,123);assert(response(yes,choice("c0"))==B({1,0,0,0}));reject(yes,{{"kind","choice"},{"candidate_id","c0"},{"response",1}});
  B effect={MSG_SELECT_EFFECTYN,0};card(effect,123,true);u32(effect,99);assert(response(effect,choice("c1"))==B({0,0,0,0}));
  B option={MSG_SELECT_OPTION,0,2};u32(option,99);u32(option,88);assert(response(option,choice("c1"))==B({1,0,0,0}));
+ auto named_option=ParseDecision(option.data(),option.size(),DecisionSource::game_message,nullptr,
+   [](std::uint32_t id) { return id==99 ? std::string("加入手卡") : std::string("特殊召唤"); });
+ assert(named_option.decision && named_option.decision->prompt()["candidates"][0]["description"]=="加入手卡" &&
+   named_option.decision->prompt()["candidates"][1]["description"]=="特殊召唤" &&
+   named_option.decision->prompt()["candidates"][0]["description_id"]==99 &&
+   EncodeDecision(*named_option.decision,choice("c1")).response->payload==B({1,0,0,0}));
  B idle={MSG_SELECT_IDLECMD,0,2};card(idle,2);card(idle,1);idle.insert(idle.end(),{0,0,0,0,0,1,0,1});assert(response(idle,choice("c1"))==B({0,0,1,0}));assert(response(idle,choice("c2"))==B({6,0,0,0}));
  B battle={MSG_SELECT_BATTLECMD,1,0,1};card(battle,2);battle.insert(battle.end(),{1,0,1});assert(response(battle,choice("c0"))==B({1,0,0,0}));
  B cards={MSG_SELECT_CARD,0,1,1,2,2};card(cards,2,true);card(cards,1,true);assert(response(cards,select({"c1","c0"}))==B({2,1,0}));reject(cards,select({"c0","c0"}));reject(cards,select({}));assert(response(cards,choice("c2"))==B({255,255,255,255}));

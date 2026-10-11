@@ -115,7 +115,10 @@ def _description(name: str) -> str:
         "rulebook_section": "读取指定 OCG 规则章节。",
         "card_by_id": "按卡片 ID 查询公开卡片资料。",
         "cards_by_ids": "批量按不同卡片 ID 查询公开卡片资料。",
-        "search_cards": "按关键词搜索公开卡片资料，返回 ID。",
+        "search_card_descriptions": (
+            "按卡片描述或效果文本的关键词搜索，分页返回卡片 ID；不搜索卡名。"
+        ),
+        "search_card_names": "按卡名关键词搜索，分页返回卡片 ID 与卡名；同名卡保留各自 ID。",
         "own_decklist": "读取我方已提交主卡组与额外卡组目录。",
         "current_state": "读取本方视角完整已确认场面快照。",
         "zone_state": "读取一个已确认区域，隐藏卡身份仍保持隐藏。",

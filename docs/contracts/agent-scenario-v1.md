@@ -56,7 +56,13 @@ uv run --project agent_sdk --extra scenario python tools/agent-e2e.py --scenario
 
 `event_assertions` 是可选的本地测试断言，按 `host`、`guest` 分别给出有序事件子序列。断言读取各自 Agent 服务已经接受并持久化的本视角事件，包括通过默认 `/v3/sync`（或历史兼容路径的 `/v2/sync`）在决策之间送达的事件；它不是 CTOS/STOC 或客户端与 Agent 服务协议的新字段。每个事件须指定 `kind`，可按 `player`（`self`／`opponent`／`0`／`1`）和 `zone` 匹配。`effect_activated` 可匹配带引号的 `card_id`、`controller` 和数字 `location`、`sequence`；序号只在客户端确实可定位的场上位置出现。`effect_activated` 及 `chain_link_added`、`chain_link_solving`、`chain_link_solved`、`chain_link_negated`、`chain_link_disabled` 可指定从 1 开始的 `chain_index`，用于核对同一连锁的加入顺序和逆序处理；该字段来自本方实际收到的连锁消息。`position_changed` 可匹配数字 `location`、`sequence` 及 `from_position`、`to_position`，但它本身没有卡片 ID。`cards_revealed` 还可指定非空 `cards`：每张须有带引号的 `card_id`，可附 `player`、数字 `location` 和客户端确实收到的 `sequence`；卡片列表与实际展示数量相等，忽略列表顺序及未指定的字段。断言按事件先后匹配，不固定一次运行产生的 `event_id`，允许中间存在其他事件。例如：
 
-`card_moved` 可按本方视角匹配 `from_player`、`to_player`（`self`／`opponent`／`0`／`1`），以及数字 `from_location`、`from_sequence`、`to_location`、`to_sequence`。里侧移动的事件不因此获得卡片 ID；身份只用实际收到的展示事件或可见快照断言。
+`card_moved` 可按本方视角匹配 `from_player`、`to_player`（`self`／`opponent`／`0`／`1`），以及数字 `from_location`、`from_sequence`、`to_location`、`to_sequence`。可选的 `reason_flags` 精确匹配客户端从移动消息收到的非负整数位标志，不把它扩写成协议未提供的因果；例如 `65` 表示该消息同时带有 `REASON_DESTROY` (`0x1`) 与 `REASON_EFFECT` (`0x40`)。`effect_activated` 可选用数字 `description_id` 区分同一张卡的不同效果。里侧移动的事件不因此获得卡片 ID；身份只用实际收到的展示事件或可见快照断言。
+
+`special_summon_started` 可按该端实际可见的 `player`、`card_id`、数字 `location` 和 `sequence` 匹配特殊召唤的卡片与格子。多个特殊召唤事件之间可用 `event_count_assertions` 检查区间内的准确次数；`special_summon_finished` 表示该批特殊召唤完成。只对客户端实际收到身份的表侧卡写 `card_id`，不借另一端日志揭示隐藏卡。
+
+`card_value_changed` 可按本端 `player`、数字 `location`、`sequence`、`field`、`from_value`、`to_value` 匹配表侧已知卡的可见数值变化；允许字段和可见性规则见 [HTTP 状态契约](agent-http-v2.md)。例如属性变化用 `field: attribute`，种族或等级变化沿用同一事件结构。事件无卡片 ID 或效果归因。当前可见卡的 `contains`／`exact` 还可匹配整数 `attribute`，与其他数值字段一样只读该端快照。若同局多次宣言不同属性，应在两次效果之间的步骤或 `wait_for` 中核对中间快照，再对双方事件流分别断言变化顺序；仅检查终局属性无法证明中间过程。
+
+战斗断言可以依次匹配 `attack_declared`、`battle_values_observed`、`life_points_damaged` 和 `damage_step_ended`。前两类事件可匹配 `attacker_player`、`attacker_location`、`attacker_sequence`，有攻击对象时可匹配对应的 `target_player`、`target_location`、`target_sequence`；`battle_values_observed` 还可匹配非负整数 `attacker_attack`、`attacker_defense`、`target_attack`、`target_defense`。`life_points_damaged` 可匹配受伤方 `player` 和非负整数 `value`。玩家字段使用本端视角的 `self`／`opponent` 或 `0`／`1`；区域和序号是该端实际收到的数字。守备怪兽的身份需由当时的公开快照或其他可见事件确认；战斗数值事件本身不提供卡片 ID。检验穿透伤害时，应同时断言攻击对象为守备表示、攻击力与守备力、单次伤害值和后置 LP，不能只凭最终 LP 差额推断原因。
 
 ```yaml
 event_assertions:
@@ -91,7 +97,7 @@ event_count_assertions:
 
 `action` 使用[动作契约](duel-actions.md)定义的语义动作种类。`choice` 与 `select_step` 使用 `match`；选卡、排序使用按期望顺序列出的 `matches`；区域使用 `places`；指示物使用 `allocations`；宣言卡片使用 `card_id`。`match` 可按动作种类、卡片 ID、控制者、当前位置与序号以及候选提供的 `description_id`、`effect_flag`、`number`、`bit`、`weight` 等字段精确匹配。默认必须匹配唯一候选；确有同形候选时，才允许写入从 1 开始的 `ordinal` 和 `expected_matches`。场景执行器解析临时候选 ID，交 `agent_sdk` 校验，客户端再校验并编码响应。场景不支持原始 CTOS 字节或跨提示的卡实体别名。
 
-可见区域断言仅使用该客户端的本方视角：`count` 检查数量，`contains` 检查可见卡的 ID 与重复数量，`exact` 检查完整可见集合。场上卡可附区域序号、表示形式和 `known` 布尔值；仅已知身份的卡可附客户端已知的数值。`known: false` 断言当前快照仍隐藏身份，不否定该客户端历史上曾看到卡片 ID。隐藏对手手牌、双方牌库内容不可断言。`zones.player` 使用 `self` 或 `opponent`，也可写视角内的 `0` 或 `1`。步骤中的 `wait_for: {timeout_ms, expect}` 等待动作后某次可见快照满足条件；下一决策前仍需成立的状态应在下一步 `expect` 再断言。客户端测试入口会在处理游戏消息后记录本方可见快照，数据仅用于本地测试，不增加 Agent HTTP 的隐藏信息。
+可见区域断言仅使用该客户端的本方视角：`count` 检查数量，`contains` 检查可见卡的 ID 与重复数量，`exact` 检查完整可见集合。场上卡可附区域序号、表示形式和 `known` 布尔值；仅已知身份的卡可附客户端已知的数值，包括当前 `attribute`、`race`、`attack`、`defense` 和原本数值 `base_attack`、`base_defense`。`known: false` 断言当前快照仍隐藏身份，不否定该客户端历史上曾看到卡片 ID。隐藏对手手牌、双方牌库内容不可断言。`zones.player` 使用 `self` 或 `opponent`，也可写视角内的 `0` 或 `1`。步骤中的 `wait_for: {timeout_ms, expect}` 等待动作后某次可见快照满足条件；下一决策前仍需成立的状态应在下一步 `expect` 再断言。客户端测试入口会在处理游戏消息后记录本方可见快照，数据仅用于本地测试，不增加 Agent HTTP 的隐藏信息。
 
 `goal.kind: checkpoint` 在双方步骤耗尽且两端目标断言成立后报告 `checkpoint_passed`，不要求对局终局。`goal.kind: duel_end` 必须指定 `winner: host|guest|draw|any`，并核对两客户端的权威 `MSG_WIN` 与 `STOC_DUEL_END`，报告 `duel_finished`。可选的 `goal.expect.{host,guest}` 检查终局后各自可见快照。两种目标都要求步骤耗尽。`duel_end` 可指定 `surrender: {role: host|guest, expect: {host: ..., guest: ...}}`：测试器在步骤耗尽且两端后置可见断言成立后发出一次本地信号，由指定一端使用既有投降协议；赢家必须是另一端。
 

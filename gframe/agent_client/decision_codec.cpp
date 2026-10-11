@@ -141,7 +141,8 @@ void rps(DecisionData& data) {
 	simple(data, "rock", 2, "石头"); simple(data, "scissors", 1, "剪刀"); simple(data, "paper", 3, "布");
 }
 std::shared_ptr<DecisionData> parse(const std::uint8_t* bytes, std::size_t length, DecisionSource source,
-	const std::vector<std::uint32_t>* allowed_card_ids) {
+	const std::vector<std::uint32_t>* allowed_card_ids,
+	std::string (*option_description)(std::uint32_t)) {
 	if(length > SIZE_NETWORK_BUFFER || (length != 0 && bytes == nullptr)) malformed("决策消息大小或指针无效");
 	auto data = std::make_shared<DecisionData>();
 	data->source = source;
@@ -195,7 +196,10 @@ std::shared_ptr<DecisionData> parse(const std::uint8_t* bytes, std::size_t lengt
 		const auto count = reader.u8();
 		for(std::uint32_t i = 0; i < count; ++i) {
 			const auto value = reader.u32();
-			simple(d, "option", i, d.message == MSG_SELECT_OPTION ? "选择选项" : "宣言数字 " + std::to_string(value));
+			const auto description = d.message == MSG_SELECT_OPTION
+				? (option_description ? option_description(value) : std::string{})
+				: "宣言数字 " + std::to_string(value);
+			simple(d, "option", i, description.empty() ? "选择选项" : description);
 			d.prompt["candidates"].back()[d.message == MSG_SELECT_OPTION ? "description_id" : "number"] = value;
 		}
 		break;
@@ -647,8 +651,9 @@ const Json& DecisionPrompt::prompt() const { return data_->prompt; }
 std::uint8_t DecisionPrompt::message_type() const { return data_->message; }
 std::optional<std::uint8_t> DecisionPrompt::selecting_player() const { return data_->player; }
 ParseDecisionResult ParseDecision(const std::uint8_t* bytes, std::size_t length, DecisionSource source,
-	const std::vector<std::uint32_t>* allowed_card_ids) {
-	try { return {DecisionPrompt(parse(bytes, length, source, allowed_card_ids)), {}}; }
+	const std::vector<std::uint32_t>* allowed_card_ids,
+	std::string (*option_description)(std::uint32_t)) {
+	try { return {DecisionPrompt(parse(bytes, length, source, allowed_card_ids, option_description)), {}}; }
 	catch(const CodecFailure& error) { return {std::nullopt, {error.code(), error.what()}}; }
 }
 EncodeDecisionResult EncodeDecision(const DecisionPrompt& prompt, const Json& action) {

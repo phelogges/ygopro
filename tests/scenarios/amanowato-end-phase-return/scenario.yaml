@@ -1,0 +1,209 @@
+schema_version: 1
+decks:
+  host: host.ydk
+  guest: guest.ydk
+pregame:
+  host:
+  - scissors
+  guest:
+  - rock
+  winner_chooses: go_first
+steps:
+  host: []
+  guest:
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "32181268"
+    action:
+      kind: choice
+      match:
+        kind: normal_summon
+        card_id: "32181268"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 1
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "32181268"
+          position: face_up_attack
+          sequence: 1
+    action:
+      kind: choice
+      match:
+        kind: end_turn
+  - expect:
+      prompt: chain
+      turn: 1
+      phase: end
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "32181268"
+          position: face_up_attack
+          sequence: 1
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "32181268"
+        description_id: 1104
+        controller: 0
+        location: monster
+        sequence: 1
+goal:
+  kind: duel_end
+  winner: guest
+  expect:
+    host:
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 6
+        contains:
+        - card_id: "32181268"
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+          count: 2
+      - player: 1
+        name: hand
+        count: 5
+      - player: 1
+        name: monster
+        count: 0
+    guest:
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "32181268"
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+      - player: 0
+        name: monster
+        count: 0
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 6
+  surrender:
+    role: host
+    expect:
+      host:
+        turn: 2
+        phase: main_1
+        turn_player: 0
+      guest: {}
+allowed_random_events:
+- hand_shuffle
+event_assertions:
+  host:
+  - kind: effect_activated
+    card_id: "32181268"
+    description_id: 1104
+    controller: opponent
+    chain_index: 1
+  - kind: chain_link_added
+    chain_index: 1
+  - kind: chain_link_solving
+    chain_index: 1
+  - kind: card_moved
+    from_player: opponent
+    from_location: 4
+    from_sequence: 1
+    to_player: opponent
+    to_location: 2
+    reason_flags: 64
+  - kind: chain_link_solved
+    chain_index: 1
+  - kind: chain_ended
+  guest:
+  - kind: effect_activated
+    card_id: "32181268"
+    description_id: 1104
+    controller: self
+    chain_index: 1
+  - kind: chain_link_added
+    chain_index: 1
+  - kind: chain_link_solving
+    chain_index: 1
+  - kind: card_moved
+    from_player: self
+    from_location: 4
+    from_sequence: 1
+    to_player: self
+    to_location: 2
+    reason_flags: 64
+  - kind: chain_link_solved
+    chain_index: 1
+  - kind: chain_ended
+event_count_assertions:
+  host:
+  - after: {kind: effect_activated, card_id: "32181268", description_id: 1104, controller: opponent}
+    until: {kind: chain_ended}
+    match: {kind: card_moved, from_player: opponent, from_location: 4, to_player: opponent, to_location: 2}
+    exactly: 1
+  guest:
+  - after: {kind: effect_activated, card_id: "32181268", description_id: 1104, controller: self}
+    until: {kind: chain_ended}
+    match: {kind: card_moved, from_player: self, from_location: 4, to_player: self, to_location: 2}
+    exactly: 1

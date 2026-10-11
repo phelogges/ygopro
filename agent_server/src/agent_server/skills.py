@@ -86,7 +86,9 @@ class SkillResources:
         finally:
             query.close()
 
-    def search_cards(self, keyword: str, *, limit: int = 30, offset: int = 0) -> dict[str, Any]:
+    def search_card_descriptions(
+        self, keyword: str, *, limit: int = 30, offset: int = 0
+    ) -> dict[str, Any]:
         if not keyword or len(keyword) > 120:
             raise ValueError("keyword must contain 1 to 120 characters")
         if not 1 <= limit <= 100 or offset < 0:
@@ -97,6 +99,24 @@ class SkillResources:
         finally:
             query.close()
         return {"keyword": keyword, "ids": ids[offset : offset + limit], "total": len(ids)}
+
+    def search_card_names(
+        self, keyword: str, *, limit: int = 30, offset: int = 0
+    ) -> dict[str, Any]:
+        if not keyword or len(keyword) > 120:
+            raise ValueError("keyword must contain 1 to 120 characters")
+        if not 1 <= limit <= 100 or offset < 0:
+            raise ValueError("invalid card search page")
+        query = self._card_query()
+        try:
+            matches: list[dict[str, int | str]] = query.search_names(keyword)
+        finally:
+            query.close()
+        return {
+            "keyword": keyword,
+            "matches": matches[offset : offset + limit],
+            "total": len(matches),
+        }
 
     def rulebook_index(self) -> str:
         return (self.rule_skill / "SKILL.md").read_text(encoding="utf-8")

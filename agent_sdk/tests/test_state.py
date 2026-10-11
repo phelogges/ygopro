@@ -262,6 +262,56 @@ class StateTests(unittest.TestCase):
         with self.assertRaises(StateError):
             StateStore().apply_sync(sync([invalid_option]))
 
+    def test_card_value_events_preserve_intermediate_visible_values(self) -> None:
+        changes: list[dict[str, object]] = [
+            {
+                "event_id": 1,
+                "kind": "card_value_changed",
+                "message_type": 7,
+                "player": 0,
+                "location": 4,
+                "sequence": 3,
+                "field": "attribute",
+                "from_value": 32,
+                "to_value": 64,
+            },
+            {
+                "event_id": 2,
+                "kind": "card_value_changed",
+                "message_type": 7,
+                "player": 0,
+                "location": 4,
+                "sequence": 3,
+                "field": "attribute",
+                "from_value": 64,
+                "to_value": 8,
+            },
+            {
+                "event_id": 3,
+                "kind": "card_value_changed",
+                "message_type": 6,
+                "player": 1,
+                "location": 4,
+                "sequence": 2,
+                "field": "race",
+                "from_value": 16,
+                "to_value": 128,
+            },
+        ]
+        store = StateStore()
+        self.assertEqual(store.apply_sync(sync(changes)), 3)
+        self.assertEqual(store.get_events("client-a", "duel-1"), tuple(changes))
+        for modification in (
+            {"location": 2},
+            {"sequence": 256},
+            {"from_value": 64},
+            {"to_value": -1},
+            {"field": "unknown"},
+            {"card_id": 40575313},
+        ):
+            with self.subTest(modification=modification), self.assertRaises(StateError):
+                StateStore().apply_sync(sync([{**changes[0], **modification}]))
+
     def test_random_selection_preserves_only_visible_positions(self) -> None:
         selected: dict[str, object] = {
             "event_id": 1,

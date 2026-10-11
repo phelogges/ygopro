@@ -19,7 +19,7 @@ from agent_server.storage import StateDatabase
 
 type ClientQuery = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 type MetricSink = Callable[[str, dict[str, Any]], None]
-TOOLSET_VERSION = 2  # Discard pre-removal conversations containing injected notes.
+TOOLSET_VERSION = 4  # Changed search tool names; discard histories with old tool calls.
 
 
 class DecisionFailure(RuntimeError):
@@ -112,11 +112,19 @@ class DuelTools:
             deps.emit_tool_metric("card_batch_lookup", metric)
         return result
 
-    def search_cards(
+    def search_card_descriptions(
         self, deps: DecisionDeps, keyword: str, limit: int = 30, offset: int = 0
     ) -> dict[str, Any]:
-        deps.tool("search_cards", {"keyword": keyword, "limit": limit, "offset": offset})
-        return deps.skills.search_cards(keyword, limit=limit, offset=offset)
+        deps.tool(
+            "search_card_descriptions", {"keyword": keyword, "limit": limit, "offset": offset}
+        )
+        return deps.skills.search_card_descriptions(keyword, limit=limit, offset=offset)
+
+    def search_card_names(
+        self, deps: DecisionDeps, keyword: str, limit: int = 30, offset: int = 0
+    ) -> dict[str, Any]:
+        deps.tool("search_card_names", {"keyword": keyword, "limit": limit, "offset": offset})
+        return deps.skills.search_card_names(keyword, limit=limit, offset=offset)
 
     def own_decklist(self, deps: DecisionDeps) -> dict[str, Any]:
         deps.tool("own_decklist", {})
@@ -211,8 +219,15 @@ class DuelTools:
             return self.card_by_id(deps, cast(int, args["card_id"]))
         if name == "cards_by_ids":
             return self.cards_by_ids(deps, cast(list[int], args["card_ids"]))
-        if name == "search_cards":
-            return self.search_cards(
+        if name == "search_card_descriptions":
+            return self.search_card_descriptions(
+                deps,
+                cast(str, args["keyword"]),
+                cast(int, args.get("limit", 30)),
+                cast(int, args.get("offset", 0)),
+            )
+        if name == "search_card_names":
+            return self.search_card_names(
                 deps,
                 cast(str, args["keyword"]),
                 cast(int, args.get("limit", 30)),

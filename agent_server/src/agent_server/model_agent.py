@@ -50,10 +50,22 @@ from agent_server.storage import StateDatabase
 from agent_server.trace import TraceWriter
 
 
+def model_visible_prompt(request: DecisionRequest) -> dict[str, Any]:
+    """Keep large deterministic validation sets out of model context."""
+    prompt: dict[str, Any] = dict(request.prompt)
+    if prompt["kind"] == "announce_card":
+        constraints = dict(cast(dict[str, Any], prompt["constraints"]))
+        allowed = constraints.pop("allowed_card_ids", None)
+        if isinstance(allowed, list):
+            constraints["allowed_card_count"] = len(cast(list[Any], allowed))
+        prompt["constraints"] = constraints
+    return prompt
+
+
 def intent_format(request: DecisionRequest) -> dict[str, Any]:
     """Describe the action shapes accepted by the deterministic SDK translator."""
     kind = request.prompt["kind"]
-    constraints = request.prompt["constraints"]
+    constraints = model_visible_prompt(request)["constraints"]
     formats: list[dict[str, Any]] = []
     if kind in {
         "idle_command",
@@ -207,7 +219,8 @@ class DecisionAgent:
                         "rulebook_section",
                         "card_by_id",
                         "cards_by_ids",
-                        "search_cards",
+                        "search_card_descriptions",
+                        "search_card_names",
                         "own_decklist",
                         "current_state",
                         "zone_state",
@@ -304,11 +317,18 @@ class DecisionAgent:
             return self.tools.cards_by_ids(ctx.deps, card_ids)
 
         @agent.tool
-        def search_cards(
+        def search_card_descriptions(
             ctx: RunContext[DecisionDeps], keyword: str, limit: int = 30, offset: int = 0
         ) -> dict[str, Any]:
-            """Search card text; returns {keyword, ids: list[int], total: int}."""
-            return self.tools.search_cards(ctx.deps, keyword, limit, offset)
+            """Search card description/effect text, not names; returns {keyword, ids, total}."""
+            return self.tools.search_card_descriptions(ctx.deps, keyword, limit, offset)
+
+        @agent.tool
+        def search_card_names(
+            ctx: RunContext[DecisionDeps], keyword: str, limit: int = 30, offset: int = 0
+        ) -> dict[str, Any]:
+            """Search card names; returns {keyword, matches: [{card_id, name}], total}."""
+            return self.tools.search_card_names(ctx.deps, keyword, limit, offset)
 
         @agent.tool
         def own_decklist(ctx: RunContext[DecisionDeps]) -> dict[str, Any]:
@@ -432,7 +452,7 @@ class DecisionAgent:
             "ack_event_id": delta.ack_event_id,
             "new_events": delta.events,
             "net_changes": delta.changes,
-            "prompt": data["prompt"],
+            "prompt": model_visible_prompt(request),
             "intent_format": intent_format(request),
             "budget": {
                 "model_requests": self.settings.limits.model_requests,

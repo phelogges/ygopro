@@ -1,0 +1,378 @@
+schema_version: 1
+decks:
+  host: host.ydk
+  guest: guest.ydk
+pregame:
+  host:
+  - rock
+  guest:
+  - scissors
+  winner_chooses: go_first
+steps:
+  host:
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "89839552"
+    action:
+      kind: choice
+      match:
+        kind: normal_summon
+        card_id: "89839552"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 3
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+    action:
+      kind: choice
+      match:
+        kind: end_turn
+  guest:
+  - expect:
+      prompt: idle_command
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 6
+        contains:
+        - card_id: "89839552"
+    action:
+      kind: choice
+      match:
+        kind: normal_summon
+        card_id: "89839552"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 3
+  - expect:
+      prompt: idle_command
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+          count: 2
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+    action:
+      kind: choice
+      match:
+        kind: battle_phase
+  - expect:
+      prompt: battle_command
+      turn: 2
+      phase: battle_start
+      turn_player: 0
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+          attack: 800
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+    action:
+      kind: choice
+      match:
+        kind: attack
+        card_id: "89839552"
+        controller: 0
+        location: monster
+        sequence: 3
+  - expect:
+      prompt: yes_no
+      turn: 2
+      phase: battle_start
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: decline
+  - expect:
+      prompt: select_cards
+      turn: 2
+      phase: battle_start
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: cancel
+  - expect:
+      prompt: battle_command
+      turn: 2
+      phase: battle_start
+      turn_player: 0
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+          attack: 800
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+    action:
+      kind: choice
+      match:
+        kind: attack
+        card_id: "89839552"
+        controller: 0
+        location: monster
+        sequence: 3
+  - expect:
+      prompt: yes_no
+      turn: 2
+      phase: battle_start
+      turn_player: 0
+    action:
+      kind: choice
+      match:
+        kind: accept
+  - expect:
+      prompt: battle_command
+      turn: 2
+      phase: battle_start
+      turn_player: 0
+      life_points:
+      - 8000
+      - 7200
+      zones:
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+    action:
+      kind: choice
+      match:
+        kind: main_phase_2
+goal:
+  kind: duel_end
+  winner: guest
+  expect:
+    host:
+      turn: 2
+      phase: main_2
+      turn_player: 1
+      life_points:
+      - 7200
+      - 8000
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+    guest:
+      turn: 2
+      phase: main_2
+      turn_player: 0
+      life_points:
+      - 8000
+      - 7200
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+          count: 2
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+      - player: 1
+        name: hand
+        count: 4
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "89839552"
+          position: face_up_attack
+          sequence: 3
+  surrender:
+    role: host
+    expect:
+      host:
+        turn: 2
+        phase: main_2
+        turn_player: 1
+      guest: {}
+event_assertions:
+  host:
+  - kind: attack_declared
+    attacker_player: opponent
+    attacker_location: 4
+    attacker_sequence: 3
+    target_player: self
+    target_location: 0
+  - kind: damage_step_started
+  - kind: battle_values_observed
+    attacker_player: opponent
+    attacker_location: 4
+    attacker_sequence: 3
+    attacker_attack: 800
+    target_player: self
+    target_location: 0
+    target_attack: 0
+  - kind: life_points_damaged
+    player: self
+    value: 800
+  - kind: damage_step_ended
+  guest:
+  - kind: attack_declared
+    attacker_player: self
+    attacker_location: 4
+    attacker_sequence: 3
+    target_player: opponent
+    target_location: 0
+  - kind: damage_step_started
+  - kind: battle_values_observed
+    attacker_player: self
+    attacker_location: 4
+    attacker_sequence: 3
+    attacker_attack: 800
+    target_player: opponent
+    target_location: 0
+    target_attack: 0
+  - kind: life_points_damaged
+    player: opponent
+    value: 800
+  - kind: damage_step_ended
+event_count_assertions:
+  host:
+  - after: {kind: attack_declared, attacker_player: opponent, attacker_sequence: 3, target_player: self, target_location: 0}
+    until: {kind: damage_step_ended}
+    match: {kind: life_points_damaged, player: self}
+    exactly: 1
+  guest:
+  - after: {kind: attack_declared, attacker_player: self, attacker_sequence: 3, target_player: opponent, target_location: 0}
+    until: {kind: damage_step_ended}
+    match: {kind: life_points_damaged, player: opponent}
+    exactly: 1

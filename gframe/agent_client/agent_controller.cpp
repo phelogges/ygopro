@@ -9,6 +9,7 @@
 #include "../game.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <iomanip>
@@ -27,6 +28,12 @@ constexpr std::size_t max_log_size = 10 * 1024 * 1024;
 constexpr std::size_t max_e2e_log_size = 100 * 1024 * 1024;
 constexpr std::string_view log_truncated_marker = "{\"kind\":\"diagnostic_log_truncated\"}\n";
 constexpr std::size_t max_pending_events = 512;
+// Numeric values already exposed by SerializeCard. A single comparison path
+// handles changes to attributes, races, levels, combat values, and scales.
+constexpr std::array<const char*, 13> comparable_card_values = {
+	"attack", "defense", "level", "rank", "link", "link_marker", "type",
+	"attribute", "race", "base_attack", "base_defense", "left_scale", "right_scale"
+};
 
 std::int64_t NowUnixMs() {
 	return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -199,8 +206,12 @@ nlohmann::json SerializeCard(const ClientCard& card, int player,
 		}
 		if(Observed(card, QUERY_OWNER) && card.owner <= 1)
 			data["owner"] = mainGame->LocalPlayer(card.owner);
-		if(!card.counters.empty())
-			data["counters"] = card.counters;
+		if(!card.counters.empty()) {
+			auto counters = nlohmann::json::object();
+			for(const auto& [counter_type, amount] : card.counters)
+				counters[std::to_string(counter_type)] = amount;
+			data["counters"] = std::move(counters);
+		}
 	}
 	if(!card.overlayed.empty() && (card.position & POS_FACEUP)) {
 		data["overlay_count"] = card.overlayed.size();
@@ -470,6 +481,7 @@ void AgentController::OnDuelStart() {
 	}
 	phase_ = "unknown";
 	turn_player_ = -1;
+	last_visible_cards_.clear();
 }
 
 void AgentController::OnDuelEnd() {
@@ -492,6 +504,7 @@ void AgentController::OnDuelEnd() {
 		duel_deck_manifest_.reset();
 		deck_manifest_acknowledged_ = false;
 		events_.clear();
+		last_visible_cards_.clear();
 	}
 	if(!duel_id.empty())
 		Log({{"kind", "duel_finished"}, {"duel_id", duel_id},
@@ -697,6 +710,64 @@ void AgentController::RecordEvent(const std::uint8_t* bytes, std::size_t length,
 	events_.push_back(std::move(event));
 }
 
+AgentController::VisibleCards AgentController::CaptureVisibleCardValues() const {
+	VisibleCards current;
+	std::lock_guard<std::mutex> lock(mainGame->gMutex);
+	const auto capture_zone = [&](int player, std::uint32_t location, const char* name,
+		const std::vector<ClientCard*>& cards) {
+		for(std::size_t sequence = 0; sequence < cards.size(); ++sequence) {
+			const auto* source = cards[sequence];
+			if(!source || !(source->position & POS_FACEUP) || !CardKnown(*source, player, location))
+				continue;
+			const auto card = SerializeCard(*source, player, name, location, sequence);
+			nlohmann::json values = nlohmann::json::object();
+			for(const auto* field : comparable_card_values) {
+				if(card.contains(field))
+					values[field] = card[field];
+			}
+			current.emplace(card["instance_id"].get<std::string>(),
+				VisibleCardValues{card["card_id"].get<std::uint32_t>(),
+					player, location, static_cast<int>(sequence), std::move(values)});
+		}
+	};
+	for(int player = 0; player < 2; ++player) {
+		const auto& field = mainGame->dField;
+		capture_zone(player, LOCATION_MZONE, "monster", field.mzone[player]);
+		capture_zone(player, LOCATION_SZONE, "spell", field.szone[player]);
+		capture_zone(player, LOCATION_GRAVE, "graveyard", field.grave[player]);
+		capture_zone(player, LOCATION_REMOVED, "banished", field.remove[player]);
+		capture_zone(player, LOCATION_EXTRA, "extra", field.extra[player]);
+	}
+	return current;
+}
+
+void AgentController::RecordVisibleValueChanges(const VisibleCards& current, std::uint8_t message_type) {
+	const bool update_message = message_type == MSG_UPDATE_CARD || message_type == MSG_UPDATE_DATA;
+	if(update_message) {
+		for(const auto& [instance_id, after] : current) {
+			const auto previous = last_visible_cards_.find(instance_id);
+			if(previous == last_visible_cards_.end() || previous->second.card_id != after.card_id)
+				continue;
+			for(const auto* field : comparable_card_values) {
+				if(!previous->second.values.contains(field) || !after.values.contains(field) ||
+				   previous->second.values[field] == after.values[field])
+					continue;
+				if(events_.size() >= max_pending_events) {
+					history_complete_ = false;
+					Log({{"kind", "event_queue_overflow"}, {"message_type", message_type},
+						 {"event_limit", max_pending_events}, {"timestamp_unix_ms", NowUnixMs()}});
+					break;
+				}
+			events_.push_back({{"event_id", ++next_event_id_}, {"kind", "card_value_changed"},
+				{"message_type", message_type}, {"player", after.player}, {"location", after.location},
+				{"sequence", after.sequence}, {"field", field},
+				{"from_value", previous->second.values[field]}, {"to_value", after.values[field]}});
+			}
+		}
+	}
+	last_visible_cards_ = current;
+}
+
 nlohmann::json AgentController::BuildObservation() const {
 	nlohmann::json snapshot;
 	std::lock_guard<std::mutex> lock(mainGame->gMutex);
@@ -738,6 +809,7 @@ void AgentController::OnGameMessage(const std::uint8_t* bytes, std::size_t lengt
 		card_hint_visible = card && PositionInspectable(player, location, !mainGame->dField.cant_check_grave)
 			&& CardKnown(*card, player, location);
 	}
+	const auto visible_cards = CaptureVisibleCardValues();
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 		if(!initialized_ || (!available_ && !v3_) || mainGame->dInfo.isReplay || mainGame->dInfo.isSingleMode)
@@ -746,6 +818,7 @@ void AgentController::OnGameMessage(const std::uint8_t* bytes, std::size_t lengt
 			&& bytes[0] == MSG_SELECT_CHAIN && bytes[2] == 0;
 		if(!automatic_empty_chain)
 			RecordEvent(bytes, length, card_hint_visible);
+		RecordVisibleValueChanges(visible_cards, bytes && length ? bytes[0] : 0);
 		background_sync = (events_.size() >= max_pending_events / 2 || e2e_sync_target) &&
 			!pending_ && !in_flight_prompt_id_ && history_complete_;
 		phase = phase_;
@@ -774,7 +847,10 @@ void AgentController::OnGameMessage(const std::uint8_t* bytes, std::size_t lengt
 		}
 	}
 	auto parsed = ParseDecision(bytes, length, DecisionSource::game_message,
-		bytes && length && bytes[0] == MSG_ANNOUNCE_CARD ? &allowed_card_ids : nullptr);
+		bytes && length && bytes[0] == MSG_ANNOUNCE_CARD ? &allowed_card_ids : nullptr,
+		[](std::uint32_t description_id) {
+			return BufferIO::EncodeUTF8String(std::wstring(dataManager.GetDesc(description_id)));
+		});
 	if(!parsed.decision) {
 		if(!parsed.error.code.empty() && parsed.error.code != "not_decision") {
 			{

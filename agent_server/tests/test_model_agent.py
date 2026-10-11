@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from agent_sdk.contract import parse_request
 from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, UserPromptPart
@@ -14,12 +15,129 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from test_decision_session import request
 
 from agent_server.config import load_settings
-from agent_server.model_agent import DecisionAgent, intent_format
+from agent_server.model_agent import DecisionAgent, intent_format, model_visible_prompt
 from agent_server.skills import SkillResources
 from agent_server.storage import StateDatabase
 
 
 class ModelAgentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_card_name_search_is_available_in_code_mode(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                calls = 0
+
+                async def respond(_messages: list[Any], _info: object) -> ModelResponse:
+                    nonlocal calls
+                    calls += 1
+                    if calls == 1:
+                        return ModelResponse(
+                            [
+                                ToolCallPart(
+                                    "run_code",
+                                    {
+                                        "code": (
+                                            "names = await search_card_names(keyword='地狱亡灵')\n"
+                                            "names['matches'][0]['card_id']"
+                                        )
+                                    },
+                                )
+                            ]
+                        )
+                    return ModelResponse(
+                        [
+                            ToolCallPart(
+                                "final_result",
+                                {
+                                    "reason": "选择当前合法动作",
+                                    "intent": {"kind": "choice", "candidate_id": "c0"},
+                                },
+                            )
+                        ]
+                    )
+
+                settings = load_settings(root, offline=True)
+                settings.limits.finalization_reserve_requests = 0
+                settings.limits.finalization_reserve_seconds = 0
+                agent = DecisionAgent(
+                    settings, storage, SkillResources(root), model=FunctionModel(respond)
+                )
+                parsed = parse_request(request())
+
+                async def unused_query(_query: dict[str, object]) -> dict[str, object]:
+                    self.fail("card-name search must not query client")
+
+                await agent.decide(parsed, storage.apply_decision(parsed.data), unused_query)
+                records = storage.get_records("client-a", "duel-1", kind="model_exchange")[0]
+                self.assertEqual(
+                    records["payload"]["tool_attempts"][0]["name"], "search_card_names"
+                )
+
+    async def test_announce_card_model_input_omits_allowed_ids(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            with StateDatabase(Path(directory) / "state.sqlite3") as storage:
+                card_id = 987654321
+                body = request()
+                body["deadline_unix_ms"] = int(time.time() * 1000) + 120_000
+                body["prompt"] = {
+                    "kind": "announce_card",
+                    "description": "请宣言卡片密码",
+                    "constraints": {"allowed_card_ids": [card_id]},
+                    "candidates": [],
+                }
+
+                async def respond(messages: list[Any], _info: object) -> ModelResponse:
+                    self.assertNotIn(str(card_id), str(messages))
+                    self.assertIn("allowed_card_count", str(messages))
+                    return ModelResponse(
+                        [
+                            ToolCallPart(
+                                "final_result",
+                                {
+                                    "reason": "宣言合法卡片",
+                                    "intent": {"kind": "announce_card", "card_id": card_id},
+                                },
+                            )
+                        ]
+                    )
+
+                agent = DecisionAgent(
+                    load_settings(root, offline=True),
+                    storage,
+                    SkillResources(root),
+                    model=FunctionModel(respond),
+                )
+                parsed = parse_request(body)
+
+                async def unused_query(_query: dict[str, object]) -> dict[str, object]:
+                    self.fail("announcement must not query client")
+
+                action, _reason = await agent.decide(
+                    parsed, storage.apply_decision(parsed.data), unused_query
+                )
+                self.assertEqual(action, {"kind": "announce_card", "card_id": card_id})
+
+    async def test_announce_card_ids_stay_in_validation_request_only(self) -> None:
+        body = request()
+        body["prompt"] = {
+            "kind": "announce_card",
+            "description": "请宣言卡片密码",
+            "constraints": {"allowed_card_ids": [40575313, 21239280]},
+            "candidates": [],
+        }
+        parsed = parse_request(body)
+        visible = model_visible_prompt(parsed)
+        self.assertEqual(visible["constraints"], {"allowed_card_count": 2})
+        self.assertEqual(intent_format(parsed)["constraints"], {"allowed_card_count": 2})
+        self.assertEqual(
+            cast(dict[str, Any], parsed.prompt["constraints"])["allowed_card_ids"],
+            [40575313, 21239280],
+        )
+        self.assertNotIn(
+            "40575313", json.dumps({"prompt": visible, "intent_format": intent_format(parsed)})
+        )
+
     async def test_calculate_uses_shared_decimal_tool(self) -> None:
         root = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as directory:

@@ -45,6 +45,20 @@
 - [天子的指轮②自动无效](validation/angel-ring-mandatory-spell-negation.md)：2026-10-11 的双端录制、效果无效与非连锁断言证据。
 - [连续速攻魔法卡连锁](validation/quick-play-ten-link-chain.md)：2026-10-11 的十项连锁双端录制、候选回放及入库证据。
 - [俱舍怒威族·独角兽③额外卡组里侧除外](validation/kashtira-unicorn-extra-face-down-banish.md)：2026-10-11 的双端录制、可见性校验修正及入库回放证据。
+- [魔导战士 破坏者③破坏魔陷卡](validation/breaker-spell-trap-destroy.md)：2026-10-11 的指示物序列化修复、双端破坏事件及入库场景回放证据。
+- [河马狂欢节①三只衍生物](validation/hippo-carnival-three-tokens.md)：2026-10-11 的双端特殊召唤事件、区间计数断言及入库场景回放证据。
+- [黑羽-热风之基布利②交换攻守](validation/blackwing-gibli-stat-swap.md)：2026-10-11 的双端数值变化、回合结束恢复及候选回放证据。
+- [心变①取得控制权](validation/change-of-heart-control.md)：2026-10-11 的双端跨控制者移动、结束阶段归还及候选回放证据。
+- [妖精传姬-辉夜②返回手牌](validation/fairy-tail-luna-bounce.md)：2026-10-11 的成功弹回与送同名卡无效分支双端证据。
+- [天岩户②结束阶段回手](validation/amanowato-end-phase-return.md)：2026-10-11 的强制发动、回手及隐藏手牌双视角入库验证。
+- [炎王妃 火神不死鸟①检索怪兽](validation/fire-king-consort-search.md)：2026-10-11 的破坏、检索、公开展示与等级变化入库验证。
+- [哥布林德伯格①手牌特殊召唤](validation/goblinbergh-hand-special-summon.md)：2026-10-11 的双方各一次特殊召唤与表示形式变化入库验证。
+- [长枪龙①穿透伤害](validation/spear-dragon-piercing-damage.md)：2026-10-11 的双端战斗数值、1400 点伤害与表示形式变化入库验证。
+- [神机王 乌尔①逐只攻击与②伤害归零](validation/machine-king-ur-all-monsters-zero-damage.md)：2026-10-11 的双端两次攻击、零伤害区间断言与入库单场回放证据。
+- [人偶兵卒①直接攻击](validation/doll-soldier-direct-attack.md)：2026-10-11 的对手有怪兽时直接攻击、800 点伤害与入库单场回放证据。
+- [DNA 移植手术改变表侧怪兽属性](validation/dna-transplant-attribute-change.md)：2026-10-11 的双阶段属性变化、通用数值事件及入库单场回放证据。
+- [DNA 改造手术改变表侧怪兽种族](validation/dna-surgery-race-change.md)：2026-10-11 的双阶段种族变化、通用数值事件及入库单场回放证据。
+- [天声的服从宣言卡名与选项文字](validation/announce-card-options-2026-10-11.md)：2026-10-11 的双端录制、候选单场回放、选项文字修复与模型输入精简证据。
 - [Agent 镜像与旧版笔记工具](validation/agent-mirror-tools-2026-10-11.md)：2026-10-11 的 Pydantic AI 与 Codex MCP 工具清单、历史笔记只读视图及协议兼容回归证据。
 - [Codex 后端](validation/agent-codex-backend.md) · [可观测耗时](validation/agent-observability-timing.md) · [终局取消](validation/agent-terminal-cancellation.md) · [发行验证](validation/agent-release.md)
 

@@ -1,0 +1,205 @@
+schema_version: 1
+decks:
+  host: host.ydk
+  guest: guest.ydk
+pregame:
+  host:
+  - scissors
+  guest:
+  - rock
+  winner_chooses: go_first
+steps:
+  host: []
+  guest:
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: hand
+        count: 5
+        contains:
+        - card_id: "26775203"
+    action:
+      kind: choice
+      match:
+        kind: normal_summon
+        card_id: "26775203"
+        controller: 0
+        location: hand
+  - expect:
+      prompt: select_place
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 0
+    action:
+      kind: select_places
+      places:
+      - controller: 0
+        location: monster
+        sequence: 0
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "26775203"
+          position: face_up_attack
+          sequence: 0
+          attack: 0
+          defense: 1600
+          base_attack: 0
+          base_defense: 1600
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+    action:
+      kind: choice
+      match:
+        kind: activate
+        card_id: "26775203"
+        description_id: 428403249
+        controller: 0
+        location: monster
+        sequence: 0
+  - expect:
+      prompt: idle_command
+      turn: 1
+      phase: main_1
+      turn_player: 0
+      zones:
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "26775203"
+          position: face_up_attack
+          sequence: 0
+          attack: 1600
+          defense: 0
+          base_attack: 1600
+          base_defense: 0
+    action:
+      kind: choice
+      match:
+        kind: end_turn
+goal:
+  kind: duel_end
+  winner: guest
+  expect:
+    host:
+      turn: 2
+      phase: main_1
+      turn_player: 0
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: deck
+        count: 34
+      - player: 0
+        name: hand
+        count: 6
+        contains:
+        - card_id: "26775203"
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+          count: 2
+      - player: 1
+        name: hand
+        count: 4
+      - player: 1
+        name: monster
+        count: 1
+        contains:
+        - card_id: "26775203"
+          position: face_up_attack
+          sequence: 0
+          attack: 0
+          defense: 1600
+          base_attack: 0
+          base_defense: 1600
+    guest:
+      turn: 2
+      phase: main_1
+      turn_player: 1
+      life_points:
+      - 8000
+      - 8000
+      zones:
+      - player: 0
+        name: hand
+        count: 4
+        contains:
+        - card_id: "33112041"
+          count: 3
+        - card_id: "40575313"
+      - player: 0
+        name: monster
+        count: 1
+        contains:
+        - card_id: "26775203"
+          position: face_up_attack
+          sequence: 0
+          attack: 0
+          defense: 1600
+          base_attack: 0
+          base_defense: 1600
+      - player: 1
+        name: deck
+        count: 34
+      - player: 1
+        name: hand
+        count: 6
+  surrender:
+    role: host
+    expect:
+      host:
+        turn: 2
+        phase: main_1
+        turn_player: 0
+      guest: {}
+event_assertions:
+  host:
+  - kind: effect_activated
+    card_id: "26775203"
+    description_id: 428403249
+    controller: opponent
+    location: 4
+    sequence: 0
+    chain_index: 1
+  - kind: chain_link_solving
+    chain_index: 1
+  - kind: chain_link_solved
+    chain_index: 1
+  - kind: chain_ended
+  guest:
+  - kind: effect_activated
+    card_id: "26775203"
+    description_id: 428403249
+    controller: self
+    location: 4
+    sequence: 0
+    chain_index: 1
+  - kind: chain_link_solving
+    chain_index: 1
+  - kind: chain_link_solved
+    chain_index: 1
+  - kind: chain_ended

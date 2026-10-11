@@ -143,6 +143,47 @@ def finish_pregame(scenario: Scenario) -> None:
 
 
 class ScenarioTests(unittest.TestCase):
+    def test_special_summon_assertion_checks_visible_card_and_slot(self) -> None:
+        data = scene()
+        data["event_assertions"] = {
+            "host": [
+                {
+                    "kind": "special_summon_started",
+                    "player": "opponent",
+                    "card_id": "18027139",
+                    "location": 4,
+                    "sequence": 0,
+                }
+            ]
+        }
+        scenario = Scenario(data)
+        event = dict(scenario.event_assertions["host"][0])
+        scenario.assert_events("host", [event])
+        with self.assertRaisesRegex(ScenarioError, "event_assertions"):
+            scenario.assert_events("host", [{**event, "card_id": 18027140}])
+
+    def test_effect_identity_and_destroy_reason_are_checked(self) -> None:
+        data = scene()
+        data["event_assertions"] = {
+            "guest": [
+                {
+                    "kind": "effect_activated",
+                    "card_id": "71413901",
+                    "description_id": 1142622418,
+                },
+                {"kind": "card_moved", "reason_flags": 65},
+            ]
+        }
+        scenario = Scenario(data)
+        events = list(scenario.event_assertions["guest"])
+        scenario.assert_events("guest", events)
+        with self.assertRaisesRegex(ScenarioError, "event_assertions"):
+            scenario.assert_events(
+                "guest", [{**events[0], "description_id": 1142622416}, events[1]]
+            )
+        with self.assertRaisesRegex(ScenarioError, "event_assertions"):
+            scenario.assert_events("guest", [events[0], {**events[1], "reason_flags": 64}])
+
     def test_card_moved_assertion_checks_visible_route_without_identity(self) -> None:
         data = scene()
         data["event_assertions"] = {
@@ -165,6 +206,42 @@ class ScenarioTests(unittest.TestCase):
             scenario.assert_events("guest", [{**event, "to_location": 16}])
         cast(dict[str, Any], data["event_assertions"])["guest"][0]["from_player"] = 2
         with self.assertRaisesRegex(ScenarioError, "from_player"):
+            Scenario(data)
+
+    def test_battle_event_assertions_check_values_and_damage(self) -> None:
+        data = scene()
+        data["event_assertions"] = {
+            "host": [
+                {
+                    "kind": "attack_declared",
+                    "attacker_player": "self",
+                    "attacker_location": 4,
+                    "attacker_sequence": 1,
+                    "target_player": "opponent",
+                    "target_location": 4,
+                    "target_sequence": 2,
+                },
+                {
+                    "kind": "battle_values_observed",
+                    "attacker_player": "self",
+                    "attacker_attack": 1900,
+                    "target_player": "opponent",
+                    "target_defense": 500,
+                },
+                {"kind": "life_points_damaged", "player": "opponent", "value": 1400},
+            ]
+        }
+        scenario = Scenario(data)
+        events = list(scenario.event_assertions["host"])
+        scenario.assert_events("host", events)
+        with self.assertRaisesRegex(ScenarioError, "event_assertions\\[1\\]"):
+            scenario.assert_events(
+                "host", [events[0], {**events[1], "target_defense": 600}, events[2]]
+            )
+        with self.assertRaisesRegex(ScenarioError, "event_assertions\\[2\\]"):
+            scenario.assert_events("host", [events[0], events[1], {**events[2], "value": 1300}])
+        cast(dict[str, Any], data["event_assertions"])["host"][0]["attacker_player"] = 2
+        with self.assertRaisesRegex(ScenarioError, "attacker_player"):
             Scenario(data)
 
     def test_chain_index_assertion_checks_reverse_resolution_order(self) -> None:
@@ -479,6 +556,74 @@ class ScenarioTests(unittest.TestCase):
                 observation,
                 {"zones": [{"player": 0, "name": "hand", "exact": [{"card_id": "123"}]}]},
             )
+
+    def test_visible_card_base_stats_are_assertable(self) -> None:
+        scenario = Scenario(scene())
+        observation = fixture()["observation"]
+        card = observation["zones"][0]["cards"][0]
+        card.update(attack=1600, defense=0, base_attack=1600, base_defense=0)
+        expected = {
+            "zones": [
+                {
+                    "player": "self",
+                    "name": "hand",
+                    "contains": [
+                        {
+                            "card_id": "123",
+                            "attack": 1600,
+                            "defense": 0,
+                            "base_attack": 1600,
+                            "base_defense": 0,
+                        }
+                    ],
+                }
+            ]
+        }
+        scenario.assert_visible("host", observation, expected)
+        card["base_attack"] = 0
+        with self.assertRaisesRegex(ScenarioError, "base_attack.*found 0"):
+            scenario.assert_visible("host", observation, expected)
+
+    def test_visible_attribute_and_generic_change_event_are_assertable(self) -> None:
+        data = scene()
+        data["event_assertions"] = {
+            "host": [
+                {
+                    "kind": "card_value_changed",
+                    "player": "self",
+                    "location": 4,
+                    "sequence": 3,
+                    "field": "attribute",
+                    "from_value": 32,
+                    "to_value": 64,
+                }
+            ]
+        }
+        scenario = Scenario(data)
+        event = dict(scenario.event_assertions["host"][0])
+        scenario.assert_events("host", [event])
+        with self.assertRaisesRegex(ScenarioError, "event_assertions"):
+            scenario.assert_events("host", [{**event, "to_value": 8}])
+        observation = fixture()["observation"]
+        observation["zones"][0]["cards"][0]["attribute"] = 64
+        observation["zones"][0]["cards"][0]["race"] = 16
+        expected = {
+            "zones": [
+                {
+                    "player": "self",
+                    "name": "hand",
+                    "contains": [{"card_id": "123", "attribute": 64, "race": 16}],
+                }
+            ]
+        }
+        scenario.assert_visible("host", observation, expected)
+        observation["zones"][0]["cards"][0]["attribute"] = 8
+        with self.assertRaisesRegex(ScenarioError, "attribute.*found 0"):
+            scenario.assert_visible("host", observation, expected)
+        observation["zones"][0]["cards"][0]["attribute"] = 64
+        observation["zones"][0]["cards"][0]["race"] = 128
+        with self.assertRaisesRegex(ScenarioError, "race.*found 0"):
+            scenario.assert_visible("host", observation, expected)
 
     def test_wait_for_recorded_after_validated_action(self) -> None:
         data = scene()
