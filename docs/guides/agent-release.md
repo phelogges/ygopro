@@ -43,7 +43,7 @@ ygopro-agent-macos-<版本>/
 
 存在时还会复制 `fonts/`、`icon/`、`expansions/`、`resource/`。`system.conf` 来自 Git 的 `HEAD` 版本，不取工作区中客户端运行后的值。技能只复制运行时参考文件和代码；不复制测试、缓存或技能目录中的旧卡库。整个发布根目录只有一份 `cards.cdb`，供客户端与卡片技能共用。`.agents/data/`、日志、API 密钥和个人牌组不会进入包。
 
-使用 Pydantic AI 后端时，在 `.agents/config.toml` 中设置 Responses 端点与模型名，并通过配置指定的环境变量提供 API 密钥。使用 Codex 后端时，设置 `backend = "codex"` 并移除整个 `[model]` 表，再运行 `./agent-server --init-codex` 完成发布根目录内的 ChatGPT 登录；模型与推理强度由用户在 `.agents/data/<profile>/codex/codex_home/config.toml` 中配置。两个客户端分别使用不同的固定端口配置档；从发布根目录启动客户端，以便相对资源路径和 `./agent-server` 路径正确解析。
+根级 `backend` 选择 `pydantic_ai` 或 `codex`；模板中的 `[backends.pydantic_ai]` 与 `[backends.codex]` 可同时保留，切换时无须删除配置段。Pydantic AI 的 Responses 端点与模型名在 `[backends.pydantic_ai]`，API 密钥由其中指定的环境变量提供。Codex 后端需运行 `./agent-server --init-codex` 完成发布根目录内的 ChatGPT 登录；模型与推理强度由用户在 `.agents/data/<profile>/codex/codex_home/config.toml` 中配置。两个客户端分别使用不同的固定端口配置档；从发布根目录启动客户端，以便相对资源路径和 `./agent-server` 路径正确解析。
 
 ## 静态验证
 

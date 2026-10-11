@@ -14,7 +14,7 @@ python3.12 tools/launch-agent-client.py
 
 Codex 后端的初始化与登录见[专门指南](codex-backend.md)。
 
-首次准备时，需要完成 macOS Debug 客户端构建和 `cd agent_server && uv sync --group dev --locked`，并在 `.agents/config.toml` 填好端点、模型、端口及密钥环境变量名。本地密钥文件只写一行，例如 `YGOPRO_AGENT_API_KEY=你的密钥`，不要纳入 Git。启动器自动把诊断日志写入 `out/agent-live/agent-client-<时间>-<PID>.jsonl`；它不修改或读取全局 Agent skill。
+首次准备时，需要完成 macOS Debug 客户端构建和 `cd agent_server && uv sync --group dev --locked`，并在 `.agents/config.toml` 的 `[backends.pydantic_ai]` 填好端点、模型及密钥环境变量名，在 `[server]` 设置端口。本地密钥文件只写一行，例如 `YGOPRO_AGENT_API_KEY=你的密钥`，不要纳入 Git。启动器自动把诊断日志写入 `out/agent-live/agent-client-<时间>-<PID>.jsonl`；它不修改或读取全局 Agent skill。
 
 普通客户端另开一个终端，从项目根目录执行：
 

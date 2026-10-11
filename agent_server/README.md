@@ -14,9 +14,9 @@ uv sync --group dev --locked
 .venv/bin/pyright
 ```
 
-配置模板位于项目根目录 `.agents/config.example.toml`。复制为 `.agents/config.toml`，填入 OpenAI Responses 风格端点和模型名；密钥只从 `api_key_env` 指定的环境变量读取。两客户端并行时，创建 `.agents/host.toml` 与 `.agents/guest.toml`，设置不同端口，并分别用 `YGOPRO_AGENT_CONFIG=host`、`guest` 启动。端口占用会报错，不会自动换端口。
+配置模板位于项目根目录 `.agents/config.example.toml`。复制为 `.agents/config.toml`；根级 `backend` 选择 `pydantic_ai` 或 `codex`，两个 `[backends.*]` 段可同时保留。Pydantic AI 的 Responses 端点、模型名和密钥环境变量名在 `[backends.pydantic_ai]`；其压缩参数在 `[backends.pydantic_ai.compaction]`。Codex 的模型与推理强度由隔离的 `codex_home/config.toml` 管理，历史压缩由 Codex 自动触发，服务不主动调用压缩接口；如需调整原生阈值，也在 `codex_home/config.toml` 中设置。根级 `[limits]`、`[storage]` 共用，其中模型请求数与最终化保护只作用于 Pydantic AI。切换后端只需改根级 `backend`；旧 `[model]`、`[compaction]` 格式需迁移。两客户端并行时，创建 `.agents/host.toml` 与 `.agents/guest.toml`，设置不同端口，并分别用 `YGOPRO_AGENT_CONFIG=host`、`guest` 启动。端口占用会报错，不会自动换端口。
 
-部分兼容端点的 thinking 模式拒绝强制工具选择。此时可在该配置档的 `[model]` 下设置 `supports_forced_tool_choice = false`，让 Pydantic AI 发送自动工具选择；服务启动时仍会验证工具调用和结构化输出。默认值为 `true`。
+部分兼容端点的 thinking 模式拒绝强制工具选择。此时可在该配置档的 `[backends.pydantic_ai]` 下设置 `supports_forced_tool_choice = false`，让 Pydantic AI 发送自动工具选择；服务启动时仍会验证工具调用和结构化输出。默认值为 `true`。
 
 开发时可用 `YGOPRO_AGENT_SERVER_EXECUTABLE` 指定服务可执行入口；发布后客户端默认从当前发布根目录运行 `./agent-server`。服务启动先验证 Responses 工具调用和结构化输出，失败则不会报告就绪。`--check-resources` 可单独检查发布根的两个 skill 和 `cards.cdb`；`--offline` 只供本地确定性协议测试。
 

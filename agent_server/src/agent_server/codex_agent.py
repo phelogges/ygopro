@@ -169,6 +169,8 @@ class CodexDecisionAgent:
         *,
         codex_factory: Any = AsyncCodex,
     ) -> None:
+        if settings.backends.codex is None:
+            raise ValueError("Codex backend requires settings")
         self.settings = settings
         self.store = store
         self.skills = skills
@@ -179,7 +181,6 @@ class CodexDecisionAgent:
         self.codex_factory = codex_factory
         self.codex: Any = None
         self.threads: dict[tuple[str, str], Any] = {}
-        self._usage_ratio: dict[tuple[str, str], float] = {}
         self._decision_lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -213,7 +214,6 @@ class CodexDecisionAgent:
             if not isinstance(thread_id, str):
                 return
             self.threads.pop(key, None)
-            self._usage_ratio.pop(key, None)
             try:
                 await self.codex.thread_archive(thread_id)
             except Exception as exc:
@@ -286,7 +286,6 @@ class CodexDecisionAgent:
         prompt: str,
         first: bool,
         trace: TraceWriter,
-        key: tuple[str, str],
         output_schema: dict[str, Any],
     ) -> str:
         inputs: list[Any] = [TextInput(text=prompt)]
@@ -338,13 +337,6 @@ class CodexDecisionAgent:
                 elif method == "thread/tokenUsage/updated":
                     trace.emit("codex_usage", payload)
                     usage = payload.get("tokenUsage")
-                    if isinstance(usage, dict):
-                        last = usage.get("last")
-                        window = usage.get("modelContextWindow")
-                        if isinstance(last, dict) and type(window) is int and window > 0:
-                            tokens = cast(dict[str, Any], last).get("inputTokens")
-                            if type(tokens) is int and tokens >= 0:
-                                self._usage_ratio[key] = tokens / window
                 elif method == "turn/completed":
                     turn = payload.get("turn")
                     if isinstance(turn, dict):
@@ -452,26 +444,6 @@ class CodexDecisionAgent:
                 "reasoning_summary_configured": self.user_config.get("model_reasoning_summary"),
             },
         )
-        key = (session, duel)
-        ratio = self._usage_ratio.get(key, 0.0)
-        if ratio >= self.settings.compaction.trigger_fraction:
-            trace.emit("codex_compaction_started", {"input_context_fraction": ratio})
-            compact_started = time.perf_counter()
-            try:
-                timeout = min(
-                    self.settings.compaction.summary_timeout_seconds,
-                    max(0.1, (deadline_ms - int(time.time() * 1000)) / 3000),
-                )
-                async with asyncio.timeout(timeout):
-                    await thread.compact()
-            except Exception as exc:
-                trace.emit("codex_compaction_failed", {"error": type(exc).__name__})
-            else:
-                self._usage_ratio.pop(key, None)
-                trace.emit(
-                    "codex_compaction_finished",
-                    {"duration_ms": round((time.perf_counter() - compact_started) * 1000, 2)},
-                )
         self.bridge.activate(deps, self.context)
         started = time.perf_counter()
         try:
@@ -482,7 +454,6 @@ class CodexDecisionAgent:
                         prompt,
                         first and attempt == 1,
                         trace,
-                        key,
                         decision_output_schema(request),
                     )
                 try:

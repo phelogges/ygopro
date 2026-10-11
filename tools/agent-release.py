@@ -87,15 +87,25 @@ def check_config(path: Path) -> None:
     backend = config.get("backend", "pydantic_ai")
     if backend not in ("pydantic_ai", "codex"):
         raise ValueError(f"Unknown Agent backend: {path}")
-    model = config.get("model")
+    backends = config.get("backends")
+    if not isinstance(backends, dict):
+        raise TypeError(f"Agent backend configuration is missing: {path}")
+    if "model" in config:
+        raise ValueError(
+            f"Legacy [model] section must migrate to [backends.pydantic_ai]: {path}"
+        )
+    model = backends.get("pydantic_ai")
     if backend == "pydantic_ai" and (
         not isinstance(model, dict) or not model.get("api_key_env")
     ):
         raise ValueError(
             f"Pydantic AI config must name an API-key environment variable: {path}"
         )
-    if backend == "codex" and model is not None:
-        raise ValueError(f"Codex config must omit [model]: {path}")
+    if backend == "codex" and not isinstance(backends.get("codex"), dict):
+        raise ValueError(f"Codex config requires [backends.codex]: {path}")
+    codex = backends.get("codex")
+    if isinstance(codex, dict) and codex.get("auth", "chatgpt") != "chatgpt":
+        raise ValueError(f"Codex config only supports ChatGPT login: {path}")
     model = model or {}
     if any(key in model for key in ("api_key", "token", "secret")):
         raise ValueError(f"Config contains a direct secret field: {path}")
@@ -372,6 +382,7 @@ def main() -> int:
         return 0
     except (
         OSError,
+        TypeError,
         ValueError,
         sqlite3.Error,
         subprocess.CalledProcessError,

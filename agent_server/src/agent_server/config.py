@@ -4,7 +4,7 @@ import os
 import re
 import tomllib
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -14,6 +14,20 @@ class ServerSettings(BaseModel):
 
     port: Annotated[int, Field(ge=1, le=65535)] = 8910
     startup_timeout_seconds: Annotated[int, Field(ge=1, le=120)] = 60
+
+
+class PydanticCompactionSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    trigger_fraction: Annotated[float, Field(gt=0, lt=1)] = 0.75
+    target_fraction: Annotated[float, Field(gt=0, lt=1)] = 0.60
+    summary_timeout_seconds: Annotated[int, Field(ge=1, le=60)] = 10
+
+    @model_validator(mode="after")
+    def valid_thresholds(self) -> "PydanticCompactionSettings":
+        if self.target_fraction >= self.trigger_fraction:
+            raise ValueError("compaction target must be below trigger")
+        return self
 
 
 class ModelSettings(BaseModel):
@@ -29,17 +43,22 @@ class ModelSettings(BaseModel):
         "auto", "none", "minimal", "low", "medium", "high", "xhigh", "max"
     ] = "auto"
     reasoning_summary: Literal["off", "auto", "concise", "detailed"] = "auto"
+    compaction: PydanticCompactionSettings = Field(default_factory=PydanticCompactionSettings)
 
     @model_validator(mode="after")
     def valid_provider(self) -> "ModelSettings":
         if not self.base_url.startswith(("https://", "http://127.0.0.1:", "http://localhost:")):
-            raise ValueError("model.base_url must be HTTPS or local loopback HTTP")
+            raise ValueError("backends.pydantic_ai.base_url must be HTTPS or local loopback HTTP")
         if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", self.api_key_env):
-            raise ValueError("model.api_key_env must be an environment variable name")
-        if not self.name or self.name == "set-model-name":
-            raise ValueError("model.name must be configured before live use")
+            raise ValueError(
+                "backends.pydantic_ai.api_key_env must be an environment variable name"
+            )
+        if not self.name:
+            raise ValueError("backends.pydantic_ai.name must not be empty")
         if self.reasoning_effort == "none" and self.reasoning_summary in ("concise", "detailed"):
-            raise ValueError("model.reasoning_summary conflicts with reasoning_effort=none")
+            raise ValueError(
+                "backends.pydantic_ai.reasoning_summary conflicts with reasoning_effort=none"
+            )
         return self
 
     @property
@@ -62,20 +81,6 @@ class LimitSettings(BaseModel):
     finalization_reserve_seconds: Annotated[int, Field(ge=0, le=120)] = 20
 
 
-class CompactionSettings(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    trigger_fraction: Annotated[float, Field(gt=0, lt=1)] = 0.75
-    target_fraction: Annotated[float, Field(gt=0, lt=1)] = 0.60
-    summary_timeout_seconds: Annotated[int, Field(ge=1, le=60)] = 10
-
-    @model_validator(mode="after")
-    def valid_thresholds(self) -> "CompactionSettings":
-        if self.target_fraction >= self.trigger_fraction:
-            raise ValueError("compaction target must be below trigger")
-        return self
-
-
 class StorageSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -85,23 +90,38 @@ class StorageSettings(BaseModel):
     max_bytes: Annotated[int, Field(ge=1)] = 2 * 1024 * 1024 * 1024
 
 
+class CodexSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    auth: Literal["chatgpt"] = "chatgpt"
+
+
+class BackendSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    pydantic_ai: ModelSettings | None = None
+    codex: CodexSettings | None = None
+
+
 class ServiceSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     backend: Literal["pydantic_ai", "codex"] = "pydantic_ai"
     server: ServerSettings
-    model: ModelSettings | None = None
+    backends: BackendSettings
     limits: LimitSettings
-    compaction: CompactionSettings
     storage: StorageSettings
 
     @model_validator(mode="after")
     def valid_backend(self) -> "ServiceSettings":
-        if self.backend == "pydantic_ai" and self.model is None:
-            raise ValueError("pydantic_ai backend requires [model]")
-        if self.backend == "codex" and self.model is not None:
-            raise ValueError("codex backend must use codex_home/config.toml, not [model]")
+        if getattr(self.backends, self.backend) is None:
+            raise ValueError(f"{self.backend} backend requires [backends.{self.backend}]")
         return self
+
+    @property
+    def model(self) -> ModelSettings | None:
+        """Selected Pydantic AI model; Codex config remains in codex_home."""
+        return self.backends.pydantic_ai if self.backend == "pydantic_ai" else None
 
 
 def load_settings(
@@ -117,8 +137,20 @@ def load_settings(
         raise ValueError("agent configuration must remain inside the release root")
     with path.open("rb") as stream:
         document = tomllib.load(stream)
-    if offline and document.get("model", {}).get("name") == "set-model-name":
-        document["model"]["name"] = "offline-test-model"
+    raw_backends = document.get("backends")
+    backend_sections = (
+        cast(dict[str, object], raw_backends) if isinstance(raw_backends, dict) else {}
+    )
+    raw_pydantic = backend_sections.get("pydantic_ai")
+    pydantic_config = (
+        cast(dict[str, object], raw_pydantic) if isinstance(raw_pydantic, dict) else {}
+    )
+    pydantic_name = pydantic_config.get("name")
+    if document.get("backend", "pydantic_ai") == "pydantic_ai":
+        if offline and pydantic_name == "set-model-name":
+            pydantic_config["name"] = "offline-test-model"
+        elif not offline and pydantic_name == "set-model-name":
+            raise ValueError("backends.pydantic_ai.name must be configured before live use")
     settings = ServiceSettings.model_validate(document)
     directory = release_root / settings.storage.directory
     if not directory.resolve().is_relative_to(release_root.resolve()):
@@ -127,7 +159,7 @@ def load_settings(
 
 
 def model_api_key(settings: ServiceSettings) -> str:
-    if settings.model is None:
+    if settings.backend != "pydantic_ai" or settings.model is None:
         raise ValueError("Codex backend does not use a model API key")
     secret = os.environ.get(settings.model.api_key_env, "")
     if not secret:

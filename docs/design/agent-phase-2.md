@@ -24,7 +24,7 @@ gframe AgentController ── HTTP v3 ── agent_server
                                 └─ 本机只读人类视图
 ```
 
-一个客户端对应一个服务进程和一个可见视角。配置位于发布主目录 `.agents/`；`config.toml` 是默认档，同目录下可放其他具名档。开发时项目根目录视为发布主目录。客户端选定配置档后启动固定端口的子进程；端口占用或就绪令牌不匹配时停止自动接管。API 密钥只通过配置中指定的环境变量读取，不写入 Git、命令行或日志。
+一个客户端对应一个服务进程和一个可见视角。配置位于发布主目录 `.agents/`；`config.toml` 是默认档，同目录下可放其他具名档。开发时项目根目录视为发布主目录。根级 `backend` 选择 Pydantic AI 或 Codex；各自的 `[backends.pydantic_ai]`、`[backends.codex]` 可并存，切换不需删除非当前后端的配置。Pydantic AI 的压缩参数由 `[backends.pydantic_ai.compaction]` 管理；Codex 按模型默认阈值自动压缩，服务不主动调用手动接口，可选的原生阈值放在隔离的 `codex_home/config.toml`。`[limits]` 与 `[storage]` 保留根级，其中模型请求数和最终化保护仅适用于 Pydantic AI。客户端选定配置档后启动固定端口的子进程；端口占用或就绪令牌不匹配时停止自动接管。API 密钥只通过配置中指定的环境变量读取，不写入 Git、命令行或日志。
 
 ## 状态与事务
 

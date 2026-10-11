@@ -8,6 +8,7 @@
 | 原生游戏消息覆盖审计与解析 | macOS Debug；静态分类 + 字节解析 + HTTP v3 回放 | 2026-10-11 [解析记录](agent-message-coverage-2026-10-11.md)：55 已解析、27 明确无需事件、4 待处理；CTest 3/3 与四场景回放 4/4 通过。前次 [18 类待处理审计](agent-message-coverage.md)保留历史证据 | 新增 14 类消息各自的真实双视角录制；已解析消息的完整语义验证；Windows |
 | 严格场景双客户端无头回放 | macOS Debug；确定性场景服务 | 2026-10-11 [场景索引](../../tests/scenarios/README.md)列出二十二个已入库场景；[v3 回放记录](agent-v3-scenario-replay.md)保留此前 10/10 批量报告，后收录的十二场分别单独回放通过；本次未重跑批量 | 未写入断言的规则因果；Windows |
 | 卡名宣言与本地选项文字 | macOS Debug；人工双端录制 + HTTP v3 单场回放 | 2026-10-11 [宣言验证记录](announce-card-options-2026-10-11.md)：两次宣言、两种结算分支、选项文字与模型输入精简；用户确认收录后本场景单独通过；卡名检索工具另经本地离线测试 | 真实模型实际选名、GUI 接管与 Windows |
+| 双后端配置选择 | macOS；Pydantic AI/Codex 离线配置校验 + HTTP v3 单场回放 | 2026-10-11 [后端配置记录](agent-backend-config-2026-10-11.md)：两个配置段并存，切换选择、启动器和发布检查通过；新模板生成的离线双端场景通过 | 真实 Codex 登录、真实模型、发行包构建与 Windows |
 | 非连锁无效的区间计数断言 | macOS Debug；人工双端录制 + HTTP v3 无头回放 | 2026-10-11 [雷火沸动交界机③记录](raikasen-nonchain-negation.md)：场景单测 29 项通过，当前六场景批量回放 6/6 `passed`，目标连锁仅一个连锁项 | 真实模型、GUI 与 Windows |
 | 自动无效魔法卡效果 | macOS Debug；人工双端录制 + HTTP v3 无头回放 | 2026-10-11 [天子的指轮②记录](angel-ring-mandatory-spell-negation.md)：双端观察效果失效、无额外连锁项；入库后六场景批量回放 6/6 `passed` | 同回合第二次魔法效果、真实模型、GUI 与 Windows |
 | 连续速攻魔法卡连锁 | macOS Debug；人工双端录制 + HTTP v3 无头回放 | 2026-10-11 [十项连锁记录](quick-play-ten-link-chain.md)：双端连锁加入 1→10、处理 10→1，收录后批量回放 7/7 `passed` | 真实模型、GUI 与 Windows |

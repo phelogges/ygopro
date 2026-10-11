@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import runpy
 import tempfile
 import tomllib
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 from agent_server.codex_init import initialize_codex
@@ -95,36 +98,89 @@ class ProfileDataTests(unittest.TestCase):
                 {**base, "reasoning_effort": "none", "reasoning_summary": "detailed"}
             )
 
-    def test_codex_backend_omits_model_and_api_key(self) -> None:
+    def test_backend_switch_keeps_both_config_sections(self) -> None:
         template = tomllib.loads((ROOT / ".agents/config.example.toml").read_text())
         template["backend"] = "codex"
-        del template["model"]
         settings = ServiceSettings.model_validate(template)
         self.assertIsNone(settings.model)
+        self.assertIsNotNone(settings.backends.codex)
+        self.assertIsNotNone(settings.backends.pydantic_ai)
+        assert settings.backends.codex is not None
+        assert settings.backends.pydantic_ai is not None
+        self.assertEqual(settings.backends.codex.auth, "chatgpt")
+        self.assertEqual(settings.backends.pydantic_ai.name, "set-model-name")
+        self.assertEqual(settings.backends.pydantic_ai.compaction.target_fraction, 0.60)
         with patch.dict("os.environ", {}, clear=True):
             with self.assertRaisesRegex(ValueError, "does not use"):
                 model_api_key(settings)
-        with self.assertRaisesRegex(ValueError, "requires \\[model\\]"):
-            ServiceSettings.model_validate({**template, "backend": "pydantic_ai"})
-        with self.assertRaisesRegex(ValueError, "must use codex_home"):
+        with self.assertRaisesRegex(ValueError, "requires \\[backends.pydantic_ai\\]"):
             ServiceSettings.model_validate(
                 {
                     **template,
-                    "model": ModelSettings.model_validate(
-                        {
-                            "base_url": "https://example.test/v1",
-                            "name": "test-model",
-                            "api_key_env": "TEST_KEY",
-                            "context_window_tokens": 4096,
-                        }
-                    ),
+                    "backend": "pydantic_ai",
+                    "backends": {"codex": template["backends"]["codex"]},
                 }
             )
+        with self.assertRaisesRegex(ValueError, "requires \\[backends.codex\\]"):
+            ServiceSettings.model_validate(
+                {**template, "backends": {"pydantic_ai": template["backends"]["pydantic_ai"]}}
+            )
+        with self.assertRaises(ValueError):
+            ServiceSettings.model_validate(
+                {**template, "model": template["backends"]["pydantic_ai"]}
+            )
+
+    def test_only_pydantic_backend_has_compaction_settings(self) -> None:
+        template = tomllib.loads((ROOT / ".agents/config.example.toml").read_text())
+        template["backends"]["pydantic_ai"]["compaction"]["trigger_fraction"] = 0.80
+        settings = ServiceSettings.model_validate(template)
+        assert settings.backends.pydantic_ai is not None
+        assert settings.backends.codex is not None
+        self.assertEqual(settings.backends.pydantic_ai.compaction.trigger_fraction, 0.80)
+        with self.assertRaises(ValueError):
+            ServiceSettings.model_validate({**template, "compaction": {"trigger_fraction": 0.75}})
+        template["backends"]["codex"]["compaction"] = {"trigger_fraction": 0.65}
+        with self.assertRaises(ValueError):
+            ServiceSettings.model_validate(template)
+
+    def test_selected_backend_controls_placeholder_validation(self) -> None:
+        template = (ROOT / ".agents/config.example.toml").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".agents").mkdir()
+            profile = root / ".agents/config.toml"
+            profile.write_text(template, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "name must be configured"):
+                load_settings(root)
+            offline_model = load_settings(root, offline=True).model
+            assert offline_model is not None
+            self.assertEqual(offline_model.name, "offline-test-model")
+            profile.write_text(template.replace('backend = "pydantic_ai"', 'backend = "codex"', 1))
+            codex = load_settings(root)
+            self.assertEqual(codex.backend, "codex")
+            self.assertIsNone(codex.model)
+            assert codex.backends.pydantic_ai is not None
+            self.assertEqual(codex.backends.pydantic_ai.name, "set-model-name")
+
+    def test_release_check_accepts_both_sections_and_rejects_legacy_model(self) -> None:
+        check = cast(
+            Callable[[Path], None],
+            runpy.run_path(str(ROOT / "tools/agent-release.py"))["check_config"],
+        )
+        template = (ROOT / ".agents/config.example.toml").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory) / "config.toml"
+            profile.write_text(template, encoding="utf-8")
+            check(profile)
+            profile.write_text(template.replace('backend = "pydantic_ai"', 'backend = "codex"', 1))
+            check(profile)
+            profile.write_text(template.replace("[backends.pydantic_ai]", "[model]", 1))
+            with self.assertRaisesRegex(ValueError, "Legacy \\[model\\]"):
+                check(profile)
 
     def test_codex_init_uses_profile_home_without_creating_config(self) -> None:
         template = tomllib.loads((ROOT / ".agents/config.example.toml").read_text())
         template["backend"] = "codex"
-        del template["model"]
         settings = ServiceSettings.model_validate(template)
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
             settings.storage.directory = str(Path(directory).relative_to(ROOT))

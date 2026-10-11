@@ -51,6 +51,13 @@ def main() -> None:
     backend = config.get("backend", "pydantic_ai")
     if backend not in ("pydantic_ai", "codex"):
         parser.error("backend must be pydantic_ai or codex")
+    backends = config.get("backends")
+    if not isinstance(backends, dict):
+        parser.error(
+            "configuration must contain [backends.pydantic_ai] or [backends.codex]"
+        )
+    if "model" in config:
+        parser.error("legacy [model] must migrate to [backends.pydantic_ai]")
     for path in (
         CLIENT,
         SERVICE,
@@ -64,18 +71,22 @@ def main() -> None:
     key_name = None
     api_key = None
     if backend == "pydantic_ai":
-        model = config.get("model", {})
+        model = backends.get("pydantic_ai")
         key_name = model.get("api_key_env") if isinstance(model, dict) else None
         if not isinstance(key_name, str) or not re.fullmatch(
             r"[A-Za-z_][A-Za-z0-9_]*", key_name
         ):
-            parser.error("model.api_key_env must name an environment variable")
+            parser.error(
+                "backends.pydantic_ai.api_key_env must name an environment variable"
+            )
         try:
             api_key = os.environ.get(key_name) or api_key_from_file(key_name)
         except (OSError, UnicodeError, ValueError) as exc:
             parser.error(str(exc))
-    elif "model" in config:
-        parser.error("codex backend must use codex_home/config.toml, not [model]")
+    elif not isinstance(backends.get("codex"), dict):
+        parser.error("codex backend requires [backends.codex]")
+    elif backends["codex"].get("auth", "chatgpt") != "chatgpt":
+        parser.error("codex backend only supports ChatGPT login")
 
     if args.check:
         print(f"Agent client inputs ready: profile={args.profile}, client={CLIENT}")

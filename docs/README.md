@@ -59,6 +59,7 @@
 - [DNA 移植手术改变表侧怪兽属性](validation/dna-transplant-attribute-change.md)：2026-10-11 的双阶段属性变化、通用数值事件及入库单场回放证据。
 - [DNA 改造手术改变表侧怪兽种族](validation/dna-surgery-race-change.md)：2026-10-11 的双阶段种族变化、通用数值事件及入库单场回放证据。
 - [天声的服从宣言卡名与选项文字](validation/announce-card-options-2026-10-11.md)：2026-10-11 的双端录制、候选单场回放、选项文字修复与模型输入精简证据。
+- [后端配置选择](validation/agent-backend-config-2026-10-11.md)：2026-10-11 的双后端配置段、启动器、发布检查与离线回放验证。
 - [Agent 镜像与旧版笔记工具](validation/agent-mirror-tools-2026-10-11.md)：2026-10-11 的 Pydantic AI 与 Codex MCP 工具清单、历史笔记只读视图及协议兼容回归证据。
 - [Codex 后端](validation/agent-codex-backend.md) · [可观测耗时](validation/agent-observability-timing.md) · [终局取消](validation/agent-terminal-cancellation.md) · [发行验证](validation/agent-release.md)
 

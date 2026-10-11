@@ -102,7 +102,6 @@ class CodexAgentTests(unittest.IsolatedAsyncioTestCase):
                 }
                 settings = load_settings(root, offline=True)
                 settings.backend = "codex"
-                settings.model = None
                 fake = FakeCodex(
                     [
                         json.dumps(
@@ -136,7 +135,6 @@ class CodexAgentTests(unittest.IsolatedAsyncioTestCase):
             with StateDatabase(Path(directory) / "state.sqlite3") as storage:
                 settings = load_settings(root, offline=True)
                 settings.backend = "codex"
-                settings.model = None
                 answers = [
                     json.dumps(
                         {"reason": "测试", "intent": {"kind": "choice", "candidate_id": "bad"}}
@@ -208,7 +206,6 @@ class CodexAgentTests(unittest.IsolatedAsyncioTestCase):
             with StateDatabase(Path(directory) / "state.sqlite3") as storage:
                 settings = load_settings(root, offline=True)
                 settings.backend = "codex"
-                settings.model = None
                 agent = CodexDecisionAgent(settings, storage, SkillResources(root), Path(directory))
                 handle = BlockingHandle()
 
@@ -223,7 +220,6 @@ class CodexAgentTests(unittest.IsolatedAsyncioTestCase):
                         "fixture",
                         False,
                         trace,
-                        ("client-a", "duel-1"),
                         decision_output_schema(parse_request(request())),
                     )
                 )

@@ -173,7 +173,9 @@ class DecisionAgent:
         budgeted_model = BudgetModel(model)
         self.model = budgeted_model
         compaction_model_settings = self._request_settings()
-        compaction_model_settings["timeout"] = settings.compaction.summary_timeout_seconds
+        compaction_model_settings["timeout"] = (
+            self.model_settings.compaction.summary_timeout_seconds
+        )
         compaction = TieredCompaction(
             tiers=[
                 ClearToolResults(max_tokens=1, keep_pairs=3),
@@ -184,7 +186,7 @@ class DecisionAgent:
                             max_messages=1,
                             keep_tokens=int(
                                 self.model_settings.context_window_tokens
-                                * settings.compaction.target_fraction
+                                * self.model_settings.compaction.target_fraction
                             ),
                             instructions=(
                                 "概括较早的决斗计划和未知点。不要把推测写成事实；"
@@ -196,14 +198,14 @@ class DecisionAgent:
                             max_messages=1,
                             keep_tokens=int(
                                 self.model_settings.context_window_tokens
-                                * settings.compaction.target_fraction
+                                * self.model_settings.compaction.target_fraction
                             ),
                         ),
                     ],
                 ),
             ],
-            target_fraction=settings.compaction.trigger_fraction,
-            context_window=settings.model.context_window_tokens,
+            target_fraction=self.model_settings.compaction.trigger_fraction,
+            context_window=self.model_settings.context_window_tokens,
         )
         self.agent = Agent[DecisionDeps, DecisionOutput](
             budgeted_model,
