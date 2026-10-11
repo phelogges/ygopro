@@ -32,7 +32,7 @@
 | 人工双客户端录制与编译 | macOS GUI + 无头回放；确定性录制 | [人工录制记录](manual-duel-capture.md)列出 `8ed56016e03248fd8e0f1807e025fab1` 回放报告；2026-10-10 [场地区场景](../../tests/scenarios/tenpai-field-set/README.md)亦有独立报告 | 新标准启动器全流程 GUI 目视验收；随机效果采样；Windows |
 | v3 双客户端离线 Agent | macOS Debug；确定性假策略 | [二期记录](agent-phase-2.md)列出 `out/agent-e2e-runs/1791474298-17867/` 等完整终局及牌表绑定 | 真实模型的战术决策、完整 GUI 对局、Windows |
 | Pydantic AI 真实端点 | macOS GUI；OpenAI Responses 风格端点 | 2026-10-08 [二期记录](agent-phase-2.md)确认启动能力探测与局部模型调用；故障后的回归修复另有离线测试 | 完整对局通过、模型推理摘要粒度、断线与超时人工接管 |
-| Codex 后端 | macOS arm64；离线 SDK/假事件流 | 2026-10-10 [Codex 验证记录](agent-codex-backend.md)为服务端 63 项测试及静态检查通过；2026-10-09 冻结包内 CLI 无登录启动通过 | ChatGPT 登录、真实模型推理与 GUI 双客户端决斗、Windows |
+| Codex 后端 | macOS arm64；离线 SDK/假事件流 + 真实模型 GUI 双客户端 | 2026-10-11 [Codex 验证记录](agent-codex-backend.md)：HTTP provider 和最终阶段解析修复后，用户确认连续两局可用；客户端记录 53 次决策均提交、两次终局、无 Agent 错误 | 战术质量、更多提示类型、Windows |
 | Agent 镜像与旧版笔记工具 | macOS；Pydantic AI/Monty、Codex MCP 离线测试 | 2026-10-11 [工具收敛记录](agent-mirror-tools-2026-10-11.md)：61 项及 4 子测试通过，重复客户端查询和笔记读写不再暴露给模型，旧记录只读保留；假模型验证旧会话重建 | 真实模型能否按需回查历史；真实 Codex CLI 旧线程切换、GUI、Windows |
 | 终局取消与区域笔记 | macOS；离线服务端 + 场景回放 | [终局取消记录](agent-terminal-cancellation.md)含投降回放；2026-10-10 [隐藏区域笔记记录](agent-zone-notes.md)含魔陷区、场地区、主怪兽区证据 | 真实模型主动调用与笔记维护、Windows；场地区独立 `field` 笔记不存在 |
 | 发布包静态验证 | macOS；PyInstaller + 冻结服务 | 2026-10-09 [Codex 发布记录](agent-codex-backend.md)的 `out/codex-release-check-v2/` 校验通过；更早 Pydantic AI 发布证据见[二期记录](agent-phase-2.md) | 发布包真实模型 GUI 对局、Windows 发布、签名及公证 |

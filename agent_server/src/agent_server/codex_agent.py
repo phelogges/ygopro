@@ -95,6 +95,11 @@ def codex_settings(home: Path, workspace: Path, bridge: CodexMcpBridge) -> Codex
     """Force the game sandbox and its only MCP server without rewriting user settings."""
     raw = bridge.mcp_config()
     overrides = [
+        'model_provider="ygopro_chatgpt_http"',
+        'model_providers.ygopro_chatgpt_http.name="ChatGPT HTTP"',
+        'model_providers.ygopro_chatgpt_http.base_url="https://chatgpt.com/backend-api/codex"',
+        "model_providers.ygopro_chatgpt_http.requires_openai_auth=true",
+        "model_providers.ygopro_chatgpt_http.supports_websockets=false",
         'approval_policy="never"',
         'sandbox_mode="read-only"',
         'web_search="disabled"',
@@ -330,7 +335,7 @@ class CodexDecisionAgent:
                         if method == "item/completed" and item.get("type") == "agentMessage":
                             content = item.get("text")
                             if isinstance(content, str):
-                                if item.get("phase") == "finalAnswer":
+                                if item.get("phase") in ("final_answer", "finalAnswer"):
                                     final = content
                                 elif item.get("phase") is None:
                                     fallback = content

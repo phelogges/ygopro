@@ -20,7 +20,7 @@ gframe ── HTTP v3 ── agent_server ── 官方 Python SDK ── 本地
 
 一个 Agent 客户端启动一个服务进程；选择 Codex 后端时，它在客户端启动阶段启动一个 Codex 子进程并检查登录及必需能力。一局使用一个持久 Codex thread，每次真实决策是一轮 turn。服务在 SQLite 中保存 `(session_id, duel_id)` 与 thread ID 的映射；重启后只恢复已确认的事实和 thread，不恢复已中断的模型栈或过期提示。终局、人工接管、提示撤销和超时中断相应 turn；收到权威 `duel_ended` 时不再签发动作，并归档该局 Codex thread。SDK 的归档不物理删除其原生会话文件，后续如需彻底清除需单独制定受支持的清理方法。登录失效、额度受限或模型故障计入既有失败计数，达到配置阈值后交还人工，决斗中不启动登录流程。
 
-应用配置档以根级 `backend` 选择后端，分别保存 `[backends.pydantic_ai]` 和 `[backends.codex]`，两段可同时保留；业务预算、超时、端口和持久化路径继续共用。缺省后端为 `pydantic_ai`。仅 Pydantic AI 路径要求 OpenAI 风格端点及其密钥。Codex 路径仅使用本地 ChatGPT 登录；模型和推理强度由用户在独立的 `codex_home/config.toml` 中按 Codex 自身格式管理，不在应用配置或客户端界面重复配置。无需预先创建该文件，也不随发布包生成模板。初始化工具创建隔离目录、检查登录状态，未登录时引导用户按 SDK 支持的浏览器或设备码方式登录；常规客户端启动不得在决斗中等待交互登录。
+应用配置档以根级 `backend` 选择后端，分别保存 `[backends.pydantic_ai]` 和 `[backends.codex]`，两段可同时保留；业务预算、超时、端口和持久化路径继续共用。缺省后端为 `pydantic_ai`。仅 Pydantic AI 路径要求 OpenAI 风格端点及其密钥。Codex 路径仅使用本地 ChatGPT 登录；模型和推理强度由用户在独立的 `codex_home/config.toml` 中按 Codex 自身格式管理，不在应用配置或客户端界面重复配置。服务在运行时固定选择使用 ChatGPT 凭据的 HTTP Responses provider，并声明不使用 WebSocket；本机代理下 WebSocket 连续超时曾耗尽决策期限。该传输覆盖不改变用户所选模型与推理强度。无需预先创建用户配置文件，也不随发布包生成模板。初始化工具创建隔离目录、检查登录状态，未登录时引导用户按 SDK 支持的浏览器或设备码方式登录；常规客户端启动不得在决斗中等待交互登录。
 
 ## 目录和技能隔离
 

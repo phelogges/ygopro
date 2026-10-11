@@ -46,7 +46,9 @@ class FakeHandle:
         )
         yield SimpleNamespace(
             method="item/completed",
-            payload={"item": {"type": "agentMessage", "phase": "finalAnswer", "text": self.answer}},
+            payload={
+                "item": {"type": "agentMessage", "phase": "final_answer", "text": self.answer}
+            },
         )
         yield SimpleNamespace(method="turn/completed", payload={"turn": {"status": "completed"}})
 
@@ -185,6 +187,15 @@ class CodexAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.env["CODEX_HOME"], "/tmp/home")  # type: ignore[index]
         self.assertEqual(config.env["HOME"], "/tmp/home")  # type: ignore[index]
         self.assertEqual(config.env["CODEX_API_KEY"], "")  # type: ignore[index]
+        self.assertIn('model_provider="ygopro_chatgpt_http"', config.config_overrides)
+        self.assertIn(
+            "model_providers.ygopro_chatgpt_http.requires_openai_auth=true",
+            config.config_overrides,
+        )
+        self.assertIn(
+            "model_providers.ygopro_chatgpt_http.supports_websockets=false",
+            config.config_overrides,
+        )
         self.assertIn("features.shell_tool=false", config.config_overrides)
         self.assertIn("agents.enabled=false", config.config_overrides)
         self.assertTrue(
