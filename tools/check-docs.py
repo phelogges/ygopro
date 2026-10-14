@@ -36,7 +36,12 @@ def links(source: Path, content: str) -> list[Path]:
 
 def main() -> int:
     errors: list[str] = []
-    pages = sorted(DOCS.rglob("*.md"))
+    # Working drafts are intentionally absent from the authoritative docs index.
+    pages = sorted(
+        page
+        for page in DOCS.rglob("*.md")
+        if page.relative_to(DOCS).parts[0] != "draft"
+    )
     index_links = set(links(INDEX, INDEX.read_text(encoding="utf-8")))
     for page in pages:
         content = page.read_text(encoding="utf-8")

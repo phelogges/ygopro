@@ -49,3 +49,4 @@ __pycache__/
 
 out
 vcpkg_installed
+/docs/draft/
