@@ -22,6 +22,10 @@
 | 录制和回归 | [人工双端录制](design/manual-duel-capture.md) · [场景制作](design/duel-scenario-authoring.md) · [GUI 回放](design/agent-gui-e2e.md) |
 | 消息完整性 | [客户端游戏消息覆盖审计](design/agent-message-coverage.md) |
 
+## 策略知识
+
+[通用决斗策略大纲](guides/duel-strategy-outline.md)是未来本方卡组、手坑、对手构筑及局间备牌指南的顶层写作框架，尚未作为运行时指令启用。[理论资料调研](research/duel-strategy-theory.md)保存外部来源、备牌调研、归纳和适用边界。
+
 ## 操作指南
 
 | 任务 | 文档 |
