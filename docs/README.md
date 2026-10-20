@@ -70,6 +70,7 @@
 - [后端配置选择](validation/agent-backend-config-2026-10-11.md)：2026-10-11 的双后端配置段、启动器、发布检查与离线回放验证。
 - [Agent 镜像与旧版笔记工具](validation/agent-mirror-tools-2026-10-11.md)：2026-10-11 的 Pydantic AI 与 Codex MCP 工具清单、历史笔记只读视图及协议兼容回归证据。
 - [Codex 后端](validation/agent-codex-backend.md) · [可观测耗时](validation/agent-observability-timing.md) · [终局取消](validation/agent-terminal-cancellation.md) · [发行验证](validation/agent-release.md)
+- [Windows Debug 构建](validation/windows-debug-build-2026-10-21.md)：2026-10-21 的 VS2026 x64 Debug 完整构建与 CTest 3/3 通过记录。
 
 ## 历史设计与兼容入口
 

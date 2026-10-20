@@ -1,10 +1,10 @@
 # 验证总览
 
-> 状态：现行验证入口；截至 2026-10-11 的仓库内记录。下表汇总**已有证据**；历史项目以各自记录为准。报告多在 Git 忽略的本机 `out/` 中，其他环境可能无法直接打开。
+> 状态：现行验证入口；截至 2026-10-21 的仓库内记录。下表汇总**已有证据**；历史项目以各自记录为准。报告多在 Git 忽略的本机 `out/` 中，其他环境可能无法直接打开。
 
 | 验证路径 | 平台与后端 | 最近有据可查的通过记录 | 未验证或不能由该记录证明 |
 | --- | --- | --- | --- |
-| C++ 协议编解码与 Python SDK 契约 | macOS Debug；确定性夹具 | 2026-10-09 [Codex 后端记录](agent-codex-backend.md)报告 CTest 2 项通过；[一期历史记录](phase-1-status.md)列出 v1/v2 细项 | Windows 构建和协议测试；真实模型决策 |
+| C++ 协议编解码与 Python SDK 契约 | macOS Debug；Windows VS2026 x64 Debug；确定性夹具 | 2026-10-09 [Codex 后端记录](agent-codex-backend.md)报告 macOS CTest 2 项通过；2026-10-21 [Windows Debug 构建记录](windows-debug-build-2026-10-21.md)报告完整构建和 CTest 3/3 通过 | 本分支 macOS 未重跑；Windows GUI、双客户端对局与真实模型决策 |
 | 原生游戏消息覆盖审计与解析 | macOS Debug；静态分类 + 字节解析 + HTTP v3 回放 | 2026-10-11 [解析记录](agent-message-coverage-2026-10-11.md)：55 已解析、27 明确无需事件、4 待处理；CTest 3/3 与四场景回放 4/4 通过。前次 [18 类待处理审计](agent-message-coverage.md)保留历史证据 | 新增 14 类消息各自的真实双视角录制；已解析消息的完整语义验证；Windows |
 | 严格场景双客户端无头回放 | macOS Debug；确定性场景服务 | 2026-10-11 [场景索引](../../tests/scenarios/README.md)列出二十二个已入库场景；[v3 回放记录](agent-v3-scenario-replay.md)保留此前 10/10 批量报告，后收录的十二场分别单独回放通过；本次未重跑批量 | 未写入断言的规则因果；Windows |
 | 卡名宣言与本地选项文字 | macOS Debug；人工双端录制 + HTTP v3 单场回放 | 2026-10-11 [宣言验证记录](announce-card-options-2026-10-11.md)：两次宣言、两种结算分支、选项文字与模型输入精简；用户确认收录后本场景单独通过；卡名检索工具另经本地离线测试 | 真实模型实际选名、GUI 接管与 Windows |

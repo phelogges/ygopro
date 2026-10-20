@@ -14,7 +14,9 @@ def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: check_codec_sdk.py /path/to/agent_codec_test")
     binary = Path(sys.argv[1])
-    output = subprocess.check_output([binary, "--dump-prompts"], text=True)
+    output = subprocess.check_output(
+        [binary, "--dump-prompts"], text=True, encoding="utf-8"
+    )
     prompts = json.loads(output)
     for index, prompt in enumerate(prompts, 1):
         request = {

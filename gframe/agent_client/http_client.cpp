@@ -11,6 +11,7 @@
 namespace ygo::agent {
 
 struct HttpClient::State {
+	static constexpr evutil_socket_t invalid_socket = static_cast<evutil_socket_t>(EVUTIL_INVALID_SOCKET);
 	std::mutex mutex;
 	std::string host;
 	std::string token;
@@ -29,7 +30,7 @@ struct HttpClient::State {
 	event *deadline = nullptr;
 	evhttp_connection *connection = nullptr;
 	evhttp_request *request = nullptr;
-	evutil_socket_t sockets[2] = {EVUTIL_INVALID_SOCKET, EVUTIL_INVALID_SOCKET};
+	evutil_socket_t sockets[2] = {invalid_socket, invalid_socket};
 	std::string transport_error;
 
 	~State() {
@@ -46,7 +47,7 @@ struct HttpClient::State {
 		if(base)
 			event_base_free(base);
 		for(auto socket : sockets)
-			if(socket != EVUTIL_INVALID_SOCKET)
+			if(socket != invalid_socket)
 				evutil_closesocket(socket);
 	}
 

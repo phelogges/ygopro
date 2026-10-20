@@ -46,14 +46,18 @@ def audit(root: Path = ROOT) -> tuple[dict[str, str], list[str]]:
     registered = set(CASE.findall(registration))
     parsed = set(
         CASE.findall(
-            codec_source.split("inline std::optional<nlohmann::json> ParseGameEvent(", 1)[1]
+            codec_source.split(
+                "inline std::optional<nlohmann::json> ParseGameEvent(", 1
+            )[1]
         )
     )
     for name in sorted(registered ^ parsed):
         errors.append(f"{name}: game event registration and parser disagree")
     decoded = (set(DECODED.findall(decoded_section)) | registered) & native
 
-    manifest = json.loads((root / "tools/agent-message-coverage.json").read_text())
+    manifest = json.loads(
+        (root / "tools/agent-message-coverage.json").read_text(encoding="utf-8")
+    )
     if manifest.get("schema_version") != 1 or not isinstance(
         manifest.get("pending"), list
     ):
